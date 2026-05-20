@@ -290,7 +290,12 @@ mejoremos prompts o modelos.
 
 ### 2. Candidate tree
 
-LangGraph genera una propuesta de arbol usando:
+LangGraph genera una propuesta de arbol llamando a un LLM, siguiendo la
+filosofia PageIndex documentada en `docs/pageindex-tree-builder-reference.md`.
+No usamos una heuristica deterministica como fuente de verdad del arbol.
+
+La entrada al LLM son paginas etiquetadas desde MinerU, mas senales
+estructurales:
 
 - headings y TOC si existen
 - layout y separadores visuales
@@ -298,9 +303,24 @@ LangGraph genera una propuesta de arbol usando:
 - tablas o figuras dominantes
 - entidades, fechas, clausulas, items o campos
 
+La salida candidata replica el formato PageIndex:
+
+```json
+[
+  {
+    "structure": "1.2",
+    "title": "Titulo de la seccion",
+    "physical_index": "<physical_index_12>"
+  }
+]
+```
+
+Luego SDA normaliza `physical_index`, calcula `start_index/end_index`, convierte
+la lista a arbol y valida cobertura.
+
 ### 3. Tree verifier
 
-Otro nodo del grafo valida:
+Otro nodo del grafo valida con LLM:
 
 - que cada nodo tenga evidencia
 - que el rango de paginas sea plausible

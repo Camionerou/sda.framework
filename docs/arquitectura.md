@@ -262,15 +262,22 @@ Supabase.
 
 Construye el indice estructural propio.
 
+Referencia operativa: `docs/pageindex-tree-builder-reference.md`. La decision
+central queda fijada ahi: el arbol candidato lo propone un LLM al estilo
+PageIndex; las heuristicas deterministicas solo preparan evidencia, validan,
+normalizan rangos y persisten.
+
 Pipeline conceptual:
 
 ```text
 MinerU extraction
+  -> preparar paginas etiquetadas desde artefactos MinerU
   -> detectar tipo documental
-  -> proponer arbol candidato
-  -> verificar cobertura/evidencia
-  -> refinar nodos grandes o inciertos
-  -> generar summaries bottom-up
+  -> proponer arbol candidato con LLM
+  -> verificar cobertura/evidencia con LLM
+  -> reparar o degradar modo si hay baja confianza
+  -> refinar nodos grandes o inciertos con LLM
+  -> generar summaries bottom-up con LLM
   -> generar routing summaries
   -> generar embeddings jerarquicos
   -> persistir doc_tree + chunks/nodes
@@ -295,6 +302,10 @@ MinerU extrae evidencia. El LLM interpreta:
 - refinamiento
 - summaries
 - routing summaries
+
+Si no hay provider/modelo LLM configurado, el worker no debe inventar un arbol.
+Debe dejar el documento en una etapa pendiente/recuperable con un evento live
+claro para el operador.
 
 Politica de modelos:
 

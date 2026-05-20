@@ -9,6 +9,7 @@ import {
   type ComputeGatewayIndexJobStatus
 } from "@/lib/compute-gateway";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { buildDocumentTreeIndex, isTreeLlmConfigured } from "@/lib/tree-indexer";
 
 type DocumentForIndexing = {
   byte_size: number | null;
@@ -19,6 +20,7 @@ type DocumentForIndexing = {
   r2_bucket: string;
   r2_key: string;
   tenant_id: string;
+  title: string | null;
 };
 
 function getWorkflowConcurrency() {
@@ -146,7 +148,9 @@ export const processDocumentIndex = inngest.createFunction(
       const supabase = createAdminClient();
       const { data, error } = await supabase
         .from("documents")
-        .select("id, tenant_id, filename, mime_type, byte_size, checksum_sha256, r2_bucket, r2_key")
+        .select(
+          "id, tenant_id, title, filename, mime_type, byte_size, checksum_sha256, r2_bucket, r2_key"
+        )
         .eq("id", event.data.document_id)
         .eq("tenant_id", event.data.tenant_id)
         .maybeSingle<DocumentForIndexing>();
@@ -672,11 +676,268 @@ export const processDocumentIndex = inngest.createFunction(
       }
     });
 
+    if (!isTreeLlmConfigured()) {
+      await step.run("record-tree-llm-missing", async () => {
+        const supabase = createAdminClient();
+        const message = "Tree LLM no configurado; extraccion MinerU lista.";
+        const now = new Date().toISOString();
+        const [{ error: runError }, { error: documentError }, { error: eventError }] =
+          await Promise.all([
+            supabase
+              .from("indexing_runs")
+              .update({
+                error_message: message,
+                failed_at: now,
+                progress: 35,
+                stage: "structuring",
+                status: "failed"
+              })
+              .eq("id", event.data.run_id)
+              .eq("tenant_id", event.data.tenant_id),
+            supabase
+              .from("documents")
+              .update({
+                status: "structuring",
+                status_reason: message
+              })
+              .eq("id", event.data.document_id)
+              .eq("tenant_id", event.data.tenant_id),
+            supabase.from("indexing_events").insert({
+              document_id: event.data.document_id,
+              event_type: "indexing.tree.llm_missing",
+              metadata: {
+                extraction_id: terminalGatewayJob.job_id,
+                required_env: ["SDA_TREE_LLM_API_KEY", "SDA_TREE_LLM_MODEL"]
+              },
+              message,
+              progress: 35,
+              run_id: event.data.run_id,
+              severity: "warning",
+              stage: "structuring",
+              tenant_id: event.data.tenant_id
+            })
+          ]);
+
+        if (runError) {
+          throw runError;
+        }
+
+        if (documentError) {
+          throw documentError;
+        }
+
+        if (eventError) {
+          throw eventError;
+        }
+      });
+
+      return {
+        compute_job_id: gatewayJob.job_id,
+        document_id: event.data.document_id,
+        extraction_id: terminalGatewayJob.job_id,
+        run_id: event.data.run_id,
+        status: "tree_llm_missing"
+      };
+    }
+
+    await step.run("record-tree-indexer-started", async () => {
+      const supabase = createAdminClient();
+      const [{ error: runError }, { error: documentError }, { error: eventError }] =
+        await Promise.all([
+          supabase
+            .from("indexing_runs")
+            .update({
+              error_message: null,
+              progress: 40,
+              stage: "structuring",
+              status: "running"
+            })
+            .eq("id", event.data.run_id)
+            .eq("tenant_id", event.data.tenant_id),
+          supabase
+            .from("documents")
+            .update({
+              status: "structuring",
+              status_reason: "Tree Indexer construyendo arbol con LLM"
+            })
+            .eq("id", event.data.document_id)
+            .eq("tenant_id", event.data.tenant_id),
+          supabase.from("indexing_events").insert({
+            document_id: event.data.document_id,
+            event_type: "indexing.tree.started",
+            metadata: {
+              extraction_id: terminalGatewayJob.job_id,
+              indexer: "sda-pageindex-langgraph-v0.1.0"
+            },
+            message: "Tree Indexer inicio construccion PageIndex-style con LLM",
+            progress: 40,
+            run_id: event.data.run_id,
+            severity: "info",
+            stage: "structuring",
+            tenant_id: event.data.tenant_id
+          })
+        ]);
+
+      if (runError) {
+        throw runError;
+      }
+
+      if (documentError) {
+        throw documentError;
+      }
+
+      if (eventError) {
+        throw eventError;
+      }
+    });
+
+    const treeResult = await (async () => {
+      try {
+        return await step.run("build-pageindex-style-tree-index", async () => {
+          const supabase = createAdminClient();
+
+          return buildDocumentTreeIndex({
+            document,
+            extractionId: terminalGatewayJob.job_id,
+            runId: event.data.run_id,
+            supabase
+          });
+        });
+      } catch (treeError) {
+        await step.run("record-tree-indexer-failed", async () => {
+          const supabase = createAdminClient();
+          const message =
+            treeError instanceof Error ? treeError.message : "Tree Indexer fallo.";
+          const now = new Date().toISOString();
+          const [{ error: runError }, { error: documentError }, { error: eventError }] =
+            await Promise.all([
+              supabase
+                .from("indexing_runs")
+                .update({
+                  error_message: message,
+                  failed_at: now,
+                  progress: 100,
+                  stage: "failed",
+                  status: "failed"
+                })
+                .eq("id", event.data.run_id)
+                .eq("tenant_id", event.data.tenant_id),
+              supabase
+                .from("documents")
+                .update({
+                  status: "failed",
+                  status_reason: `Tree Indexer fallo; MinerU disponible. ${message}`
+                })
+                .eq("id", event.data.document_id)
+                .eq("tenant_id", event.data.tenant_id),
+              supabase.from("indexing_events").insert({
+                document_id: event.data.document_id,
+                event_type: "indexing.tree.failed",
+                metadata: {
+                  extraction_id: terminalGatewayJob.job_id
+                },
+                message,
+                progress: 100,
+                run_id: event.data.run_id,
+                severity: "error",
+                stage: "failed",
+                tenant_id: event.data.tenant_id
+              })
+            ]);
+
+          if (runError) {
+            throw runError;
+          }
+
+          if (documentError) {
+            throw documentError;
+          }
+
+          if (eventError) {
+            throw eventError;
+          }
+        });
+
+        return null;
+      }
+    })();
+
+    if (!treeResult) {
+      return {
+        compute_job_id: gatewayJob.job_id,
+        document_id: event.data.document_id,
+        extraction_id: terminalGatewayJob.job_id,
+        run_id: event.data.run_id,
+        status: "tree_index_failed"
+      };
+    }
+
+    await step.run("record-tree-indexer-succeeded", async () => {
+      const supabase = createAdminClient();
+      const now = new Date().toISOString();
+      const [{ error: runError }, { error: documentError }, { error: eventError }] =
+        await Promise.all([
+          supabase
+            .from("indexing_runs")
+            .update({
+              completed_at: now,
+              error_message: null,
+              progress: 100,
+              stage: "indexed",
+              status: "completed"
+            })
+            .eq("id", event.data.run_id)
+            .eq("tenant_id", event.data.tenant_id),
+          supabase
+            .from("documents")
+            .update({
+              indexed_at: now,
+              status: "indexed",
+              status_reason: "Tree Index listo; embeddings jerarquicos pendientes"
+            })
+            .eq("id", event.data.document_id)
+            .eq("tenant_id", event.data.tenant_id),
+          supabase.from("indexing_events").insert({
+            document_id: event.data.document_id,
+            event_type: "indexing.tree.completed",
+            metadata: {
+              chunk_count: treeResult.chunk_count,
+              content_list_path: treeResult.content_list_path,
+              extraction_id: terminalGatewayJob.job_id,
+              model: treeResult.model,
+              page_count: treeResult.page_count,
+              provider: treeResult.provider,
+              version: treeResult.version
+            },
+            message: "Tree Index persistido en doc_tree y chunks recuperables",
+            progress: 100,
+            run_id: event.data.run_id,
+            severity: "info",
+            stage: "indexed",
+            tenant_id: event.data.tenant_id
+          })
+        ]);
+
+      if (runError) {
+        throw runError;
+      }
+
+      if (documentError) {
+        throw documentError;
+      }
+
+      if (eventError) {
+        throw eventError;
+      }
+    });
+
     return {
       compute_job_id: gatewayJob.job_id,
+      chunk_count: treeResult.chunk_count,
       document_id: event.data.document_id,
+      extraction_id: terminalGatewayJob.job_id,
       run_id: event.data.run_id,
-      status: "mineru_extraction_persisted"
+      status: "tree_indexed"
     };
   }
 );
