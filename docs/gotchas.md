@@ -18,3 +18,11 @@
 - The callback flow must accept an invite first, then refresh the Supabase session so the next JWT includes `tenant_id` and `tenant_role`.
 - Invite links should carry the one-time invite token. The database stores only `token_hash`, never the raw token.
 - Only tenant admins can create/revoke normal invites. Owner invites are reserved for `service_role` bootstrap flows.
+
+## Inngest Cloud
+
+- `INNGEST_EVENT_KEY` lets the app send events to Inngest. `INNGEST_SIGNING_KEY` protects `/api/inngest` and lets Inngest identify the correct environment.
+- Do not set `INNGEST_DEV=1` in production. That flag is only for local Dev Server mode.
+- Keys alone are not enough for cloud execution. Inngest Cloud also needs a public HTTPS URL for the serve endpoint, for example `https://app.example.com/api/inngest`.
+- A Cloudflare quick tunnel can expose localhost for a temporary test, but it is not production hosting. The final setup needs a stable deploy URL.
+- If keys are pasted in chat, rotate them after validation from Inngest Cloud.

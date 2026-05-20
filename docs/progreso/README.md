@@ -24,3 +24,4 @@ separado, con estado claro y sin secretos.
 17. `2026-05-20-17-indexacion-live-base.md`
 18. `2026-05-20-18-inngest-skeleton.md`
 19. `2026-05-20-19-inngest-cloud-setup.md`
+20. `2026-05-20-20-inngest-keys-local.md`
