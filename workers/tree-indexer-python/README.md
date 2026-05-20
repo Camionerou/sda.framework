@@ -24,11 +24,16 @@ SDA_TREE_INDEXER_CONCURRENCY=1
 SUPABASE_URL=https://project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
 
-SDA_TREE_LLM_PROVIDER=openai
+SDA_TREE_LLM_PROVIDER=openrouter
 SDA_TREE_LLM_BASE_URL=
 SDA_TREE_LLM_API_KEY=
-SDA_TREE_LLM_MODEL=
-SDA_TREE_SUMMARY_MODEL=
+SDA_TREE_LLM_MODEL=google/gemini-3.5-flash
+SDA_TREE_SUMMARY_MODEL=google/gemini-3.5-flash
+SDA_TREE_LLM_PROVIDER_ORDER=google-vertex/global
+SDA_TREE_LLM_ALLOW_FALLBACKS=0
+SDA_TREE_LLM_SERVICE_TIER=flex
+SDA_TREE_LLM_REASONING_EFFORT=low
+SDA_TREE_LLM_REASONING_EXCLUDE=1
 SDA_TREE_LLM_TIMEOUT_SECONDS=120
 SDA_TREE_LLM_TIMEOUT_MS=
 SDA_TREE_LLM_JSON_MODE=
@@ -86,7 +91,8 @@ curl -X POST http://localhost:8790/v1/tree-index-jobs \
 
 El worker consulta `document_extraction_artifacts` por `extraction_id`, descarga
 el `content_list` desde Supabase Storage, lo convierte a paginas etiquetadas
-`<physical_index_X>` y ejecuta LangGraph.
+`<physical_index_X>`, ejecuta LangGraph y persiste `doc_tree` + `chunks` en
+Supabase cuando termina con exito.
 
 ## Filosofia
 

@@ -1,15 +1,18 @@
 import { documentIndexRequested, inngest } from "@/inngest/client";
 import {
   createComputeGatewayIndexJob,
+  createComputeGatewayTreeIndexJob,
   getComputeGatewayIndexJob,
+  getComputeGatewayTreeIndexJob,
   getSignedUrlTtlSeconds,
   isComputeGatewayConfigured,
   type ComputeGatewayArtifact,
   type ComputeGatewayIndexJobResponse,
-  type ComputeGatewayIndexJobStatus
+  type ComputeGatewayIndexJobStatus,
+  type ComputeGatewayTreeIndexJobResponse,
+  type ComputeGatewayTreeIndexJobStatus
 } from "@/lib/compute-gateway";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buildDocumentTreeIndex, isTreeLlmConfigured } from "@/lib/tree-indexer";
 
 type DocumentForIndexing = {
   byte_size: number | null;
@@ -39,6 +42,16 @@ function getGatewayPollInterval() {
   return process.env.COMPUTE_GATEWAY_POLL_INTERVAL ?? "30s";
 }
 
+function getTreeIndexerPollAttempts() {
+  const value = Number(process.env.TREE_INDEXER_POLL_ATTEMPTS ?? 240);
+
+  return Number.isInteger(value) && value > 0 ? value : 240;
+}
+
+function getTreeIndexerPollInterval() {
+  return process.env.TREE_INDEXER_POLL_INTERVAL ?? "30s";
+}
+
 function mapGatewayProgress(job: ComputeGatewayIndexJobStatus) {
   const gatewayProgress = Number.isFinite(job.progress) ? job.progress : 0;
 
@@ -55,6 +68,24 @@ function mapGatewayStage(job: ComputeGatewayIndexJobStatus) {
   }
 
   return "extracting";
+}
+
+function mapTreeProgress(job: ComputeGatewayTreeIndexJobStatus) {
+  const treeProgress = Number.isFinite(job.progress) ? job.progress : 0;
+
+  return Math.max(35, Math.min(95, 35 + Math.round(treeProgress * 0.6)));
+}
+
+function mapTreeStage(job: ComputeGatewayTreeIndexJobStatus) {
+  if (job.status === "failed") {
+    return job.stage === "llm_missing" ? "structuring" : "failed";
+  }
+
+  if (job.status === "succeeded") {
+    return "indexed";
+  }
+
+  return "structuring";
 }
 
 function getParserVersion(job: ComputeGatewayIndexJobStatus) {
@@ -676,10 +707,263 @@ export const processDocumentIndex = inngest.createFunction(
       }
     });
 
-    if (!isTreeLlmConfigured()) {
+    await step.run("record-tree-indexer-started", async () => {
+      const supabase = createAdminClient();
+      const [{ error: runError }, { error: documentError }, { error: eventError }] =
+        await Promise.all([
+          supabase
+            .from("indexing_runs")
+            .update({
+              error_message: null,
+              progress: 40,
+              stage: "structuring",
+              status: "running"
+            })
+            .eq("id", event.data.run_id)
+            .eq("tenant_id", event.data.tenant_id),
+          supabase
+            .from("documents")
+            .update({
+              status: "structuring",
+              status_reason: "Tree Indexer construyendo arbol con LLM"
+            })
+            .eq("id", event.data.document_id)
+            .eq("tenant_id", event.data.tenant_id),
+          supabase.from("indexing_events").insert({
+            document_id: event.data.document_id,
+            event_type: "indexing.tree.started",
+            metadata: {
+              extraction_id: terminalGatewayJob.job_id,
+              indexer: "sda-pageindex-python-langgraph-v0.1.0"
+            },
+            message: "Tree Indexer Python inicio construccion PageIndex-style con LLM",
+            progress: 40,
+            run_id: event.data.run_id,
+            severity: "info",
+            stage: "structuring",
+            tenant_id: event.data.tenant_id
+          })
+        ]);
+
+      if (runError) {
+        throw runError;
+      }
+
+      if (documentError) {
+        throw documentError;
+      }
+
+      if (eventError) {
+        throw eventError;
+      }
+    });
+
+    const treeJob = await (async (): Promise<ComputeGatewayTreeIndexJobResponse> => {
+      try {
+        return await step.run("create-tree-indexer-job", async () =>
+          createComputeGatewayTreeIndexJob({
+            document_id: event.data.document_id,
+            document_title: document.title,
+            extraction_id: terminalGatewayJob.job_id,
+            filename: document.filename,
+            run_id: event.data.run_id,
+            source: event.data.source,
+            tenant_id: event.data.tenant_id
+          })
+        );
+      } catch (dispatchError) {
+        await step.run("record-tree-indexer-dispatch-failed", async () => {
+          const supabase = createAdminClient();
+          const message =
+            dispatchError instanceof Error
+              ? dispatchError.message
+              : "No se pudo crear el job en Tree Indexer.";
+          const [{ error: runError }, { error: documentError }, { error: eventError }] =
+            await Promise.all([
+              supabase
+                .from("indexing_runs")
+                .update({
+                  error_message: message,
+                  progress: 40,
+                  stage: "structuring",
+                  status: "running"
+                })
+                .eq("id", event.data.run_id)
+                .eq("tenant_id", event.data.tenant_id),
+              supabase
+                .from("documents")
+                .update({
+                  status: "structuring",
+                  status_reason: "Tree Indexer no recibio el job; Inngest puede reintentar"
+                })
+                .eq("id", event.data.document_id)
+                .eq("tenant_id", event.data.tenant_id),
+              supabase.from("indexing_events").insert({
+                document_id: event.data.document_id,
+                event_type: "indexing.tree.dispatch_failed",
+                metadata: {
+                  extraction_id: terminalGatewayJob.job_id,
+                  retry_owner: "inngest"
+                },
+                message,
+                progress: 40,
+                run_id: event.data.run_id,
+                severity: "error",
+                stage: "structuring",
+                tenant_id: event.data.tenant_id
+              })
+            ]);
+
+          if (runError) {
+            throw runError;
+          }
+
+          if (documentError) {
+            throw documentError;
+          }
+
+          if (eventError) {
+            throw eventError;
+          }
+        });
+
+        throw dispatchError;
+      }
+    })();
+
+    await step.run("record-tree-indexer-job-created", async () => {
+      const supabase = createAdminClient();
+      const [{ error: runError }, { error: documentError }, { error: eventError }] =
+        await Promise.all([
+          supabase
+            .from("indexing_runs")
+            .update({
+              error_message: null,
+              progress: 42,
+              stage: "structuring",
+              status: "running"
+            })
+            .eq("id", event.data.run_id)
+            .eq("tenant_id", event.data.tenant_id),
+          supabase
+            .from("documents")
+            .update({
+              status: "structuring",
+              status_reason: "Tree Indexer Python procesando estructura"
+            })
+            .eq("id", event.data.document_id)
+            .eq("tenant_id", event.data.tenant_id),
+          supabase.from("indexing_events").insert({
+            document_id: event.data.document_id,
+            event_type: "indexing.tree.job_created",
+            metadata: {
+              extraction_id: terminalGatewayJob.job_id,
+              tree_job_id: treeJob.job_id,
+              tree_status: treeJob.status
+            },
+            message: "Tree Indexer Python recibio el job",
+            progress: 42,
+            run_id: event.data.run_id,
+            severity: "info",
+            stage: "structuring",
+            tenant_id: event.data.tenant_id
+          })
+        ]);
+
+      if (runError) {
+        throw runError;
+      }
+
+      if (documentError) {
+        throw documentError;
+      }
+
+      if (eventError) {
+        throw eventError;
+      }
+    });
+
+    const terminalTreeJob = await (async (): Promise<ComputeGatewayTreeIndexJobStatus> => {
+      const attempts = getTreeIndexerPollAttempts();
+      const interval = getTreeIndexerPollInterval();
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const currentJob = await step.run(`poll-tree-indexer-job-${attempt}`, async () =>
+          getComputeGatewayTreeIndexJob(treeJob.job_id)
+        );
+
+        if (currentJob.status === "succeeded" || currentJob.status === "failed") {
+          return currentJob;
+        }
+
+        if (attempt === 1 || attempt % 4 === 0) {
+          await step.run(`record-tree-indexer-progress-${attempt}`, async () => {
+            const supabase = createAdminClient();
+            const progress = mapTreeProgress(currentJob);
+            const stage = mapTreeStage(currentJob);
+            const message = currentJob.message ?? "Tree Indexer Python procesando estructura";
+            const [{ error: runError }, { error: documentError }, { error: eventError }] =
+              await Promise.all([
+                supabase
+                  .from("indexing_runs")
+                  .update({
+                    progress,
+                    stage,
+                    status: "running"
+                  })
+                  .eq("id", event.data.run_id)
+                  .eq("tenant_id", event.data.tenant_id),
+                supabase
+                  .from("documents")
+                  .update({
+                    status: "structuring",
+                    status_reason: message
+                  })
+                  .eq("id", event.data.document_id)
+                  .eq("tenant_id", event.data.tenant_id),
+                supabase.from("indexing_events").insert({
+                  document_id: event.data.document_id,
+                  event_type: "indexing.tree.progress",
+                  metadata: {
+                    extraction_id: terminalGatewayJob.job_id,
+                    tree_job_id: currentJob.job_id,
+                    tree_progress: currentJob.progress,
+                    tree_stage: currentJob.stage,
+                    tree_status: currentJob.status
+                  },
+                  message,
+                  progress,
+                  run_id: event.data.run_id,
+                  severity: "info",
+                  stage,
+                  tenant_id: event.data.tenant_id
+                })
+              ]);
+
+            if (runError) {
+              throw runError;
+            }
+
+            if (documentError) {
+              throw documentError;
+            }
+
+            if (eventError) {
+              throw eventError;
+            }
+          });
+        }
+
+        await step.sleep(`wait-tree-indexer-job-${attempt}`, interval);
+      }
+
+      throw new Error(`Tree Indexer job ${treeJob.job_id} no termino dentro del tiempo esperado.`);
+    })();
+
+    if (terminalTreeJob.status === "failed" && terminalTreeJob.stage === "llm_missing") {
       await step.run("record-tree-llm-missing", async () => {
         const supabase = createAdminClient();
-        const message = "Tree LLM no configurado; extraccion MinerU lista.";
+        const message = terminalTreeJob.error ?? "Tree LLM no configurado; extraccion MinerU lista.";
         const now = new Date().toISOString();
         const [{ error: runError }, { error: documentError }, { error: eventError }] =
           await Promise.all([
@@ -707,7 +991,8 @@ export const processDocumentIndex = inngest.createFunction(
               event_type: "indexing.tree.llm_missing",
               metadata: {
                 extraction_id: terminalGatewayJob.job_id,
-                required_env: ["SDA_TREE_LLM_API_KEY", "SDA_TREE_LLM_MODEL"]
+                required_env: ["SDA_TREE_LLM_API_KEY", "SDA_TREE_LLM_MODEL"],
+                tree_job_id: terminalTreeJob.job_id
               },
               message,
               progress: 35,
@@ -736,139 +1021,74 @@ export const processDocumentIndex = inngest.createFunction(
         document_id: event.data.document_id,
         extraction_id: terminalGatewayJob.job_id,
         run_id: event.data.run_id,
-        status: "tree_llm_missing"
+        status: "tree_llm_missing",
+        tree_job_id: terminalTreeJob.job_id
       };
     }
 
-    await step.run("record-tree-indexer-started", async () => {
-      const supabase = createAdminClient();
-      const [{ error: runError }, { error: documentError }, { error: eventError }] =
-        await Promise.all([
-          supabase
-            .from("indexing_runs")
-            .update({
-              error_message: null,
-              progress: 40,
-              stage: "structuring",
-              status: "running"
-            })
-            .eq("id", event.data.run_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase
-            .from("documents")
-            .update({
-              status: "structuring",
-              status_reason: "Tree Indexer construyendo arbol con LLM"
-            })
-            .eq("id", event.data.document_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase.from("indexing_events").insert({
-            document_id: event.data.document_id,
-            event_type: "indexing.tree.started",
-            metadata: {
-              extraction_id: terminalGatewayJob.job_id,
-              indexer: "sda-pageindex-langgraph-v0.1.0"
-            },
-            message: "Tree Indexer inicio construccion PageIndex-style con LLM",
-            progress: 40,
-            run_id: event.data.run_id,
-            severity: "info",
-            stage: "structuring",
-            tenant_id: event.data.tenant_id
-          })
-        ]);
-
-      if (runError) {
-        throw runError;
-      }
-
-      if (documentError) {
-        throw documentError;
-      }
-
-      if (eventError) {
-        throw eventError;
-      }
-    });
-
-    const treeResult = await (async () => {
-      try {
-        return await step.run("build-pageindex-style-tree-index", async () => {
-          const supabase = createAdminClient();
-
-          return buildDocumentTreeIndex({
-            document,
-            extractionId: terminalGatewayJob.job_id,
-            runId: event.data.run_id,
+    if (terminalTreeJob.status === "failed") {
+      await step.run("record-tree-indexer-failed", async () => {
+        const supabase = createAdminClient();
+        const message = terminalTreeJob.error ?? "Tree Indexer fallo.";
+        const now = new Date().toISOString();
+        const [{ error: runError }, { error: documentError }, { error: eventError }] =
+          await Promise.all([
             supabase
-          });
-        });
-      } catch (treeError) {
-        await step.run("record-tree-indexer-failed", async () => {
-          const supabase = createAdminClient();
-          const message =
-            treeError instanceof Error ? treeError.message : "Tree Indexer fallo.";
-          const now = new Date().toISOString();
-          const [{ error: runError }, { error: documentError }, { error: eventError }] =
-            await Promise.all([
-              supabase
-                .from("indexing_runs")
-                .update({
-                  error_message: message,
-                  failed_at: now,
-                  progress: 100,
-                  stage: "failed",
-                  status: "failed"
-                })
-                .eq("id", event.data.run_id)
-                .eq("tenant_id", event.data.tenant_id),
-              supabase
-                .from("documents")
-                .update({
-                  status: "failed",
-                  status_reason: `Tree Indexer fallo; MinerU disponible. ${message}`
-                })
-                .eq("id", event.data.document_id)
-                .eq("tenant_id", event.data.tenant_id),
-              supabase.from("indexing_events").insert({
-                document_id: event.data.document_id,
-                event_type: "indexing.tree.failed",
-                metadata: {
-                  extraction_id: terminalGatewayJob.job_id
-                },
-                message,
+              .from("indexing_runs")
+              .update({
+                error_message: message,
+                failed_at: now,
                 progress: 100,
-                run_id: event.data.run_id,
-                severity: "error",
                 stage: "failed",
-                tenant_id: event.data.tenant_id
+                status: "failed"
               })
-            ]);
+              .eq("id", event.data.run_id)
+              .eq("tenant_id", event.data.tenant_id),
+            supabase
+              .from("documents")
+              .update({
+                status: "failed",
+                status_reason: `Tree Indexer fallo; MinerU disponible. ${message}`
+              })
+              .eq("id", event.data.document_id)
+              .eq("tenant_id", event.data.tenant_id),
+            supabase.from("indexing_events").insert({
+              document_id: event.data.document_id,
+              event_type: "indexing.tree.failed",
+              metadata: {
+                extraction_id: terminalGatewayJob.job_id,
+                tree_job_id: terminalTreeJob.job_id,
+                tree_stage: terminalTreeJob.stage
+              },
+              message,
+              progress: 100,
+              run_id: event.data.run_id,
+              severity: "error",
+              stage: "failed",
+              tenant_id: event.data.tenant_id
+            })
+          ]);
 
-          if (runError) {
-            throw runError;
-          }
+        if (runError) {
+          throw runError;
+        }
 
-          if (documentError) {
-            throw documentError;
-          }
+        if (documentError) {
+          throw documentError;
+        }
 
-          if (eventError) {
-            throw eventError;
-          }
-        });
+        if (eventError) {
+          throw eventError;
+        }
+      });
 
-        return null;
-      }
-    })();
-
-    if (!treeResult) {
       return {
         compute_job_id: gatewayJob.job_id,
         document_id: event.data.document_id,
         extraction_id: terminalGatewayJob.job_id,
         run_id: event.data.run_id,
-        status: "tree_index_failed"
+        status: "tree_index_failed",
+        tree_job_id: terminalTreeJob.job_id
       };
     }
 
@@ -901,13 +1121,15 @@ export const processDocumentIndex = inngest.createFunction(
             document_id: event.data.document_id,
             event_type: "indexing.tree.completed",
             metadata: {
-              chunk_count: treeResult.chunk_count,
-              content_list_path: treeResult.content_list_path,
+              chunk_count: terminalTreeJob.chunk_count,
+              content_list_path: terminalTreeJob.content_list_path,
               extraction_id: terminalGatewayJob.job_id,
-              model: treeResult.model,
-              page_count: treeResult.page_count,
-              provider: treeResult.provider,
-              version: treeResult.version
+              model: terminalTreeJob.model,
+              page_count: terminalTreeJob.page_count,
+              persisted_at: terminalTreeJob.persisted_at,
+              provider: terminalTreeJob.provider,
+              tree_job_id: terminalTreeJob.job_id,
+              version: terminalTreeJob.version
             },
             message: "Tree Index persistido en doc_tree y chunks recuperables",
             progress: 100,
@@ -933,11 +1155,12 @@ export const processDocumentIndex = inngest.createFunction(
 
     return {
       compute_job_id: gatewayJob.job_id,
-      chunk_count: treeResult.chunk_count,
+      chunk_count: terminalTreeJob.chunk_count,
       document_id: event.data.document_id,
       extraction_id: terminalGatewayJob.job_id,
       run_id: event.data.run_id,
-      status: "tree_indexed"
+      status: "tree_indexed",
+      tree_job_id: terminalTreeJob.job_id
     };
   }
 );

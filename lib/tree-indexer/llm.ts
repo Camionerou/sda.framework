@@ -13,6 +13,7 @@ type ChatCompletionResponse = {
   error?: {
     message?: string;
   };
+  service_tier?: string;
 };
 
 export class TreeLlmMissingConfigError extends Error {
@@ -35,10 +36,15 @@ export class TreeLlmJsonParseError extends Error {
 type TreeLlmPurpose = "structure" | "summary";
 
 type TreeLlmConfig = {
+  allowFallbacks: boolean;
   apiKey: string;
   baseUrl: string;
   model: string;
   provider: string;
+  providerOrder: string[];
+  reasoningEffort?: string;
+  reasoningExclude: boolean;
+  serviceTier?: string;
   timeoutMs: number;
 };
 
@@ -46,6 +52,23 @@ function positiveNumber(value: string | undefined, fallback: number) {
   const parsed = Number(value);
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function csvEnv(name: string) {
+  return (process.env[name] ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function boolEnv(name: string, fallback: boolean) {
+  const value = process.env[name];
+
+  if (!value) {
+    return fallback;
+  }
+
+  return !["0", "false", "no", "off"].includes(value.toLowerCase());
 }
 
 function inferProvider() {
@@ -99,10 +122,15 @@ function getTreeLlmConfig(purpose: TreeLlmPurpose): TreeLlmConfig {
   }
 
   return {
+    allowFallbacks: boolEnv("SDA_TREE_LLM_ALLOW_FALLBACKS", true),
     apiKey,
     baseUrl: inferBaseUrl(provider),
     model,
     provider,
+    providerOrder: csvEnv("SDA_TREE_LLM_PROVIDER_ORDER"),
+    reasoningEffort: process.env.SDA_TREE_LLM_REASONING_EFFORT,
+    reasoningExclude: boolEnv("SDA_TREE_LLM_REASONING_EXCLUDE", true),
+    serviceTier: process.env.SDA_TREE_LLM_SERVICE_TIER,
     timeoutMs: positiveNumber(process.env.SDA_TREE_LLM_TIMEOUT_MS, 120_000)
   };
 }
@@ -178,15 +206,37 @@ async function callChatCompletion(
   }
 
   try {
+    const payload: Record<string, unknown> = {
+      messages,
+      model: config.model,
+      temperature: 0,
+      ...(expectJson && process.env.SDA_TREE_LLM_JSON_MODE === "1"
+        ? { response_format: { type: "json_object" } }
+        : {})
+    };
+
+    if (config.provider === "openrouter") {
+      if (config.providerOrder.length > 0) {
+        payload.provider = {
+          allow_fallbacks: config.allowFallbacks,
+          order: config.providerOrder
+        };
+      }
+
+      if (config.serviceTier) {
+        payload.service_tier = config.serviceTier;
+      }
+
+      if (config.reasoningEffort) {
+        payload.reasoning = {
+          effort: config.reasoningEffort,
+          exclude: config.reasoningExclude
+        };
+      }
+    }
+
     const response = await fetch(`${config.baseUrl}/chat/completions`, {
-      body: JSON.stringify({
-        messages,
-        model: config.model,
-        temperature: 0,
-        ...(expectJson && process.env.SDA_TREE_LLM_JSON_MODE === "1"
-          ? { response_format: { type: "json_object" } }
-          : {})
-      }),
+      body: JSON.stringify(payload),
       headers,
       method: "POST",
       signal: controller.signal
@@ -208,7 +258,9 @@ async function callChatCompletion(
       content,
       finishReason: raw.choices?.[0]?.finish_reason ?? null,
       model: config.model,
-      provider: config.provider
+      provider: config.provider,
+      providerOrder: config.providerOrder,
+      serviceTier: raw.service_tier ?? config.serviceTier
     };
   } finally {
     clearTimeout(timeout);

@@ -27,6 +27,22 @@ export type ComputeGatewayIndexJobResponse = {
   status?: string;
 };
 
+export type ComputeGatewayTreeIndexJobRequest = {
+  document_id: string;
+  document_title?: string | null;
+  extraction_id: string;
+  filename?: string | null;
+  run_id: string;
+  source: string;
+  tenant_id: string;
+};
+
+export type ComputeGatewayTreeIndexJobResponse = {
+  job_id: string;
+  stage?: string;
+  status?: string;
+};
+
 export type ComputeGatewayArtifact = {
   artifact_type: string;
   byte_size: number;
@@ -60,6 +76,34 @@ export type ComputeGatewayIndexJobStatus = {
   status: "queued" | "running" | "succeeded" | "failed" | string;
   tenant_id: string;
   updated_at: string;
+};
+
+export type ComputeGatewayTreeIndexJobStatus = {
+  artifact_count?: number;
+  chunk_count?: number;
+  completed_at?: string;
+  content_list_path?: string;
+  created_at: string;
+  doc_summary?: string;
+  document_id: string;
+  error?: string;
+  failed_at?: string;
+  extraction_id: string;
+  job_id: string;
+  message?: string;
+  metrics?: Record<string, unknown>;
+  model?: string;
+  page_count?: number;
+  persisted_at?: string;
+  progress: number;
+  provider?: string;
+  run_id: string;
+  source: string;
+  stage: string;
+  status: "queued" | "running" | "succeeded" | "failed" | string;
+  tenant_id: string;
+  updated_at: string;
+  version?: string;
 };
 
 type ComputeGatewayConfig = {
@@ -188,6 +232,92 @@ export async function getComputeGatewayIndexJob(
     }
 
     return body as ComputeGatewayIndexJobStatus;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function createComputeGatewayTreeIndexJob(
+  payload: ComputeGatewayTreeIndexJobRequest
+): Promise<ComputeGatewayTreeIndexJobResponse> {
+  const config = getComputeGatewayConfig();
+
+  if (!config) {
+    throw new ComputeGatewayNotConfiguredError();
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+
+  try {
+    const response = await fetch(`${config.url}/v1/tree-index-jobs`, {
+      body: JSON.stringify(payload),
+      headers: {
+        ...(config.token ? { authorization: `Bearer ${config.token}` } : {}),
+        "content-type": "application/json"
+      },
+      method: "POST",
+      signal: controller.signal
+    });
+
+    const text = await response.text();
+    const body = text ? (JSON.parse(text) as Partial<ComputeGatewayTreeIndexJobResponse>) : {};
+
+    if (!response.ok) {
+      throw new Error(
+        body.status ?? `Tree Indexer respondio ${response.status} ${response.statusText}`.trim()
+      );
+    }
+
+    if (!body.job_id) {
+      throw new Error("Tree Indexer no devolvio job_id.");
+    }
+
+    return {
+      job_id: body.job_id,
+      stage: body.stage,
+      status: body.status
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function getComputeGatewayTreeIndexJob(
+  jobId: string
+): Promise<ComputeGatewayTreeIndexJobStatus> {
+  const config = getComputeGatewayConfig();
+
+  if (!config) {
+    throw new ComputeGatewayNotConfiguredError();
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+
+  try {
+    const response = await fetch(`${config.url}/v1/tree-index-jobs/${jobId}`, {
+      headers: {
+        ...(config.token ? { authorization: `Bearer ${config.token}` } : {})
+      },
+      method: "GET",
+      signal: controller.signal
+    });
+
+    const text = await response.text();
+    const body = text ? (JSON.parse(text) as Partial<ComputeGatewayTreeIndexJobStatus>) : {};
+
+    if (!response.ok) {
+      throw new Error(
+        body.status ?? `Tree Indexer respondio ${response.status} ${response.statusText}`.trim()
+      );
+    }
+
+    if (!body.job_id) {
+      throw new Error("Tree Indexer no devolvio job_id.");
+    }
+
+    return body as ComputeGatewayTreeIndexJobStatus;
   } finally {
     clearTimeout(timeout);
   }

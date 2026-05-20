@@ -180,6 +180,8 @@ async def build_candidate_tree(state: TreeState) -> dict[str, Any]:
     sections: list[CandidateSection] = []
     model: str | None = None
     provider: str | None = None
+    provider_order: list[str] = []
+    service_tier: str | None = None
 
     for group in groups:
         response = await call_tree_llm_json(
@@ -193,6 +195,8 @@ async def build_candidate_tree(state: TreeState) -> dict[str, Any]:
         sections.extend(_assert_sections(response["json"]))
         model = response["model"]
         provider = response["provider"]
+        provider_order = response.get("provider_order") or []
+        service_tier = response.get("service_tier")
 
     if not sections:
         raise RuntimeError("Tree LLM no encontro secciones para construir el arbol.")
@@ -202,6 +206,8 @@ async def build_candidate_tree(state: TreeState) -> dict[str, Any]:
         "candidate_section_count": len(sections),
         "llm_model": model,
         "llm_provider": provider,
+        "llm_provider_order": provider_order,
+        "llm_service_tier": service_tier,
     }
     return {
         "candidate_sections": sections,

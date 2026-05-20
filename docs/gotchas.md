@@ -46,6 +46,8 @@
 - `srv-ia-01` is currently exposed through Tailscale Funnel at `https://srv-ia-01.taileb1b9c.ts.net`; keep bearer auth enabled because Funnel is public HTTPS.
 - Worker deploys on `srv-ia-01` should treat the remote Compute Gateway `.env` as the source of truth for `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Local shells may contain stale Supabase URLs from earlier projects.
 - Keep the FastAPI Tree Indexer private behind the Node Compute Gateway unless there is a specific reason to expose another Funnel route. The gateway already proxies `/v1/tree-index-jobs`.
+- OpenRouter can return `401 User not found` when the API key itself is invalid, even if the model/provider config is correct. First test the key with a minimal request before debugging Tree Indexer prompts.
+- Do not set a low `max_tokens` cap on tree construction. Gemini 3.5 Flash can spend early output budget on reasoning and return empty `content` if capped too tightly. Prefer controlling reasoning with `reasoning.effort` and `reasoning.exclude`, leaving output uncapped unless there is a measured reason.
 
 ## Upload vs Ingestion
 

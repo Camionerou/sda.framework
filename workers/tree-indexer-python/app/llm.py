@@ -26,8 +26,13 @@ class TreeLlmJsonParseError(RuntimeError):
 class TreeLlmConfig:
     api_key: str
     base_url: str
+    allow_fallbacks: bool
     model: str
     provider: str
+    provider_order: list[str]
+    reasoning_effort: str | None
+    reasoning_exclude: bool
+    service_tier: str | None
     timeout_seconds: float
 
 
@@ -45,6 +50,17 @@ def _timeout_seconds() -> float:
     if milliseconds := os.getenv("SDA_TREE_LLM_TIMEOUT_MS"):
         return _positive_float(milliseconds, 120_000) / 1000
     return 120
+
+
+def _csv_env(name: str) -> list[str]:
+    return [part.strip() for part in os.getenv(name, "").split(",") if part.strip()]
+
+
+def _bool_env(name: str, fallback: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return fallback
+    return value.lower() not in {"0", "false", "no", "off"}
 
 
 def infer_provider() -> str:
@@ -90,10 +106,15 @@ def get_tree_llm_config(purpose: Purpose) -> TreeLlmConfig:
         )
 
     return TreeLlmConfig(
+        allow_fallbacks=_bool_env("SDA_TREE_LLM_ALLOW_FALLBACKS", True),
         api_key=api_key,
         base_url=infer_base_url(provider),
         model=model,
         provider=provider,
+        provider_order=_csv_env("SDA_TREE_LLM_PROVIDER_ORDER"),
+        reasoning_effort=os.getenv("SDA_TREE_LLM_REASONING_EFFORT") or None,
+        reasoning_exclude=_bool_env("SDA_TREE_LLM_REASONING_EXCLUDE", True),
+        service_tier=os.getenv("SDA_TREE_LLM_SERVICE_TIER") or None,
         timeout_seconds=_timeout_seconds(),
     )
 
@@ -142,6 +163,19 @@ async def call_tree_llm(prompt: str, purpose: Purpose, expect_json: bool) -> dic
         "model": config.model,
         "temperature": 0,
     }
+    if config.provider == "openrouter":
+        if config.provider_order:
+            payload["provider"] = {
+                "allow_fallbacks": config.allow_fallbacks,
+                "order": config.provider_order,
+            }
+        if config.service_tier:
+            payload["service_tier"] = config.service_tier
+        if config.reasoning_effort:
+            payload["reasoning"] = {
+                "effort": config.reasoning_effort,
+                "exclude": config.reasoning_exclude,
+            }
     if expect_json and os.getenv("SDA_TREE_LLM_JSON_MODE") == "1":
         payload["response_format"] = {"type": "json_object"}
 
@@ -170,6 +204,8 @@ async def call_tree_llm(prompt: str, purpose: Purpose, expect_json: bool) -> dic
         "finish_reason": data.get("choices", [{}])[0].get("finish_reason"),
         "model": config.model,
         "provider": config.provider,
+        "provider_order": config.provider_order,
+        "service_tier": data.get("service_tier") or config.service_tier,
     }
 
 

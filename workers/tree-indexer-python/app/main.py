@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from .llm import is_tree_llm_configured
 from .pageindex_style import content_list_to_labeled_pages
-from .supabase_io import download_storage_json, list_extraction_artifacts
+from .supabase_io import download_storage_json, list_extraction_artifacts, persist_tree_index
 from .tree_graph import TREE_INDEXER_VERSION, run_tree_index_graph
 
 DATA_DIR = Path(os.getenv("SDA_TREE_INDEXER_DATA_DIR", "/var/lib/sda-tree-indexer"))
@@ -169,8 +169,37 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
                 payload.document_title or payload.filename or payload.document_id,
                 pages,
             )
+            result = {
+                **result,
+                "artifact_count": len(artifacts),
+                "content_list_path": content_list_artifact["storage_path"],
+                "page_count": len(pages),
+            }
             write_json(job_dir(job_id) / "tree.json", result["tree_for_storage"])
             write_json(job_dir(job_id) / "chunks.json", result["chunks"])
+
+            patch_job(
+                job_id,
+                {
+                    "chunk_count": len(result["chunks"]),
+                    "message": "Persisting Tree Index in Supabase.",
+                    "progress": 85,
+                    "stage": "persisting_tree",
+                    "status": "running",
+                },
+            )
+            persistence = await persist_tree_index(
+                document_id=payload.document_id,
+                extraction_id=payload.extraction_id,
+                result=result,
+                run_id=payload.run_id,
+                tenant_id=payload.tenant_id,
+            )
+            result = {
+                **result,
+                "persistence": persistence,
+                "persisted_at": now_iso(),
+            }
             write_json(job_dir(job_id) / "result.json", result)
 
             patch_job(
@@ -182,6 +211,7 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
                     "message": "Tree Index built.",
                     "metrics": result["metrics"],
                     "model": result["model"],
+                    "persisted_at": result["persisted_at"],
                     "progress": 100,
                     "provider": result["provider"],
                     "stage": "tree_indexed",
