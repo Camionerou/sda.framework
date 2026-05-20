@@ -21,3 +21,4 @@ separado, con estado claro y sin secretos.
 14. `2026-05-20-14-llm-estructural-tree-index.md`
 15. `2026-05-20-15-publicacion-github.md`
 16. `2026-05-20-16-arquitectura-general-actualizada.md`
+17. `2026-05-20-17-indexacion-live-base.md`

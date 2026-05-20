@@ -1,11 +1,13 @@
 export type DocumentStatus =
+  | "archived"
   | "uploading"
   | "uploaded"
   | "queued"
-  | "indexing"
+  | "parsing"
+  | "structuring"
+  | "embedding"
   | "indexed"
-  | "failed"
-  | "deleted";
+  | "failed";
 
 export type DocumentRow = {
   byte_size: number | null;
@@ -40,7 +42,7 @@ export function documentStatusTone(status: DocumentStatus) {
     return "success" as const;
   }
 
-  if (status === "failed" || status === "deleted") {
+  if (status === "failed" || status === "archived") {
     return "danger" as const;
   }
 
@@ -49,14 +51,89 @@ export function documentStatusTone(status: DocumentStatus) {
 
 export function documentStatusLabel(status: DocumentStatus) {
   const labels: Record<DocumentStatus, string> = {
-    deleted: "Eliminado",
+    archived: "Archivado",
+    embedding: "Embeddings",
     failed: "Falló",
     indexed: "Indexado",
-    indexing: "Indexando",
+    parsing: "Extrayendo",
     queued: "En cola",
+    structuring: "Armando árbol",
     uploaded: "Subido",
     uploading: "Subiendo"
   };
 
   return labels[status];
+}
+
+export type IndexingRunStatus = "queued" | "running" | "completed" | "failed" | "canceled";
+
+export type IndexingStage =
+  | "queued"
+  | "extracting"
+  | "structuring"
+  | "verifying_tree"
+  | "refining_tree"
+  | "summarizing"
+  | "embedding"
+  | "persisting"
+  | "indexed"
+  | "failed"
+  | "canceled";
+
+export type IndexingRunRow = {
+  id: string;
+  document_id: string;
+  status: IndexingRunStatus;
+  stage: IndexingStage;
+  progress: number;
+  attempt: number;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  failed_at: string | null;
+  error_message: string | null;
+  compute_job_id: string | null;
+  inngest_run_id: string | null;
+};
+
+export type IndexingEventRow = {
+  id: string;
+  run_id: string;
+  document_id: string;
+  event_type: string;
+  stage: IndexingStage | string;
+  severity: "debug" | "info" | "warning" | "error";
+  message: string;
+  progress: number | null;
+  created_at: string;
+};
+
+export function indexingStageLabel(stage: IndexingStage | string) {
+  const labels: Record<IndexingStage, string> = {
+    canceled: "Cancelado",
+    embedding: "Generando embeddings",
+    extracting: "Extrayendo documento",
+    failed: "Falló",
+    indexed: "Indexado",
+    persisting: "Guardando índice",
+    queued: "En cola",
+    refining_tree: "Refinando árbol",
+    structuring: "Armando árbol",
+    summarizing: "Generando summaries",
+    verifying_tree: "Verificando árbol"
+  };
+
+  return labels[stage as IndexingStage] ?? stage;
+}
+
+export function indexingRunTone(status: IndexingRunStatus) {
+  if (status === "completed") {
+    return "success" as const;
+  }
+
+  if (status === "failed" || status === "canceled") {
+    return "danger" as const;
+  }
+
+  return "warning" as const;
 }

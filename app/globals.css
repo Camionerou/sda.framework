@@ -253,6 +253,12 @@ input {
   background: var(--accent-soft);
 }
 
+.alert-warning {
+  border-color: #fedf89;
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
 .app-shell {
   display: grid;
   min-height: 100vh;
@@ -613,6 +619,96 @@ input {
   margin: 0;
   color: var(--muted);
   font-size: 14px;
+}
+
+.timeline-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.timeline-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.timeline-summary h3 {
+  margin: 2px 0 4px;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.timeline-summary p,
+.timeline-content span {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.timeline-kicker {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.progress-track {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-strong);
+  transition: width 220ms ease;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.timeline-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  color: var(--accent-strong);
+}
+
+.timeline-error .timeline-icon {
+  color: var(--danger);
+}
+
+.timeline-warning .timeline-icon {
+  color: var(--warning);
+}
+
+.timeline-content {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.timeline-content strong {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.35;
 }
 
 .back-link {

@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 type UploadState = {
   error?: string;
   filename?: string;
+  queueError?: string;
   status: "idle" | "uploading" | "success" | "error";
 };
 
@@ -108,9 +109,17 @@ export function DocumentUploadForm() {
       return;
     }
 
+    const { error: queueError } = await supabase.rpc("request_document_indexing", {
+      _document_id: upload.document_id,
+      _metadata: {
+        source: "document_upload"
+      }
+    });
+
     fileInputRef.current?.form?.reset();
     setState({
       filename: file.name,
+      queueError: queueError?.message,
       status: "success"
     });
     router.refresh();
@@ -163,9 +172,13 @@ export function DocumentUploadForm() {
       ) : null}
 
       {state.status === "success" ? (
-        <div className="alert alert-success">
-          <strong>Documento subido.</strong>
-          <span>{state.filename} quedó listo para indexación.</span>
+        <div className={`alert ${state.queueError ? "alert-warning" : "alert-success"}`}>
+          <strong>{state.queueError ? "Documento subido." : "Documento subido y en cola."}</strong>
+          <span>
+            {state.queueError
+              ? `No se pudo poner en cola automáticamente: ${state.queueError}`
+              : `${state.filename} quedó listo para SDA Tree Index.`}
+          </span>
           <CheckCircle2 aria-hidden="true" size={16} />
         </div>
       ) : null}

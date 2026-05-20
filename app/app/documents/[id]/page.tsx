@@ -13,6 +13,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { AppTopbar } from "@/components/dashboard/app-topbar";
 import { KeyValue } from "@/components/dashboard/key-value";
+import { IndexingTimeline } from "@/components/documents/indexing-timeline";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -25,7 +26,9 @@ import {
   documentStatusLabel,
   documentStatusTone,
   formatBytes,
-  type DocumentRow
+  type DocumentRow,
+  type IndexingEventRow,
+  type IndexingRunRow
 } from "@/lib/documents";
 import {
   compactId,
@@ -93,14 +96,33 @@ export default async function DocumentDetailPage({
     notFound();
   }
 
-  const [{ data: tree }, chunks] = await Promise.all([
-    supabase
-      .from("doc_tree")
-      .select("summary, model, version, created_at")
-      .eq("document_id", document.id)
-      .maybeSingle<TreeRow>(),
-    countRows(supabase, document.id)
-  ]);
+  const [{ data: tree }, chunks, { data: indexingRuns }, { data: indexingEvents }] =
+    await Promise.all([
+      supabase
+        .from("doc_tree")
+        .select("summary, model, version, created_at")
+        .eq("document_id", document.id)
+        .maybeSingle<TreeRow>(),
+      countRows(supabase, document.id),
+      supabase
+        .from("indexing_runs")
+        .select(
+          "id, document_id, status, stage, progress, attempt, created_at, started_at, completed_at, failed_at, error_message, compute_job_id, inngest_run_id"
+        )
+        .eq("document_id", document.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .returns<IndexingRunRow[]>(),
+      supabase
+        .from("indexing_events")
+        .select("id, run_id, document_id, event_type, stage, severity, message, progress, created_at")
+        .eq("document_id", document.id)
+        .order("created_at", { ascending: true })
+        .limit(80)
+        .returns<IndexingEventRow[]>()
+    ]);
+
+  const latestRun = indexingRuns?.[0] ?? null;
 
   return (
     <main className="app-shell">
@@ -198,8 +220,22 @@ export default async function DocumentDetailPage({
           <div className="section-grid">
             <Card>
               <CardHeader>
-                <CardTitle>Indexación</CardTitle>
-                <CardDescription>Estado de árbol y chunks para búsqueda.</CardDescription>
+                <CardTitle>Indexación live</CardTitle>
+                <CardDescription>Timeline en vivo del SDA Tree Index.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <IndexingTimeline
+                  documentId={document.id}
+                  initialEvents={indexingEvents ?? []}
+                  initialRun={latestRun}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Índice</CardTitle>
+                <CardDescription>Estado de árbol y nodos para búsqueda.</CardDescription>
               </CardHeader>
               <CardContent>
                 {tree ? (
@@ -214,7 +250,7 @@ export default async function DocumentDetailPage({
                     <Search aria-hidden="true" size={22} />
                     <div>
                       <strong>Sin índice todavía.</strong>
-                      <p>El próximo paso es crear el worker que complete `doc_tree` y `chunks`.</p>
+                      <p>La corrida live va a completar el árbol y los nodos recuperables.</p>
                     </div>
                   </div>
                 )}
@@ -230,11 +266,11 @@ export default async function DocumentDetailPage({
                 <ul className="steps">
                   <li>
                     <FileText aria-hidden="true" size={17} />
-                    Archivo original registrado en `documents`.
+                    Archivo original registrado.
                   </li>
                   <li>
                     <HardDrive aria-hidden="true" size={17} />
-                    Path de Storage aislado por tenant.
+                    Storage aislado por tenant.
                   </li>
                   <li>
                     <Database aria-hidden="true" size={17} />

@@ -65,7 +65,7 @@ export default async function DocumentsPage() {
   const uploadedCount = documents.filter((doc) => doc.status === "uploaded").length;
   const indexedCount = documents.filter((doc) => doc.status === "indexed").length;
   const pendingCount = documents.filter((doc) =>
-    ["uploading", "queued", "indexing"].includes(doc.status)
+    ["uploading", "queued", "parsing", "structuring", "embedding"].includes(doc.status)
   ).length;
 
   return (
@@ -200,11 +200,11 @@ export default async function DocumentsPage() {
                   </li>
                   <li>
                     <Database aria-hidden="true" size={17} />
-                    Registro `documents` marca `uploaded` y queda listo para worker.
+                    Registro `documents` marca `queued` cuando entra al workflow.
                   </li>
                   <li>
                     <Search aria-hidden="true" size={17} />
-                    Indexación futura llena `doc_tree` y `chunks`.
+                    SDA Tree Index llena `doc_tree` y nodos recuperables.
                   </li>
                   <li>
                     <UploadCloud aria-hidden="true" size={17} />
