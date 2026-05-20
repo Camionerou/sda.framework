@@ -29,3 +29,4 @@ separado, con estado claro y sin secretos.
 22. `2026-05-20-22-supabase-auth-vercel-url.md`
 23. `2026-05-20-23-inngest-cloud-sync.md`
 24. `2026-05-20-24-signout-prefetch-fix.md`
+25. `2026-05-20-25-invitaciones-sin-expiracion.md`

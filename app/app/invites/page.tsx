@@ -29,7 +29,7 @@ type InviteRow = {
   accepted_by: string | null;
   created_at: string;
   email: string;
-  expires_at: string;
+  expires_at: string | null;
   id: string;
   invited_by: string | null;
   metadata: Record<string, unknown>;
@@ -208,7 +208,7 @@ export default async function InvitesPage({
                               <td>
                                 <span className="inline-icon">
                                   <Clock aria-hidden="true" size={14} />
-                                  {formatDateTime(invite.expires_at)}
+                                  {invite.expires_at ? formatDateTime(invite.expires_at) : "Sin expiración"}
                                 </span>
                               </td>
                               <td>{formatDateTime(invite.created_at)}</td>

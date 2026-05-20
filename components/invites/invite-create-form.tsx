@@ -71,6 +71,7 @@ export function InviteCreateForm() {
             <option value="7">7 días</option>
             <option value="14">14 días</option>
             <option value="30">30 días</option>
+            <option value="never">Sin expiración</option>
           </select>
         </div>
       </div>
@@ -94,7 +95,10 @@ export function InviteCreateForm() {
       {state.status === "success" && state.inviteUrl ? (
         <div className="alert alert-success">
           <strong>Invitación creada para {state.email}.</strong>
-          <span>Compartí este link una sola vez. La DB guarda únicamente el hash.</span>
+          <span>
+            {state.expiresAt ? "Compartí este link una sola vez." : "Este link no vence automáticamente."}
+            {" "}La DB guarda únicamente el hash.
+          </span>
           <div className="copy-row">
             <code>{state.inviteUrl}</code>
             <Button

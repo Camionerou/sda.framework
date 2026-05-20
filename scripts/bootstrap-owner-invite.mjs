@@ -42,6 +42,26 @@ function addHours(hours) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
+function resolveInviteExpiration(role) {
+  const rawTtl = env.INVITE_TTL_HOURS?.trim();
+
+  if (!rawTtl && role === "owner") {
+    return null;
+  }
+
+  if (rawTtl && ["never", "none", "null"].includes(rawTtl.toLowerCase())) {
+    return null;
+  }
+
+  const ttlHours = Number(rawTtl || 168);
+
+  if (!Number.isFinite(ttlHours) || ttlHours <= 0) {
+    throw new Error("INVITE_TTL_HOURS debe ser un número positivo, never, none o null.");
+  }
+
+  return addHours(ttlHours);
+}
+
 async function main() {
   loadLocalEnv();
 
@@ -52,11 +72,7 @@ async function main() {
   const tenantSlug = env.TENANT_SLUG || "sda-framework";
   const tenantName = env.TENANT_NAME || "SDA Framework";
   const inviteRole = env.INVITE_ROLE || "owner";
-  const ttlHours = Number(env.INVITE_TTL_HOURS || 168);
-
-  if (!Number.isFinite(ttlHours) || ttlHours <= 0) {
-    throw new Error("INVITE_TTL_HOURS debe ser un número positivo.");
-  }
+  const expiresAt = resolveInviteExpiration(inviteRole);
 
   const supabase = createClient(url, serviceKey, {
     auth: {
@@ -105,9 +121,9 @@ async function main() {
     "create_tenant_invite",
     {
       _email: inviteEmail,
+      _expires_at: expiresAt,
       _role: inviteRole,
       _tenant_id: tenantId,
-      _expires_at: addHours(ttlHours),
       _metadata: {
         source: "bootstrap-owner-invite"
       }
@@ -126,7 +142,7 @@ async function main() {
   console.log("Invite:", invite.invite_id);
   console.log("Email:", invite.email);
   console.log("Role:", invite.role);
-  console.log("Expires:", invite.expires_at);
+  console.log("Expires:", invite.expires_at ?? "Sin expiración");
   console.log("URL:", inviteUrl.toString());
 }
 

@@ -20,6 +20,7 @@
 - The callback flow must accept an invite first, then refresh the Supabase session so the next JWT includes `tenant_id` and `tenant_role`.
 - Invite links should carry the one-time invite token. The database stores only `token_hash`, never the raw token.
 - Only tenant admins can create/revoke normal invites. Owner invites are reserved for `service_role` bootstrap flows.
+- `expires_at = null` means the invite does not expire automatically. Owner invites created by `service_role` default to this mode.
 
 ## Inngest Cloud
 

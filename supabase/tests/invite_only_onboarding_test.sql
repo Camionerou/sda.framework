@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(19);
+SELECT plan(22);
 
 insert into public.tenants (id, slug, name)
 values
@@ -61,6 +61,18 @@ values
     'authenticated',
     'authenticated',
     'wrong@invite-alpha.test',
+    now(),
+    '{"provider":"google","providers":["google"]}'::jsonb,
+    '{}'::jsonb,
+    now(),
+    now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000605',
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated',
+    'authenticated',
+    'owner-no-exp@invite-alpha.test',
     now(),
     '{"provider":"google","providers":["google"]}'::jsonb,
     '{}'::jsonb,
@@ -475,6 +487,79 @@ SELECT is(
   ) #>> '{claims,tenant_role}',
   'member',
   'Custom access token hook adds tenant_role after invite acceptance'
+);
+
+reset role;
+
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object(
+    'sub',
+    '00000000-0000-0000-0000-000000000601',
+    'email',
+    'admin@invite-alpha.test',
+    'role',
+    'service_role'
+  )::text,
+  true
+);
+
+set local role service_role;
+
+create temporary table owner_no_exp_invite on commit drop as
+select *
+from public.create_tenant_invite(
+  'owner-no-exp@invite-alpha.test',
+  'owner',
+  '00000000-0000-0000-0000-000000000501'
+);
+
+grant select on owner_no_exp_invite to authenticated;
+
+SELECT ok(
+  (select expires_at is null from owner_no_exp_invite),
+  'Owner invites default to no expiration'
+);
+
+reset role;
+
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object(
+    'sub',
+    '00000000-0000-0000-0000-000000000605',
+    'email',
+    'owner-no-exp@invite-alpha.test',
+    'role',
+    'authenticated',
+    'name',
+    'Owner No Expiration'
+  )::text,
+  true
+);
+
+set local role authenticated;
+
+create temporary table accepted_owner_no_exp_invite on commit drop as
+select *
+from public.accept_tenant_invite((select invite_token from owner_no_exp_invite));
+
+SELECT is(
+  (select tenant_role::text from accepted_owner_no_exp_invite),
+  'owner',
+  'Non-expiring owner invite can be accepted'
+);
+
+reset role;
+
+SELECT is(
+  (
+    select concat_ws(':', role::text, status)
+    from public.users
+    where id = '00000000-0000-0000-0000-000000000605'
+  ),
+  'owner:active',
+  'Accepted non-expiring owner invite creates active owner profile'
 );
 
 select set_config(

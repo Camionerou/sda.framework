@@ -12,7 +12,7 @@ const INVITE_ROLES = new Set(["admin", "member", "viewer"]);
 export type CreateInviteState = {
   email?: string;
   error?: string;
-  expiresAt?: string;
+  expiresAt?: string | null;
   inviteUrl?: string;
   role?: string;
   status: "idle" | "success" | "error";
@@ -47,7 +47,8 @@ export async function createInviteAction(
 ): Promise<CreateInviteState> {
   const email = normalizeFormValue(formData.get("email")).toLowerCase();
   const role = normalizeFormValue(formData.get("role")) as TenantRole;
-  const expiresDays = Number(normalizeFormValue(formData.get("expires_days")) || "7");
+  const expiresValue = normalizeFormValue(formData.get("expires_days")) || "7";
+  const expiresDays = expiresValue === "never" ? null : Number(expiresValue);
 
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return {
@@ -63,10 +64,13 @@ export async function createInviteAction(
     };
   }
 
-  if (!Number.isFinite(expiresDays) || expiresDays < 1 || expiresDays > 30) {
+  if (
+    expiresDays !== null &&
+    (!Number.isFinite(expiresDays) || expiresDays < 1 || expiresDays > 30)
+  ) {
     return {
       status: "error",
-      error: "La expiración debe estar entre 1 y 30 días."
+      error: "La expiración debe estar entre 1 y 30 días, o sin expiración."
     };
   }
 
@@ -90,10 +94,13 @@ export async function createInviteAction(
     };
   }
 
-  const expiresAt = new Date(Date.now() + expiresDays * 24 * 60 * 60 * 1000);
+  const expiresAt =
+    expiresDays === null
+      ? null
+      : new Date(Date.now() + expiresDays * 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase.rpc("create_tenant_invite", {
     _email: email,
-    _expires_at: expiresAt.toISOString(),
+    _expires_at: expiresAt,
     _metadata: {
       source: "app/invites"
     },
@@ -125,7 +132,7 @@ export async function createInviteAction(
 
   return {
     email,
-    expiresAt: invite.expires_at,
+    expiresAt: invite.expires_at ?? null,
     inviteUrl: inviteUrl.toString(),
     role,
     status: "success"
