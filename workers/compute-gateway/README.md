@@ -15,10 +15,20 @@ async y el gateway descarga el documento desde una signed URL privada.
 PORT=8787
 SDA_COMPUTE_GATEWAY_DATA_DIR=/var/lib/sda-compute-gateway
 SDA_COMPUTE_GATEWAY_TOKEN=secret
+SDA_COMPUTE_GATEWAY_CONCURRENCY=1
+SDA_MINERU_BIN=/home/sistemas/sda-mineru/.venv/bin/mineru
+SDA_MINERU_BACKEND=pipeline
+SDA_MINERU_LANG=latin
+SUPABASE_URL=https://project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
 `SDA_COMPUTE_GATEWAY_TOKEN` es opcional para desarrollo, pero obligatorio en el
 server real.
+
+`SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` son obligatorios para una ingesta
+enterprise: el gateway debe subir los artefactos reales de MinerU a Supabase
+Storage. El disco local queda como cache operacional.
 
 ## Deploy manual en srv-ia-01
 
@@ -27,6 +37,9 @@ cd workers/compute-gateway
 SDA_COMPUTE_GATEWAY_TOKEN="$(openssl rand -hex 32)" ./deploy.sh
 ```
 
-La primera version solo descarga el archivo y deja el job en estado
-`downloaded`. El siguiente corte reemplaza ese punto por MinerU + SDA Tree
-Indexer.
+El gateway procesa jobs en background con concurrencia limitada. Para cada job:
+
+1. descarga el documento desde la signed URL generada por Inngest;
+2. ejecuta MinerU real;
+3. sube markdown, JSON, PDFs de debug, imagenes y log a Supabase Storage;
+4. deja un manifest consultable en `GET /v1/index-jobs/:id`.

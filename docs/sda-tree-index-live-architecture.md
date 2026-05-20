@@ -53,7 +53,8 @@ srv-ia-01
   compute gateway privado para MinerU, VLM futuro y razonamiento pesado
 
 Supabase
-  auth, estado, doc_tree, chunks, eventos live y RLS multitenant
+  auth, estado, extracciones, artefactos, doc_tree, chunks, eventos live y RLS
+  multitenant
 
 Next.js
   UI, upload, vistas live, streaming de chat y feedback de indexacion
@@ -100,9 +101,14 @@ GET /v1/index-jobs/:id
 
 worker interno
   procesa en background
-  actualiza Supabase
+  persiste artefactos en Storage
+  actualiza Supabase como control plane
   emite eventos live
 ```
+
+Para escala enterprise, `srv-ia-01` no es fuente de verdad. Puede cachear input,
+logs y outputs temporales, pero los artefactos que importan quedan en Storage y
+su manifest queda en Postgres.
 
 ## Arbol polimorfico
 
@@ -343,6 +349,8 @@ Fase inicial con tablas actuales:
 
 ```text
 documents
+document_extractions
+document_extraction_artifacts
 doc_tree
 chunks
 ```
@@ -350,6 +358,12 @@ chunks
 Uso propuesto:
 
 ```text
+document_extractions
+  ejecucion o reutilizacion de MinerU por parser_version/backend/checksum
+
+document_extraction_artifacts
+  markdown, json, debug pdfs e imagenes producidas por MinerU
+
 doc_tree.tree
   arbol completo, con nodos, summaries, evidence refs y metadata de indexacion
 

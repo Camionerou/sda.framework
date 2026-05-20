@@ -143,6 +143,8 @@ Tablas principales:
 - `users`
 - `tenant_invites`
 - `documents`
+- `document_extractions`
+- `document_extraction_artifacts`
 - `doc_tree`
 - `chunks`
 - `indexing_runs`
@@ -220,6 +222,41 @@ Debe producir:
 - metadata de layout
 
 MinerU no decide el arbol final. Conserva evidencia.
+
+### 3.5.1 Extracciones versionadas
+
+Para escalar a decenas de miles de documentos, la extraccion no puede depender
+del disco local del compute server como fuente de verdad.
+
+Contrato:
+
+- Cada corrida o reutilizacion se registra en `document_extractions`.
+- Cada archivo producido se registra en `document_extraction_artifacts`.
+- Los artefactos viven en Supabase Storage bajo un prefijo versionado.
+- El dedupe de extraccion usa `tenant_id + parser + parser_version +
+  parser_backend + source_checksum_sha256`.
+- Si el mismo tenant sube el mismo archivo dos veces, la segunda ingesta debe
+  poder registrar `reused` sin volver a correr MinerU.
+
+Ruta canonica:
+
+```text
+<tenant_id>/<document_id>/extractions/mineru/<mineru_version>/<extraction_id>/...
+```
+
+Artefactos esperados:
+
+- markdown
+- `content_list.json`
+- `content_list_v2.json`
+- `middle.json`
+- `model.json`
+- `layout.pdf`
+- `span.pdf`
+- imagenes extraidas
+
+El disco de `srv-ia-01` es cache operacional. La verdad durable queda en
+Supabase.
 
 ### 3.6 LangGraph · SDA Tree Indexer
 
@@ -472,6 +509,11 @@ egress o reprocesamiento de PDFs se vuelve caro.
 Inngest no es el lugar para correr MinerU/VLM pesado. Inngest conserva estado,
 reintentos y concurrencia. `srv-ia-01` hace el trabajo caro.
 
+Regla cloud-hosted: siempre que exista un servicio cloud confiable para control
+plane, scheduling, retries, auth, storage o observabilidad, se prefiere ese
+servicio antes que operar infraestructura propia. La infraestructura propia se
+reserva para computo caro o especializado.
+
 ### 6.3 Compute gateway async, no requests largas
 
 Preferimos:
@@ -560,9 +602,9 @@ Estado ya implementado:
 
 Siguiente corte:
 
-1. Levantar Compute Gateway minimo en `srv-ia-01`.
-2. Configurar `COMPUTE_GATEWAY_URL` y `COMPUTE_GATEWAY_TOKEN` en Vercel.
-3. Integrar MinerU extraction dentro del job async.
+1. Automatizar MinerU real dentro del Compute Gateway.
+2. Persistir `document_extractions` y `document_extraction_artifacts`.
+3. Hacer que Inngest Cloud observe el job hasta terminal.
 4. Implementar LangGraph SDA Tree Indexer minimo.
 5. Persistir `doc_tree`.
 6. Persistir nodos/paginas en `chunks`.

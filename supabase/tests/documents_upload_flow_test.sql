@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(16);
+SELECT plan(17);
 
 insert into public.tenants (id, slug, name)
 values
@@ -88,6 +88,20 @@ SELECT is(
   ),
   5368709120::bigint,
   'Documents storage bucket allows files up to 5 GiB'
+);
+
+SELECT ok(
+  (
+    select allowed_mime_types @> array[
+      'application/pdf',
+      'application/json',
+      'image/jpeg',
+      'text/markdown'
+    ]
+    from storage.buckets
+    where id = 'documents'
+  ),
+  'Documents storage bucket allows original PDFs and extraction artifacts'
 );
 
 SELECT ok(

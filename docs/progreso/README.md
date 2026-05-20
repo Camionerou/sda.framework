@@ -33,3 +33,5 @@ separado, con estado claro y sin secretos.
 26. `2026-05-20-26-compute-gateway-contract.md`
 27. `2026-05-20-27-upload-dedupe-ingesta-separada.md`
 28. `2026-05-20-28-mineru-extraccion-real.md`
+29. `2026-05-20-29-extracciones-enterprise-control-plane.md`
+30. `2026-05-20-30-compute-gateway-mineru-automatizado.md`

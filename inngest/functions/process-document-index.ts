@@ -1,14 +1,18 @@
 import { documentIndexRequested, inngest } from "@/inngest/client";
 import {
   createComputeGatewayIndexJob,
+  getComputeGatewayIndexJob,
   getSignedUrlTtlSeconds,
   isComputeGatewayConfigured,
-  type ComputeGatewayIndexJobResponse
+  type ComputeGatewayArtifact,
+  type ComputeGatewayIndexJobResponse,
+  type ComputeGatewayIndexJobStatus
 } from "@/lib/compute-gateway";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type DocumentForIndexing = {
   byte_size: number | null;
+  checksum_sha256: string | null;
   filename: string;
   id: string;
   mime_type: string;
@@ -17,10 +21,101 @@ type DocumentForIndexing = {
   tenant_id: string;
 };
 
+function getWorkflowConcurrency() {
+  const value = Number(process.env.INDEXING_WORKFLOW_CONCURRENCY ?? 2);
+
+  return Number.isInteger(value) && value > 0 ? value : 2;
+}
+
+function getGatewayPollAttempts() {
+  const value = Number(process.env.COMPUTE_GATEWAY_POLL_ATTEMPTS ?? 240);
+
+  return Number.isInteger(value) && value > 0 ? value : 240;
+}
+
+function getGatewayPollInterval() {
+  return process.env.COMPUTE_GATEWAY_POLL_INTERVAL ?? "30s";
+}
+
+function mapGatewayProgress(job: ComputeGatewayIndexJobStatus) {
+  const gatewayProgress = Number.isFinite(job.progress) ? job.progress : 0;
+
+  return Math.max(8, Math.min(35, 8 + Math.round(gatewayProgress * 0.27)));
+}
+
+function mapGatewayStage(job: ComputeGatewayIndexJobStatus) {
+  if (job.status === "failed") {
+    return "failed";
+  }
+
+  if (job.stage === "persisting_artifacts") {
+    return "persisting";
+  }
+
+  return "extracting";
+}
+
+function getParserVersion(job: ComputeGatewayIndexJobStatus) {
+  const manifestVersion = job.manifest?.parser_version;
+
+  if (typeof job.mineru_version === "string" && job.mineru_version) {
+    return job.mineru_version;
+  }
+
+  if (typeof manifestVersion === "string" && manifestVersion) {
+    return manifestVersion;
+  }
+
+  return "unknown";
+}
+
+function getArtifactPrefix(
+  job: ComputeGatewayIndexJobStatus,
+  document: DocumentForIndexing,
+  parserVersion: string
+) {
+  return (
+    job.artifact_prefix ??
+    [
+      document.tenant_id,
+      document.id,
+      "extractions",
+      "mineru",
+      parserVersion,
+      job.job_id
+    ].join("/")
+  );
+}
+
+function artifactRows(
+  job: ComputeGatewayIndexJobStatus,
+  artifacts: ComputeGatewayArtifact[]
+) {
+  return artifacts.map((artifact) => ({
+    artifact_type: artifact.artifact_type,
+    byte_size: artifact.byte_size,
+    checksum_sha256: artifact.checksum_sha256,
+    content_type: artifact.content_type,
+    document_id: job.document_id,
+    extraction_id: job.job_id,
+    metadata: {
+      relative_path: artifact.relative_path
+    },
+    storage_bucket: artifact.storage_bucket,
+    storage_path: artifact.storage_path,
+    tenant_id: job.tenant_id
+  }));
+}
+
 export const processDocumentIndex = inngest.createFunction(
   {
+    concurrency: {
+      limit: getWorkflowConcurrency(),
+      scope: "env"
+    },
     id: "process-document-index",
     name: "Process Document Index",
+    retries: 3,
     triggers: [documentIndexRequested]
   },
   async ({ event, step }) => {
@@ -51,7 +146,7 @@ export const processDocumentIndex = inngest.createFunction(
       const supabase = createAdminClient();
       const { data, error } = await supabase
         .from("documents")
-        .select("id, tenant_id, filename, mime_type, byte_size, r2_bucket, r2_key")
+        .select("id, tenant_id, filename, mime_type, byte_size, checksum_sha256, r2_bucket, r2_key")
         .eq("id", event.data.document_id)
         .eq("tenant_id", event.data.tenant_id)
         .maybeSingle<DocumentForIndexing>();
@@ -305,11 +400,283 @@ export const processDocumentIndex = inngest.createFunction(
       }
     });
 
+    const terminalGatewayJob = await (async (): Promise<ComputeGatewayIndexJobStatus> => {
+      const attempts = getGatewayPollAttempts();
+      const interval = getGatewayPollInterval();
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const currentJob = await step.run(`poll-compute-gateway-job-${attempt}`, async () =>
+          getComputeGatewayIndexJob(gatewayJob.job_id)
+        );
+
+        if (currentJob.status === "succeeded" || currentJob.status === "failed") {
+          return currentJob;
+        }
+
+        if (attempt === 1 || attempt % 4 === 0) {
+          await step.run(`record-compute-gateway-progress-${attempt}`, async () => {
+            const supabase = createAdminClient();
+            const progress = mapGatewayProgress(currentJob);
+            const stage = mapGatewayStage(currentJob);
+            const [{ error: runError }, { error: documentError }, { error: eventError }] =
+              await Promise.all([
+                supabase
+                  .from("indexing_runs")
+                  .update({
+                    progress,
+                    stage,
+                    status: "running"
+                  })
+                  .eq("id", event.data.run_id)
+                  .eq("tenant_id", event.data.tenant_id),
+                supabase
+                  .from("documents")
+                  .update({
+                    status: stage === "persisting" ? "parsing" : "parsing",
+                    status_reason: currentJob.message ?? "Compute Gateway procesando MinerU"
+                  })
+                  .eq("id", event.data.document_id)
+                  .eq("tenant_id", event.data.tenant_id),
+                supabase.from("indexing_events").insert({
+                  document_id: event.data.document_id,
+                  event_type: "indexing.compute_gateway.progress",
+                  metadata: {
+                    gateway_progress: currentJob.progress,
+                    gateway_stage: currentJob.stage,
+                    gateway_status: currentJob.status,
+                    job_id: currentJob.job_id
+                  },
+                  message: currentJob.message ?? "Compute Gateway procesando MinerU",
+                  progress,
+                  run_id: event.data.run_id,
+                  severity: "info",
+                  stage,
+                  tenant_id: event.data.tenant_id
+                })
+              ]);
+
+            if (runError) {
+              throw runError;
+            }
+
+            if (documentError) {
+              throw documentError;
+            }
+
+            if (eventError) {
+              throw eventError;
+            }
+          });
+        }
+
+        await step.sleep(`wait-compute-gateway-job-${attempt}`, interval);
+      }
+
+      throw new Error(`Compute Gateway job ${gatewayJob.job_id} no termino dentro del tiempo esperado.`);
+    })();
+
+    if (terminalGatewayJob.status === "failed") {
+      await step.run("record-mineru-extraction-failed", async () => {
+        const supabase = createAdminClient();
+        const parserVersion = getParserVersion(terminalGatewayJob);
+        const message = terminalGatewayJob.error ?? "MinerU fallo en Compute Gateway.";
+        const [{ error: extractionError }, { error: runError }, { error: documentError }, { error: eventError }] =
+          await Promise.all([
+            supabase.from("document_extractions").upsert(
+              {
+                artifact_bucket: terminalGatewayJob.artifact_bucket ?? document.r2_bucket,
+                artifact_prefix: getArtifactPrefix(terminalGatewayJob, document, parserVersion),
+                document_id: event.data.document_id,
+                error_message: message,
+                failed_at: terminalGatewayJob.failed_at ?? new Date().toISOString(),
+                id: terminalGatewayJob.job_id,
+                input_byte_size: document.byte_size,
+                manifest: terminalGatewayJob.manifest ?? {},
+                metrics: {
+                  gateway_progress: terminalGatewayJob.progress,
+                  gateway_stage: terminalGatewayJob.stage
+                },
+                parser: "mineru",
+                parser_backend: terminalGatewayJob.mineru_backend ?? "pipeline",
+                parser_version: parserVersion,
+                run_id: event.data.run_id,
+                source_checksum_sha256: document.checksum_sha256,
+                source_r2_key: document.r2_key,
+                status: "failed",
+                tenant_id: event.data.tenant_id
+              },
+              { onConflict: "id" }
+            ),
+            supabase
+              .from("indexing_runs")
+              .update({
+                error_message: message,
+                failed_at: new Date().toISOString(),
+                progress: 100,
+                stage: "failed",
+                status: "failed"
+              })
+              .eq("id", event.data.run_id)
+              .eq("tenant_id", event.data.tenant_id),
+            supabase
+              .from("documents")
+              .update({
+                status: "failed",
+                status_reason: message
+              })
+              .eq("id", event.data.document_id)
+              .eq("tenant_id", event.data.tenant_id),
+            supabase.from("indexing_events").insert({
+              document_id: event.data.document_id,
+              event_type: "indexing.extract.failed",
+              metadata: {
+                gateway_stage: terminalGatewayJob.stage,
+                gateway_status: terminalGatewayJob.status,
+                job_id: terminalGatewayJob.job_id
+              },
+              message,
+              progress: 100,
+              run_id: event.data.run_id,
+              severity: "error",
+              stage: "failed",
+              tenant_id: event.data.tenant_id
+            })
+          ]);
+
+        if (extractionError) {
+          throw extractionError;
+        }
+
+        if (runError) {
+          throw runError;
+        }
+
+        if (documentError) {
+          throw documentError;
+        }
+
+        if (eventError) {
+          throw eventError;
+        }
+      });
+
+      return {
+        compute_job_id: gatewayJob.job_id,
+        document_id: event.data.document_id,
+        run_id: event.data.run_id,
+        status: "mineru_failed"
+      };
+    }
+
+    await step.run("record-mineru-extraction-succeeded", async () => {
+      const supabase = createAdminClient();
+      const parserVersion = getParserVersion(terminalGatewayJob);
+      const artifacts = terminalGatewayJob.artifacts ?? [];
+
+      if (artifacts.length === 0) {
+        throw new Error("Compute Gateway no devolvio artefactos MinerU.");
+      }
+
+      const extractionRecord = {
+        artifact_bucket: terminalGatewayJob.artifact_bucket ?? document.r2_bucket,
+        artifact_prefix: getArtifactPrefix(terminalGatewayJob, document, parserVersion),
+        completed_at: terminalGatewayJob.completed_at ?? new Date().toISOString(),
+        document_id: event.data.document_id,
+        id: terminalGatewayJob.job_id,
+        input_byte_size: document.byte_size,
+        manifest: terminalGatewayJob.manifest ?? {
+          artifacts
+        },
+        metrics: {
+          artifact_count: artifacts.length,
+          gateway_progress: terminalGatewayJob.progress,
+          gateway_stage: terminalGatewayJob.stage
+        },
+        parser: "mineru",
+        parser_backend: terminalGatewayJob.mineru_backend ?? "pipeline",
+        parser_version: parserVersion,
+        run_id: event.data.run_id,
+        source_checksum_sha256: document.checksum_sha256,
+        source_r2_key: document.r2_key,
+        started_at: terminalGatewayJob.started_at ?? null,
+        status: "succeeded",
+        tenant_id: event.data.tenant_id
+      };
+
+      const [{ error: extractionError }, { error: artifactError }] = await Promise.all([
+        supabase.from("document_extractions").upsert(extractionRecord, { onConflict: "id" }),
+        supabase
+          .from("document_extraction_artifacts")
+          .upsert(artifactRows(terminalGatewayJob, artifacts), {
+            onConflict: "extraction_id,storage_bucket,storage_path"
+          })
+      ]);
+
+      if (extractionError) {
+        throw extractionError;
+      }
+
+      if (artifactError) {
+        throw artifactError;
+      }
+
+      const [{ error: runError }, { error: documentError }, { error: eventError }] =
+        await Promise.all([
+          supabase
+            .from("indexing_runs")
+            .update({
+              error_message: null,
+              progress: 35,
+              stage: "structuring",
+              status: "running"
+            })
+            .eq("id", event.data.run_id)
+            .eq("tenant_id", event.data.tenant_id),
+          supabase
+            .from("documents")
+            .update({
+              status: "structuring",
+              status_reason: "Extraccion MinerU lista; Tree Indexer pendiente"
+            })
+            .eq("id", event.data.document_id)
+            .eq("tenant_id", event.data.tenant_id),
+          supabase.from("indexing_events").insert({
+            document_id: event.data.document_id,
+            event_type: "indexing.extract.completed",
+            metadata: {
+              artifact_count: artifacts.length,
+              artifact_prefix: extractionRecord.artifact_prefix,
+              extraction_id: terminalGatewayJob.job_id,
+              job_id: terminalGatewayJob.job_id,
+              parser_version: parserVersion
+            },
+            message: "Extraccion MinerU persistida en Storage",
+            progress: 35,
+            run_id: event.data.run_id,
+            severity: "info",
+            stage: "structuring",
+            tenant_id: event.data.tenant_id
+          })
+        ]);
+
+      if (runError) {
+        throw runError;
+      }
+
+      if (documentError) {
+        throw documentError;
+      }
+
+      if (eventError) {
+        throw eventError;
+      }
+    });
+
     return {
       compute_job_id: gatewayJob.job_id,
       document_id: event.data.document_id,
       run_id: event.data.run_id,
-      status: "compute_job_created"
+      status: "mineru_extraction_persisted"
     };
   }
 );

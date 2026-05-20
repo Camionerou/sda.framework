@@ -1,14 +1,35 @@
-import { createWriteStream, existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream, createWriteStream, existsSync } from "node:fs";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const DATA_DIR = process.env.SDA_COMPUTE_GATEWAY_DATA_DIR ?? "/var/lib/sda-compute-gateway";
+const MAX_CONCURRENT_JOBS = positiveInteger(process.env.SDA_COMPUTE_GATEWAY_CONCURRENCY, 1);
+const MINERU_BACKEND = process.env.SDA_MINERU_BACKEND ?? "pipeline";
+const MINERU_BIN = process.env.SDA_MINERU_BIN ?? "/home/sistemas/sda-mineru/.venv/bin/mineru";
+const MINERU_LANG = process.env.SDA_MINERU_LANG ?? "latin";
+const MINERU_PDF_RENDER_TIMEOUT = process.env.SDA_MINERU_PDF_RENDER_TIMEOUT ?? "600";
+const MINERU_TASK_RESULT_TIMEOUT = process.env.SDA_MINERU_TASK_RESULT_TIMEOUT ?? "1800";
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/+$/, "");
 const TOKEN = process.env.SDA_COMPUTE_GATEWAY_TOKEN;
+const execFileAsync = promisify(execFile);
+
+let activeJobs = 0;
+const pendingJobs = [];
+
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function json(response, statusCode, body) {
   response.writeHead(statusCode, {
@@ -76,6 +97,104 @@ function inputPath(jobId, filename) {
   return join(DATA_DIR, "jobs", jobId, "input", safeFilename);
 }
 
+function jobDir(jobId) {
+  return join(DATA_DIR, "jobs", jobId);
+}
+
+function mineruOutputPath(jobId) {
+  return join(jobDir(jobId), "extractions", "mineru");
+}
+
+function mineruLogPath(jobId) {
+  return join(jobDir(jobId), "logs", "mineru.log");
+}
+
+function storagePathForArtifact(payload, parserVersion, jobId, artifactPath) {
+  return [
+    payload.tenant_id,
+    payload.document_id,
+    "extractions",
+    "mineru",
+    parserVersion,
+    jobId,
+    ...artifactPath.split("/")
+  ].join("/");
+}
+
+function contentTypeForPath(path) {
+  if (path.endsWith(".json")) {
+    return "application/json";
+  }
+
+  if (path.endsWith(".md")) {
+    return "text/markdown";
+  }
+
+  if (path.endsWith(".pdf")) {
+    return "application/pdf";
+  }
+
+  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+
+  if (path.endsWith(".png")) {
+    return "image/png";
+  }
+
+  if (path.endsWith(".log") || path.endsWith(".txt")) {
+    return "text/plain";
+  }
+
+  return "application/octet-stream";
+}
+
+function artifactTypeForPath(path) {
+  const basename = path.split("/").pop() ?? path;
+
+  if (basename.endsWith("_content_list.json")) {
+    return "content_list";
+  }
+
+  if (basename.endsWith("_content_list_v2.json")) {
+    return "content_list_v2";
+  }
+
+  if (basename.endsWith("_middle.json")) {
+    return "middle_json";
+  }
+
+  if (basename.endsWith("_model.json")) {
+    return "model_json";
+  }
+
+  if (basename.endsWith("_layout.pdf")) {
+    return "layout_pdf";
+  }
+
+  if (basename.endsWith("_span.pdf")) {
+    return "span_pdf";
+  }
+
+  if (basename.endsWith("_origin.pdf")) {
+    return "origin_pdf";
+  }
+
+  if (basename.endsWith(".md")) {
+    return "markdown";
+  }
+
+  if (basename.endsWith(".jpg") || basename.endsWith(".jpeg") || basename.endsWith(".png")) {
+    return "image";
+  }
+
+  if (basename.endsWith(".log")) {
+    return "log";
+  }
+
+  return "artifact";
+}
+
 async function writeJob(job) {
   const path = jobPath(job.job_id);
 
@@ -110,6 +229,122 @@ async function patchJob(jobId, patch) {
   return next;
 }
 
+async function sha256File(path) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+async function listFiles(root, prefix = "") {
+  const entries = await readdir(root, { withFileTypes: true });
+  const files = [];
+
+  for (const entry of entries) {
+    const absolutePath = join(root, entry.name);
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+
+    if (entry.isDirectory()) {
+      files.push(...(await listFiles(absolutePath, relativePath)));
+    } else if (entry.isFile()) {
+      files.push({ absolutePath, relativePath });
+    }
+  }
+
+  return files;
+}
+
+async function getMineruVersion() {
+  const { stdout } = await execFileAsync(MINERU_BIN, ["--version"], {
+    timeout: 30_000
+  });
+  const text = stdout.trim();
+  const match = text.match(/version\s+([^\s]+)/i);
+
+  return match?.[1] ?? text;
+}
+
+function requireSupabaseStorageConfig() {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY son requeridos para persistir artefactos.");
+  }
+
+  return {
+    key: SUPABASE_SERVICE_ROLE_KEY,
+    url: SUPABASE_URL
+  };
+}
+
+async function uploadStorageObject(bucket, path, filePath, contentType, byteSize) {
+  const config = requireSupabaseStorageConfig();
+  const encodedBucket = encodeURIComponent(bucket);
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+  const response = await fetch(`${config.url}/storage/v1/object/${encodedBucket}/${encodedPath}`, {
+    body: createReadStream(filePath),
+    // Required by Node fetch when streaming a request body.
+    duplex: "half",
+    headers: {
+      apikey: config.key,
+      authorization: `Bearer ${config.key}`,
+      "cache-control": "3600",
+      "content-length": String(byteSize),
+      "content-type": contentType,
+      "x-upsert": "true"
+    },
+    method: "POST"
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Storage upload failed ${response.status}: ${text || response.statusText}`);
+  }
+}
+
+async function summarizeContentList(outputRoot) {
+  const files = await listFiles(outputRoot);
+  const contentList = files.find((file) => file.relativePath.endsWith("_content_list.json"));
+
+  if (!contentList) {
+    return null;
+  }
+
+  const data = JSON.parse(await readFile(contentList.absolutePath, "utf8"));
+
+  if (!Array.isArray(data)) {
+    return null;
+  }
+
+  const types = {};
+  const pages = new Set();
+
+  for (const item of data) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const type = typeof item.type === "string" ? item.type : "unknown";
+    types[type] = (types[type] ?? 0) + 1;
+
+    if (Number.isInteger(item.page_idx)) {
+      pages.add(item.page_idx);
+    }
+  }
+
+  const sortedPages = [...pages].sort((a, b) => a - b);
+
+  return {
+    item_count: data.length,
+    page_count: sortedPages.length,
+    page_end: sortedPages.at(-1) ?? null,
+    page_start: sortedPages[0] ?? null,
+    types
+  };
+}
+
 async function downloadDocument(job, payload) {
   await patchJob(job.job_id, {
     progress: 10,
@@ -130,21 +365,228 @@ async function downloadDocument(job, payload) {
 
   await patchJob(job.job_id, {
     input_path: path,
-    message: "Document downloaded. MinerU integration pending.",
+    message: "Document downloaded.",
     progress: 15,
     stage: "extracting",
-    status: "downloaded"
+    status: "running"
   });
+
+  return path;
+}
+
+async function runMineru(job, inputFile) {
+  const outputDir = mineruOutputPath(job.job_id);
+  const logPath = mineruLogPath(job.job_id);
+  const parserVersion = await getMineruVersion();
+
+  await rm(outputDir, { force: true, recursive: true });
+  await mkdir(outputDir, { recursive: true });
+  await mkdir(dirname(logPath), { recursive: true });
+
+  await patchJob(job.job_id, {
+    message: "MinerU extraction started.",
+    mineru_backend: MINERU_BACKEND,
+    mineru_lang: MINERU_LANG,
+    mineru_version: parserVersion,
+    output_path: outputDir,
+    progress: 25,
+    stage: "extracting",
+    status: "running"
+  });
+
+  await new Promise((resolve, reject) => {
+    const logStream = createWriteStream(logPath, { flags: "a" });
+    const child = execMineru(inputFile, outputDir);
+
+    logStream.write(`started_at=${new Date().toISOString()}\n`);
+    logStream.write(`mineru_version=${parserVersion}\n`);
+    logStream.write(`input=${inputFile}\n`);
+    logStream.write(`output=${outputDir}\n`);
+
+    child.stdout.pipe(logStream, { end: false });
+    child.stderr.pipe(logStream, { end: false });
+    child.on("error", (error) => {
+      logStream.end();
+      reject(error);
+    });
+    child.on("close", (code) => {
+      logStream.write(`finished_at=${new Date().toISOString()}\n`);
+      logStream.write(`exit_code=${code}\n`);
+      logStream.end();
+
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`MinerU exited with code ${code}.`));
+      }
+    });
+  });
+
+  await patchJob(job.job_id, {
+    message: "MinerU extraction completed. Uploading artifacts.",
+    progress: 70,
+    stage: "persisting_artifacts",
+    status: "running"
+  });
+
+  return {
+    logPath,
+    outputDir,
+    parserVersion
+  };
+}
+
+function execMineru(inputFile, outputDir) {
+  return spawn(
+    MINERU_BIN,
+    ["-p", inputFile, "-o", outputDir, "-b", MINERU_BACKEND, "-l", MINERU_LANG],
+    {
+      env: {
+        ...process.env,
+        MINERU_PDF_RENDER_TIMEOUT,
+        MINERU_TASK_RESULT_TIMEOUT_SECONDS: MINERU_TASK_RESULT_TIMEOUT
+      },
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
+}
+
+async function uploadArtifacts(job, payload, mineruResult) {
+  const outputFiles = await listFiles(mineruResult.outputDir);
+  const logRelativePath = "logs/mineru.log";
+  const files = [
+    ...outputFiles,
+    {
+      absolutePath: mineruResult.logPath,
+      relativePath: logRelativePath
+    }
+  ];
+  const artifactBucket = payload.document.r2_bucket || "documents";
+  const artifactPrefix = [
+    payload.tenant_id,
+    payload.document_id,
+    "extractions",
+    "mineru",
+    mineruResult.parserVersion,
+    job.job_id
+  ].join("/");
+  const artifacts = [];
+  let uploaded = 0;
+
+  for (const file of files) {
+    const fileStats = await stat(file.absolutePath);
+    const contentType = contentTypeForPath(file.relativePath);
+    const storagePath = storagePathForArtifact(
+      payload,
+      mineruResult.parserVersion,
+      job.job_id,
+      file.relativePath
+    );
+    const checksum = await sha256File(file.absolutePath);
+
+    await uploadStorageObject(
+      artifactBucket,
+      storagePath,
+      file.absolutePath,
+      contentType,
+      fileStats.size
+    );
+
+    artifacts.push({
+      artifact_type: artifactTypeForPath(file.relativePath),
+      byte_size: fileStats.size,
+      checksum_sha256: checksum,
+      content_type: contentType,
+      relative_path: file.relativePath,
+      storage_bucket: artifactBucket,
+      storage_path: storagePath
+    });
+
+    uploaded += 1;
+    await patchJob(job.job_id, {
+      message: `Uploaded ${uploaded}/${files.length} MinerU artifacts.`,
+      progress: Math.min(95, 70 + Math.floor((uploaded / files.length) * 25)),
+      stage: "persisting_artifacts",
+      status: "running"
+    });
+  }
+
+  return {
+    artifact_bucket: artifactBucket,
+    artifact_prefix: artifactPrefix,
+    artifacts
+  };
+}
+
+async function buildExtractionManifest(mineruResult, artifactUpload) {
+  const content = await summarizeContentList(mineruResult.outputDir);
+
+  return {
+    artifact_bucket: artifactUpload.artifact_bucket,
+    artifact_count: artifactUpload.artifacts.length,
+    artifact_prefix: artifactUpload.artifact_prefix,
+    artifacts: artifactUpload.artifacts,
+    backend: MINERU_BACKEND,
+    content,
+    lang: MINERU_LANG,
+    parser: "mineru",
+    parser_version: mineruResult.parserVersion
+  };
 }
 
 async function processJob(job, payload) {
   try {
-    await downloadDocument(job, payload);
+    const startedAt = new Date().toISOString();
+    const inputFile = await downloadDocument(job, payload);
+    const mineruResult = await runMineru(job, inputFile);
+    const artifactUpload = await uploadArtifacts(job, payload, mineruResult);
+    const manifest = await buildExtractionManifest(mineruResult, artifactUpload);
+
+    await patchJob(job.job_id, {
+      artifact_bucket: manifest.artifact_bucket,
+      artifact_count: manifest.artifact_count,
+      artifact_prefix: manifest.artifact_prefix,
+      artifacts: manifest.artifacts,
+      completed_at: new Date().toISOString(),
+      manifest,
+      message: "MinerU extraction persisted.",
+      mineru_backend: MINERU_BACKEND,
+      mineru_lang: MINERU_LANG,
+      mineru_version: mineruResult.parserVersion,
+      progress: 100,
+      stage: "extracted",
+      started_at: startedAt,
+      status: "succeeded"
+    });
   } catch (error) {
     await patchJob(job.job_id, {
       error: error instanceof Error ? error.message : "Unknown gateway error.",
+      failed_at: new Date().toISOString(),
+      progress: 100,
       stage: "failed",
       status: "failed"
+    });
+  }
+}
+
+function enqueueJob(job, payload) {
+  pendingJobs.push({ job, payload });
+  void drainQueue();
+}
+
+async function drainQueue() {
+  while (activeJobs < MAX_CONCURRENT_JOBS && pendingJobs.length > 0) {
+    const next = pendingJobs.shift();
+
+    if (!next) {
+      return;
+    }
+
+    activeJobs += 1;
+
+    void processJob(next.job, next.payload).finally(() => {
+      activeJobs -= 1;
+      void drainQueue();
     });
   }
 }
@@ -171,6 +613,8 @@ async function createIndexJob(request, response) {
     created_at: now,
     document_id: payload.document_id,
     job_id: randomUUID(),
+    mineru_backend: MINERU_BACKEND,
+    mineru_lang: MINERU_LANG,
     progress: 0,
     run_id: payload.run_id,
     source: payload.source ?? "unknown",
@@ -181,10 +625,15 @@ async function createIndexJob(request, response) {
   };
 
   await writeJob(job);
-  void processJob(job, payload);
+  enqueueJob(job, payload);
 
   json(response, 202, {
     job_id: job.job_id,
+    queue: {
+      active: activeJobs,
+      concurrency: MAX_CONCURRENT_JOBS,
+      pending: pendingJobs.length
+    },
     stage: job.stage,
     status: job.status
   });
@@ -211,7 +660,13 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/v1/health") {
       json(response, 200, {
+        active_jobs: activeJobs,
+        concurrency: MAX_CONCURRENT_JOBS,
+        mineru_backend: MINERU_BACKEND,
+        mineru_lang: MINERU_LANG,
+        mineru_storage_configured: Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY),
         ok: true,
+        pending_jobs: pendingJobs.length,
         service: "sda-compute-gateway"
       });
       return;
