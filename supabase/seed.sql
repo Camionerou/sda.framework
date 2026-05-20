@@ -1,0 +1,2 @@
+-- Local-only seed data goes here.
+-- Keep production bootstrap data in migrations or one-off scripts.
