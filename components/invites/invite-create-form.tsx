@@ -13,7 +13,15 @@ const initialState: CreateInviteState = {
   status: "idle"
 };
 
-export function InviteCreateForm() {
+type InviteExpirationDefault = "1" | "3" | "7" | "14" | "30" | "never";
+
+type InviteCreateFormProps = {
+  defaultExpiresDays?: InviteExpirationDefault;
+};
+
+export function InviteCreateForm({
+  defaultExpiresDays = "7"
+}: InviteCreateFormProps) {
   const [state, formAction, isPending] = useActionState(createInviteAction, initialState);
   const [copied, setCopied] = useState(false);
 
@@ -62,7 +70,7 @@ export function InviteCreateForm() {
           </label>
           <select
             className="select"
-            defaultValue="7"
+            defaultValue={defaultExpiresDays}
             id="expires_days"
             name="expires_days"
           >

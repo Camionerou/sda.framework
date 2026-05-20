@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(22);
+SELECT plan(25);
 
 insert into public.tenants (id, slug, name)
 values
@@ -202,6 +202,87 @@ SELECT is(
   (select count(*)::integer from public.tenant_invites),
   1,
   'Tenant admin can list own tenant invites'
+);
+
+reset role;
+
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object(
+    'sub',
+    '00000000-0000-0000-0000-000000000601',
+    'email',
+    'admin@invite-alpha.test',
+    'role',
+    'authenticated',
+    'tenant_id',
+    '00000000-0000-0000-0000-000000000501',
+    'tenant_role',
+    'admin'
+  )::text,
+  true
+);
+
+set local role authenticated;
+
+create temporary table admin_default_exp_invite on commit drop as
+select *
+from public.create_tenant_invite(
+  'admin-default-exp@invite-alpha.test',
+  'viewer'
+);
+
+SELECT ok(
+  (select expires_at is not null from admin_default_exp_invite),
+  'Admin invites default to expiring when no expiration is provided'
+);
+
+create temporary table admin_never_exp_invite on commit drop as
+select *
+from public.create_tenant_invite(
+  'admin-never-exp@invite-alpha.test',
+  'viewer',
+  null,
+  null,
+  '{"never_expires":true}'::jsonb
+);
+
+SELECT ok(
+  (select expires_at is null from admin_never_exp_invite),
+  'Admin invites can explicitly disable expiration'
+);
+
+reset role;
+
+select set_config(
+  'request.jwt.claims',
+  jsonb_build_object(
+    'sub',
+    '00000000-0000-0000-0000-000000000601',
+    'email',
+    'admin@invite-alpha.test',
+    'role',
+    'authenticated',
+    'tenant_id',
+    '00000000-0000-0000-0000-000000000501',
+    'tenant_role',
+    'owner'
+  )::text,
+  true
+);
+
+set local role authenticated;
+
+create temporary table owner_default_no_exp_invite on commit drop as
+select *
+from public.create_tenant_invite(
+  'owner-default-no-exp@invite-alpha.test',
+  'admin'
+);
+
+SELECT ok(
+  (select expires_at is null from owner_default_no_exp_invite),
+  'Authenticated owner-created invites default to no expiration'
 );
 
 reset role;

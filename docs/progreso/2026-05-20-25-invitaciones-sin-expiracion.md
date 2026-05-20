@@ -14,9 +14,14 @@ Estado: implementado y migrado.
   no se envia expiracion.
 - Las invitaciones `owner` creadas por `service_role` quedan sin expiracion por
   default.
-- La UI de invitaciones permite elegir `Sin expiración`.
+- Las invitaciones creadas desde una sesion `owner` quedan sin expiracion por
+  default.
+- La UI de invitaciones permite elegir `Sin expiración` y la muestra como
+  default para owners.
 - El script `bootstrap-owner-invite` crea invites owner sin expiracion por
   default.
+- El login ya no muestra `NEXT_REDIRECT` cuando detecta una sesion activa; el
+  redirect a `/app` queda fuera del `try/catch`.
 
 ## Verificacion
 

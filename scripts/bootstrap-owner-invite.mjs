@@ -125,6 +125,7 @@ async function main() {
       _role: inviteRole,
       _tenant_id: tenantId,
       _metadata: {
+        never_expires: expiresAt === null,
         source: "bootstrap-owner-invite"
       }
     }

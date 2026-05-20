@@ -27,16 +27,18 @@ export default async function LoginPage({
 }) {
   const params = await searchParams;
   let configError: string | null = null;
+  let hasSession = false;
 
   try {
     const supabase = await createClient();
     const { data: claimsData } = await supabase.auth.getClaims();
-
-    if (claimsData?.claims) {
-      redirect("/app");
-    }
+    hasSession = Boolean(claimsData?.claims);
   } catch (error) {
     configError = error instanceof Error ? error.message : "No se pudo leer la sesión.";
+  }
+
+  if (hasSession) {
+    redirect("/app");
   }
 
   return (

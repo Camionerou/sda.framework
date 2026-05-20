@@ -243,11 +243,16 @@ export default async function InvitesPage({
                 <CardHeader>
                   <CardTitle>Nueva invitación</CardTitle>
                   <CardDescription>
-                    El link solo funciona para el email indicado y vence automáticamente.
+                    El link solo funciona para el email indicado.
+                    {tenantRole === "owner"
+                      ? " Owners crean invitaciones sin vencimiento por default."
+                      : " Admins crean invitaciones con vencimiento por default."}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <InviteCreateForm />
+                  <InviteCreateForm
+                    defaultExpiresDays={tenantRole === "owner" ? "never" : "7"}
+                  />
                 </CardContent>
               </Card>
             </div>

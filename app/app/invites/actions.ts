@@ -47,8 +47,6 @@ export async function createInviteAction(
 ): Promise<CreateInviteState> {
   const email = normalizeFormValue(formData.get("email")).toLowerCase();
   const role = normalizeFormValue(formData.get("role")) as TenantRole;
-  const expiresValue = normalizeFormValue(formData.get("expires_days")) || "7";
-  const expiresDays = expiresValue === "never" ? null : Number(expiresValue);
 
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return {
@@ -64,16 +62,6 @@ export async function createInviteAction(
     };
   }
 
-  if (
-    expiresDays !== null &&
-    (!Number.isFinite(expiresDays) || expiresDays < 1 || expiresDays > 30)
-  ) {
-    return {
-      status: "error",
-      error: "La expiración debe estar entre 1 y 30 días, o sin expiración."
-    };
-  }
-
   const supabase = await createClient();
   const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
 
@@ -86,6 +74,19 @@ export async function createInviteAction(
 
   const claims = claimsData.claims as AppClaims;
   const currentRole = getClaimValue<TenantRole>(claims, "tenant_role", "tenant_role");
+  const defaultExpiresValue = currentRole === "owner" ? "never" : "7";
+  const expiresValue = normalizeFormValue(formData.get("expires_days")) || defaultExpiresValue;
+  const expiresDays = expiresValue === "never" ? null : Number(expiresValue);
+
+  if (
+    expiresDays !== null &&
+    (!Number.isFinite(expiresDays) || expiresDays < 1 || expiresDays > 30)
+  ) {
+    return {
+      status: "error",
+      error: "La expiración debe estar entre 1 y 30 días, o sin expiración."
+    };
+  }
 
   if (currentRole !== "owner" && currentRole !== "admin") {
     return {
@@ -102,6 +103,7 @@ export async function createInviteAction(
     _email: email,
     _expires_at: expiresAt,
     _metadata: {
+      never_expires: expiresDays === null,
       source: "app/invites"
     },
     _role: role,
