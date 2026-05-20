@@ -43,6 +43,13 @@
 - Do not log `document.signed_url` in the gateway, Inngest step output, or DB metadata. Store only job ids, storage paths, and sanitized status.
 - `COMPUTE_GATEWAY_URL` enables real dispatch. Without it, the app keeps the run queued and writes a live `indexing.compute_gateway.pending` event.
 - The gateway token is shared between Vercel and `srv-ia-01`; rotate it if it is pasted into chat or shell history.
+- `srv-ia-01` is currently exposed through Tailscale Funnel at `https://srv-ia-01.taileb1b9c.ts.net`; keep bearer auth enabled because Funnel is public HTTPS.
+
+## Upload vs Ingestion
+
+- Upload success must depend only on Supabase DB + Storage. Inngest/Compute Gateway failures should show as ingestion warnings, not upload failures.
+- Document dedupe uses `checksum_sha256` per tenant only after `uploaded_at` is set. A half-uploaded attempt should not block the same file forever.
+- Duplicate uploads should return the existing document and skip Storage upload; ingestion can be requested separately from the document detail.
 
 ## Next.js links with side effects
 

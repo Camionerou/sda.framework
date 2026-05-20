@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(9);
+SELECT plan(12);
 
 insert into public.tenants (id, slug, name)
 values
@@ -83,7 +83,7 @@ SELECT ok(
 SELECT ok(
   not has_function_privilege(
     'anon',
-    'public.create_document_upload(text, text, bigint, text, jsonb)',
+    'public.create_document_upload(text, text, bigint, text, jsonb, text)',
     'execute'
   ),
   'Anon clients cannot create document uploads'
@@ -115,13 +115,19 @@ from public.create_document_upload(
   'application/pdf',
   1234,
   'Quarterly Report',
-  '{"source":"pgtap"}'::jsonb
+  '{"source":"pgtap"}'::jsonb,
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 );
 
 SELECT is(
   (select status::text from created_document),
   'uploading',
   'Creating document upload starts in uploading status'
+);
+
+SELECT ok(
+  not (select deduped from created_document),
+  'First upload creation is not deduped'
 );
 
 SELECT ok(
@@ -151,7 +157,8 @@ create temporary table marked_document on commit drop as
 select *
 from public.mark_document_uploaded(
   (select document_id from created_document),
-  2048
+  2048,
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 );
 
 SELECT is(
@@ -162,12 +169,34 @@ SELECT is(
 
 SELECT is(
   (
-    select concat_ws(':', d.status::text, d.byte_size::text, (d.uploaded_at is not null)::text)
+    select concat_ws(':', d.status::text, d.byte_size::text, (d.uploaded_at is not null)::text, d.checksum_sha256)
     from public.documents d
     join created_document cd on cd.document_id = d.id
   ),
-  'uploaded:2048:true',
-  'Document row stores uploaded status, byte_size, and timestamp'
+  'uploaded:2048:true:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'Document row stores uploaded status, byte_size, timestamp, and checksum'
+);
+
+create temporary table duplicate_document on commit drop as
+select *
+from public.create_document_upload(
+  'Quarterly Report Final Copy.PDF',
+  'application/pdf',
+  2048,
+  'Quarterly Report Copy',
+  '{"source":"pgtap"}'::jsonb,
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+);
+
+SELECT is(
+  (select document_id from duplicate_document),
+  (select document_id from created_document),
+  'Duplicate checksum returns existing uploaded document'
+);
+
+SELECT ok(
+  (select deduped from duplicate_document),
+  'Duplicate checksum is marked as deduped'
 );
 
 reset role;

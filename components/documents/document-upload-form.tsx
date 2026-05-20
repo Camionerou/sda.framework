@@ -11,7 +11,7 @@ type UploadState = {
   error?: string;
   filename?: string;
   queueError?: string;
-  status: "idle" | "uploading" | "success" | "error";
+  status: "idle" | "uploading" | "deduped" | "success" | "error";
 };
 
 type CreatedUpload = {
@@ -21,7 +21,18 @@ type CreatedUpload = {
   r2_key: string;
   status: string;
   tenant_id: string;
+  checksum_sha256: string | null;
+  deduped: boolean;
 };
+
+async function sha256Hex(file: File) {
+  const buffer = await file.arrayBuffer();
+  const hash = await crypto.subtle.digest("SHA-256", buffer);
+
+  return [...new Uint8Array(hash)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 export function DocumentUploadForm() {
   const router = useRouter();
@@ -45,11 +56,13 @@ export function DocumentUploadForm() {
       status: "uploading"
     });
 
+    const checksum = await sha256Hex(file);
     const supabase = createClient();
     const { data: uploadRows, error: createError } = await supabase.rpc(
       "create_document_upload",
       {
         _byte_size: file.size,
+        _checksum_sha256: checksum,
         _filename: file.name,
         _metadata: {
           source: "app/documents"
@@ -79,6 +92,16 @@ export function DocumentUploadForm() {
       return;
     }
 
+    if (upload.deduped) {
+      fileInputRef.current?.form?.reset();
+      setState({
+        filename: upload.filename,
+        status: "deduped"
+      });
+      router.refresh();
+      return;
+    }
+
     const { error: storageError } = await supabase.storage
       .from(upload.r2_bucket)
       .upload(upload.r2_key, file, {
@@ -97,6 +120,7 @@ export function DocumentUploadForm() {
 
     const { error: markError } = await supabase.rpc("mark_document_uploaded", {
       _byte_size: file.size,
+      _checksum_sha256: checksum,
       _document_id: upload.document_id
     });
 
@@ -177,12 +201,20 @@ export function DocumentUploadForm() {
 
       {state.status === "success" ? (
         <div className={`alert ${state.queueError ? "alert-warning" : "alert-success"}`}>
-          <strong>{state.queueError ? "Documento subido." : "Documento subido y en cola."}</strong>
+          <strong>Documento subido.</strong>
           <span>
             {state.queueError
-              ? `No se pudo poner en cola automáticamente: ${state.queueError}`
-              : `${state.filename} quedó listo para SDA Tree Index.`}
+              ? `La ingesta no se pudo iniciar automáticamente: ${state.queueError}`
+              : `${state.filename} quedó guardado; la ingesta quedó en cola.`}
           </span>
+          <CheckCircle2 aria-hidden="true" size={16} />
+        </div>
+      ) : null}
+
+      {state.status === "deduped" ? (
+        <div className="alert alert-success">
+          <strong>Documento ya cargado.</strong>
+          <span>No se volvió a subir el mismo archivo.</span>
           <CheckCircle2 aria-hidden="true" size={16} />
         </div>
       ) : null}

@@ -346,17 +346,21 @@ agente ni en convenciones de app.
 Estado actual implementado:
 
 1. Usuario sube archivo desde `/app/documents`.
-2. RPC `create_document_upload` crea row en `documents`.
-3. Browser sube directo a Supabase Storage bucket `documents`.
-4. RPC `mark_document_uploaded` pasa estado a `uploaded`.
-5. Ruta server-side `/api/documents/[id]/indexing/request` pide la
+2. El browser calcula `checksum_sha256` para dedupe por tenant.
+3. RPC `create_document_upload` crea row en `documents` o devuelve el documento
+   ya subido si el checksum coincide.
+4. Browser sube directo a Supabase Storage bucket `documents` solo si no hubo
+   dedupe.
+5. RPC `mark_document_uploaded` pasa estado a `uploaded`.
+6. La subida queda completada aunque la ingesta falle o este apagada.
+7. Ruta server-side `/api/documents/[id]/indexing/request` pide la
    indexacion.
-6. RPC `request_document_indexing` crea o reutiliza una corrida en
+8. RPC `request_document_indexing` crea o reutiliza una corrida en
    `indexing_runs`.
-7. Se emite `document/index.requested` a Inngest si hay entorno configurado.
-8. Inngest firma una URL temporal del archivo privado y crea un job async en el
+9. Se emite `document/index.requested` a Inngest si hay entorno configurado.
+10. Inngest firma una URL temporal del archivo privado y crea un job async en el
    Compute Gateway cuando `COMPUTE_GATEWAY_URL` esta configurado.
-9. UI muestra timeline en vivo por Supabase Realtime.
+11. UI muestra timeline en vivo por Supabase Realtime.
 
 ### 4.3 Ingest + SDA Tree Index
 

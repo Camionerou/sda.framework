@@ -1,6 +1,6 @@
 # Compute Gateway contract
 
-Estado: implementado en app, pendiente de levantar en `srv-ia-01`.
+Estado: implementado y levantado en `srv-ia-01`.
 
 ## Hecho
 
@@ -16,6 +16,13 @@ Estado: implementado en app, pendiente de levantar en `srv-ia-01`.
 - Se agrego gateway minimo Node en `workers/compute-gateway`.
 - Se agrego `workers/compute-gateway/deploy.sh` para instalarlo como servicio
   systemd de usuario en `srv-ia-01`.
+- Se levanto `sda-compute-gateway.service` como systemd user service.
+- Se habilito linger para `sistemas`, asi el servicio sigue vivo sin SSH.
+- Se expuso por Tailscale Funnel:
+  - `https://srv-ia-01.taileb1b9c.ts.net`
+- Se configuraron en Vercel production:
+  - `COMPUTE_GATEWAY_URL`
+  - `COMPUTE_GATEWAY_TOKEN`
 - El gateway expone:
   - `GET /v1/health`;
   - `POST /v1/index-jobs`;
@@ -30,10 +37,4 @@ Estado: implementado en app, pendiente de levantar en `srv-ia-01`.
 
 ## Pendiente inmediato
 
-- Aprobar Tailscale SSH si lo pide.
-- Copiar `workers/compute-gateway` a `srv-ia-01`.
-- Levantar servicio systemd de usuario.
-- Configurar en Vercel:
-  - `COMPUTE_GATEWAY_URL`
-  - `COMPUTE_GATEWAY_TOKEN`
 - Integrar MinerU donde el gateway hoy deja el job en `downloaded`.
