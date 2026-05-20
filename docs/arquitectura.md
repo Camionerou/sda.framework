@@ -349,20 +349,20 @@ Estado actual implementado:
 2. RPC `create_document_upload` crea row en `documents`.
 3. Browser sube directo a Supabase Storage bucket `documents`.
 4. RPC `mark_document_uploaded` pasa estado a `uploaded`.
-5. UI ve el documento en la lista y detalle.
-
-Siguiente paso:
-
-1. `uploaded` dispara workflow de Inngest.
-2. Se crea `indexing_run`.
-3. Se emiten `indexing_events`.
-4. UI muestra timeline en vivo por Supabase Realtime.
+5. Ruta server-side `/api/documents/[id]/indexing/request` pide la
+   indexacion.
+6. RPC `request_document_indexing` crea o reutiliza una corrida en
+   `indexing_runs`.
+7. Se emite `document/index.requested` a Inngest si hay entorno configurado.
+8. UI muestra timeline en vivo por Supabase Realtime.
 
 ### 4.3 Ingest + SDA Tree Index
 
 ```text
 documents.status = uploaded
-  -> Inngest document.index.requested
+  -> Next API /api/documents/[id]/indexing/request
+  -> Supabase RPC request_document_indexing
+  -> Inngest document/index.requested
   -> indexing_runs.status = queued
   -> compute gateway job
   -> extracting
@@ -547,19 +547,20 @@ Estado ya implementado:
 6. Vista de documentos y detalle.
 7. Docs de SDA Tree Index + live architecture.
 8. Primer push a GitHub.
+9. `indexing_runs` e `indexing_events`.
+10. Timeline live en detalle de documento.
+11. Skeleton Inngest con `/api/inngest`.
+12. Encolado server-side por `/api/documents/[id]/indexing/request`.
 
 Siguiente corte:
 
-1. Agregar `indexing_runs` e `indexing_events`.
-2. Mostrar timeline live en detalle de documento.
-3. Crear skeleton de Inngest.
-4. Crear skeleton de Compute Gateway para `srv-ia-01`.
-5. Conectar evento `document.uploaded -> indexing queued`.
-6. Integrar MinerU extraction.
-7. Implementar LangGraph SDA Tree Indexer minimo.
-8. Persistir `doc_tree`.
-9. Persistir nodos/paginas en `chunks`.
-10. Agregar retrieval tools iniciales.
+1. Crear skeleton de Compute Gateway para `srv-ia-01`.
+2. Conectar Inngest con el Compute Gateway.
+3. Integrar MinerU extraction.
+4. Implementar LangGraph SDA Tree Indexer minimo.
+5. Persistir `doc_tree`.
+6. Persistir nodos/paginas en `chunks`.
+7. Agregar retrieval tools iniciales.
 
 ---
 

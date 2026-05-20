@@ -22,3 +22,4 @@ separado, con estado claro y sin secretos.
 15. `2026-05-20-15-publicacion-github.md`
 16. `2026-05-20-16-arquitectura-general-actualizada.md`
 17. `2026-05-20-17-indexacion-live-base.md`
+18. `2026-05-20-18-inngest-skeleton.md`

@@ -124,30 +124,34 @@ export function IndexingTimeline({
     setRequestError(null);
     setRequesting(true);
 
-    const supabase = createClient();
-    const { data, error } = await supabase.rpc("request_document_indexing", {
-      _document_id: documentId,
-      _metadata: {
-        source: "document_detail"
-      }
+    const response = await fetch(`/api/documents/${documentId}/indexing/request`, {
+      body: JSON.stringify({ source: "document_detail" }),
+      headers: {
+        "Content-Type": "application/json"
+      },
+      method: "POST"
     });
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          error?: string;
+          run?: {
+            document_id: string;
+            progress: number;
+            run_id: string;
+            stage: IndexingRunRow["stage"];
+            status: IndexingRunStatus;
+          };
+        }
+      | null;
 
     setRequesting(false);
 
-    if (error) {
-      setRequestError(error.message);
+    if (!response.ok) {
+      setRequestError(payload?.error ?? "No se pudo pedir la indexación.");
       return;
     }
 
-    const runRow = (Array.isArray(data) ? data[0] : data) as
-      | {
-          document_id: string;
-          progress: number;
-          run_id: string;
-          stage: IndexingRunRow["stage"];
-          status: IndexingRunStatus;
-        }
-      | undefined;
+    const runRow = payload?.run;
 
     if (runRow?.run_id) {
       setRun((currentRun) => ({

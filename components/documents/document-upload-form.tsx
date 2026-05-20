@@ -109,17 +109,21 @@ export function DocumentUploadForm() {
       return;
     }
 
-    const { error: queueError } = await supabase.rpc("request_document_indexing", {
-      _document_id: upload.document_id,
-      _metadata: {
-        source: "document_upload"
-      }
+    const queueResponse = await fetch(`/api/documents/${upload.document_id}/indexing/request`, {
+      body: JSON.stringify({ source: "document_upload" }),
+      headers: {
+        "Content-Type": "application/json"
+      },
+      method: "POST"
     });
+    const queuePayload = (await queueResponse.json().catch(() => null)) as
+      | { error?: string }
+      | null;
 
     fileInputRef.current?.form?.reset();
     setState({
       filename: file.name,
-      queueError: queueError?.message,
+      queueError: queueResponse.ok ? undefined : queuePayload?.error ?? "No se pudo poner en cola.",
       status: "success"
     });
     router.refresh();
