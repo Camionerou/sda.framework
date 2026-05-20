@@ -1,44 +1,8 @@
-import { readFileSync, existsSync } from "node:fs";
-
 import { createClient } from "@supabase/supabase-js";
 
-const ENV_FILES = [".env.local", ".env"];
+import { loadEnvFiles } from "./env-loader.mjs";
 
-function loadEnvFile(path) {
-  if (!existsSync(path)) {
-    return;
-  }
-
-  for (const rawLine of readFileSync(path, "utf8").split(/\r?\n/)) {
-    const line = rawLine.trim();
-
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-
-    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-
-    if (!match) {
-      continue;
-    }
-
-    const [, key, rawValue] = match;
-    let value = rawValue.trim();
-
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-
-    process.env[key] ??= value;
-  }
-}
-
-for (const path of ENV_FILES) {
-  loadEnvFile(path);
-}
+loadEnvFiles();
 
 const publicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const adminUrl = process.env.SUPABASE_URL;

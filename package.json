@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "indexing:health": "node scripts/indexing-health.mjs",
+    "inngest:sync": "node scripts/inngest-sync.mjs",
     "bootstrap:owner-invite": "node scripts/bootstrap-owner-invite.mjs"
   },
   "overrides": {

@@ -33,6 +33,8 @@ GitHub Actions billing.
   - mantiene el auto-queue de documentos `uploaded` sin corrida activa.
 - Se agrego `npm run indexing:health` para auditar Supabase remoto con conteos,
   estados y anomalias operativas sin exponer secretos.
+- Se agrego `npm run inngest:sync` para sincronizar Inngest Cloud desde local
+  sin depender de GitHub Actions.
 
 ## Redis
 
@@ -58,8 +60,8 @@ fuente de verdad.
 
 ## Pendiente operativo
 
-1. Resolver billing/spending limit de GitHub Actions o ejecutar sync REST con
-   `INNGEST_API_KEY` local para registrar el cron en Inngest Cloud.
+1. Ejecutar `npm run inngest:sync` con `INNGEST_API_KEY` local para registrar el
+   cron en Inngest Cloud.
 2. Cuando el sync corra, confirmar en Inngest Cloud que existen
    `process-document-index` y `reconcile-document-indexing`.
 3. Mantener `npm run indexing:health` como smoke operativo despues de deploys.
