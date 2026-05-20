@@ -23,3 +23,4 @@ separado, con estado claro y sin secretos.
 16. `2026-05-20-16-arquitectura-general-actualizada.md`
 17. `2026-05-20-17-indexacion-live-base.md`
 18. `2026-05-20-18-inngest-skeleton.md`
+19. `2026-05-20-19-inngest-cloud-setup.md`

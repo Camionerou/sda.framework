@@ -13,6 +13,10 @@ export const documentIndexRequested = eventType("document/index.requested", {
 });
 
 export const inngest = new Inngest({
+  appVersion:
+    process.env.INNGEST_APP_VERSION ??
+    process.env.VERCEL_GIT_COMMIT_SHA ??
+    process.env.GITHUB_SHA,
   id: "sda-framework",
   isDev: process.env.INNGEST_DEV === "1" || (
     process.env.NODE_ENV !== "production" && !process.env.INNGEST_SIGNING_KEY
