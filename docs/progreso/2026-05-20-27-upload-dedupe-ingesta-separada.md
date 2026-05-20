@@ -11,6 +11,8 @@ Estado: implementado.
   completo, la RPC devuelve ese documento con `deduped = true`.
 - En un dedupe no se vuelve a subir el archivo a Storage.
 - La subida queda como exito aunque el encolado de ingesta falle o este apagado.
+- Si Storage rechaza el upload, el row `documents` pasa a `failed` con
+  `status_reason` visible en vez de quedar eternamente en `uploading`.
 - La UI separa el mensaje:
   - documento subido;
   - ingesta en cola;
@@ -28,3 +30,10 @@ null`). Un intento a medio subir no bloquea el mismo archivo para siempre.
   documentos subidos que no entraron a ingesta automaticamente.
 - Cuando exista el worker real, mantener upload como dominio separado:
   Storage/RLS primero, ingesta despues.
+
+## Limpieza remota
+
+- Se marcaron como `failed` cuatro intentos incompletos del PDF `Manual usuario
+  Aries 330-345-365 - Octubre 2025.pdf`.
+- Antes de marcarlos se verifico que no existia objeto en Storage bajo sus
+  `r2_key`.

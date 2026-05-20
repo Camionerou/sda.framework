@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(13);
+SELECT plan(16);
 
 insert into public.tenants (id, slug, name)
 values
@@ -97,6 +97,15 @@ SELECT ok(
     'execute'
   ),
   'Anon clients cannot create document uploads'
+);
+
+SELECT ok(
+  not has_function_privilege(
+    'anon',
+    'public.mark_document_upload_failed(uuid, text)',
+    'execute'
+  ),
+  'Anon clients cannot mark document uploads failed'
 );
 
 select set_config(
@@ -207,6 +216,40 @@ SELECT is(
 SELECT ok(
   (select deduped from duplicate_document),
   'Duplicate checksum is marked as deduped'
+);
+
+create temporary table failed_upload on commit drop as
+select *
+from public.create_document_upload(
+  'Broken Upload.PDF',
+  'application/pdf',
+  2048,
+  'Broken Upload',
+  '{"source":"pgtap"}'::jsonb,
+  'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+);
+
+create temporary table marked_failed_upload on commit drop as
+select *
+from public.mark_document_upload_failed(
+  (select document_id from failed_upload),
+  'Storage rejected the upload'
+);
+
+SELECT is(
+  (select status::text from marked_failed_upload),
+  'failed',
+  'Uploading document can be marked failed'
+);
+
+SELECT is(
+  (
+    select status_reason
+    from public.documents d
+    join failed_upload fu on fu.document_id = d.id
+  ),
+  'Storage rejected the upload',
+  'Failed upload stores a visible status reason'
 );
 
 reset role;

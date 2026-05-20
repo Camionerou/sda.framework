@@ -50,6 +50,7 @@
 - Upload success must depend only on Supabase DB + Storage. Inngest/Compute Gateway failures should show as ingestion warnings, not upload failures.
 - Document dedupe uses `checksum_sha256` per tenant only after `uploaded_at` is set. A half-uploaded attempt should not block the same file forever.
 - Duplicate uploads should return the existing document and skip Storage upload; ingestion can be requested separately from the document detail.
+- If Storage rejects an upload after the `documents` row is created, call `mark_document_upload_failed` so the library shows `failed` instead of stale `uploading`.
 
 ## Next.js links with side effects
 

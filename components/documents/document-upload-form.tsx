@@ -34,6 +34,17 @@ async function sha256Hex(file: File) {
     .join("");
 }
 
+async function markUploadFailed(
+  documentId: string,
+  reason: string,
+  supabase: ReturnType<typeof createClient>
+) {
+  await supabase.rpc("mark_document_upload_failed", {
+    _document_id: documentId,
+    _reason: reason
+  });
+}
+
 export function DocumentUploadForm() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -110,6 +121,7 @@ export function DocumentUploadForm() {
       });
 
     if (storageError) {
+      await markUploadFailed(upload.document_id, storageError.message, supabase).catch(() => null);
       setState({
         filename: file.name,
         status: "error",
