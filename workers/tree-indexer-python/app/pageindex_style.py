@@ -197,12 +197,49 @@ def _text_for_range(pages: list[LabeledPage], start: int, end: int) -> str:
     ).strip()
 
 
+def _normalize_for_match(text: str) -> str:
+    return re.sub(r"\s+", " ", text.casefold()).strip()
+
+
+def _section_title_starts_page(section: CandidateSection, pages: list[LabeledPage]) -> bool:
+    title = _normalize_for_match(_as_text(section.get("title")))
+    physical_index = section.get("physical_index")
+
+    if not title or not isinstance(physical_index, int):
+        return False
+
+    page = next((candidate for candidate in pages if candidate["page"] == physical_index), None)
+    if not page:
+        return False
+
+    page_text = _normalize_for_match(page.get("text", ""))
+    if not page_text:
+        return False
+
+    title_index = page_text.find(title)
+    if title_index < 0:
+        return False
+
+    prefix = page_text[:title_index].strip()
+    if not prefix:
+        return True
+
+    prefix_tokens = prefix.split()
+    return len(prefix_tokens) <= 6
+
+
+def _last_nonempty_page(pages: list[LabeledPage]) -> int:
+    nonempty = [page["page"] for page in pages if page.get("text", "").strip()]
+    return max(nonempty, default=len(pages))
+
+
 def candidate_sections_to_tree(
     sections: list[CandidateSection],
     pages: list[LabeledPage],
 ) -> list[TreeNode]:
     normalized = _add_preface_if_needed(normalize_candidate_sections(sections, len(pages)))
     drafts: list[dict[str, Any]] = []
+    last_nonempty_page = _last_nonempty_page(pages)
 
     for index, section in enumerate(normalized):
         current_start = section["physical_index"]
@@ -212,10 +249,14 @@ def candidate_sections_to_tree(
         next_section = normalized[index + 1] if index + 1 < len(normalized) else None
         if next_section and isinstance(next_section.get("physical_index"), int):
             next_start = int(next_section["physical_index"])
-            end_index = next_start - 1 if next_section.get("appear_start") == "yes" else next_start
+            next_starts_page = (
+                next_section.get("appear_start") == "yes"
+                or _section_title_starts_page(next_section, pages)
+            )
+            end_index = next_start - 1 if next_starts_page else next_start
             end_index = max(current_start, end_index)
         else:
-            end_index = len(pages)
+            end_index = last_nonempty_page
 
         drafts.append(
             {

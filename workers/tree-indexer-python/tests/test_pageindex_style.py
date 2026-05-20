@@ -75,6 +75,35 @@ class PageIndexStyleTests(unittest.TestCase):
         self.assertEqual([chunk["node_id"] for chunk in chunks], ["0000", "0001", "0002"])
         self.assertIsNone(remove_node_text(tree)[0].get("text"))
 
+    def test_title_near_page_start_prevents_next_page_contamination(self) -> None:
+        pages = [
+            {"page": 1, "text": "LOGO AriesTruck specs"},
+            {"page": 2, "text": "SALDIVIA FAMILIA Aries30s specs"},
+            {"page": 3, "text": ""},
+        ]
+        tree = candidate_sections_to_tree(
+            [
+                {
+                    "appear_start": "no",
+                    "physical_index": "<physical_index_1>",
+                    "structure": "1",
+                    "title": "AriesTruck",
+                },
+                {
+                    "appear_start": "no",
+                    "physical_index": "<physical_index_2>",
+                    "structure": "2",
+                    "title": "Aries30s",
+                },
+            ],
+            pages,
+        )
+
+        self.assertEqual(tree[0]["start_index"], 1)
+        self.assertEqual(tree[0]["end_index"], 1)
+        self.assertEqual(tree[1]["start_index"], 2)
+        self.assertEqual(tree[1]["end_index"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

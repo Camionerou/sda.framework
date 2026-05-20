@@ -41,3 +41,4 @@ separado, con estado claro y sin secretos.
 34. `2026-05-20-34-fastapi-tree-indexer-deploy-srv.md`
 35. `2026-05-20-35-compute-gateway-tree-proxy.md`
 36. `2026-05-20-36-openrouter-gemini-tree-index-real.md`
+37. `2026-05-20-37-tree-range-quality-audit.md`

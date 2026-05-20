@@ -133,7 +133,8 @@ def _verification_prompt(sections: list[CandidateSection], pages: list[LabeledPa
 
 For each section, check whether the title appears or starts in its assigned page excerpt.
 Use fuzzy matching and ignore spacing inconsistencies. Do not invent new sections.
-Set appear_start to "yes" only when the title starts at the beginning of the page excerpt.
+Set appear_start to "yes" when the title starts a new section on that page,
+even if there is a repeated logo, brand, page header, or family label before the title.
 
 Candidate sections with page excerpts:
 {json.dumps(evidence, ensure_ascii=False, indent=2)}
