@@ -19,7 +19,7 @@ import {
   type IndexingRunStatus,
   type IndexingRunRow
 } from "@/lib/documents";
-import { formatDateTime } from "@/lib/session";
+import { compactId, formatDateTime } from "@/lib/session";
 import { createClient } from "@/lib/supabase/client";
 
 type IndexingTimelineProps = {
@@ -180,7 +180,7 @@ export function IndexingTimeline({
           <h3>{run ? indexingStageLabel(run.stage) : "Sin corrida todavía"}</h3>
           <p>
             {run
-              ? `Intento ${run.attempt} · ${run.progress}% completado`
+              ? `${run.compute_job_id ? `Job ${compactId(run.compute_job_id)} · ` : ""}Intento ${run.attempt} · ${run.progress}% completado`
               : "Creá una corrida para dejar el documento en cola de indexación."}
           </p>
         </div>

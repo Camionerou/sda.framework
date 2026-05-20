@@ -30,3 +30,4 @@ separado, con estado claro y sin secretos.
 23. `2026-05-20-23-inngest-cloud-sync.md`
 24. `2026-05-20-24-signout-prefetch-fix.md`
 25. `2026-05-20-25-invitaciones-sin-expiracion.md`
+26. `2026-05-20-26-compute-gateway-contract.md`

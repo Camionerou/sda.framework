@@ -354,7 +354,9 @@ Estado actual implementado:
 6. RPC `request_document_indexing` crea o reutiliza una corrida en
    `indexing_runs`.
 7. Se emite `document/index.requested` a Inngest si hay entorno configurado.
-8. UI muestra timeline en vivo por Supabase Realtime.
+8. Inngest firma una URL temporal del archivo privado y crea un job async en el
+   Compute Gateway cuando `COMPUTE_GATEWAY_URL` esta configurado.
+9. UI muestra timeline en vivo por Supabase Realtime.
 
 ### 4.3 Ingest + SDA Tree Index
 
@@ -554,9 +556,9 @@ Estado ya implementado:
 
 Siguiente corte:
 
-1. Crear skeleton de Compute Gateway para `srv-ia-01`.
-2. Conectar Inngest con el Compute Gateway.
-3. Integrar MinerU extraction.
+1. Levantar Compute Gateway minimo en `srv-ia-01`.
+2. Configurar `COMPUTE_GATEWAY_URL` y `COMPUTE_GATEWAY_TOKEN` en Vercel.
+3. Integrar MinerU extraction dentro del job async.
 4. Implementar LangGraph SDA Tree Indexer minimo.
 5. Persistir `doc_tree`.
 6. Persistir nodos/paginas en `chunks`.

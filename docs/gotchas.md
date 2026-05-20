@@ -37,6 +37,13 @@
 - If keys are pasted in chat, rotate them after validation from Inngest Cloud.
 - Inngest Cloud app sync can be triggered programmatically against `https://api.inngest.com/v2/apps/<app-id>/syncs` using the signing key. The event key is for sending events, not for syncing app configuration.
 
+## Compute Gateway
+
+- Inngest must not pass Supabase service-role keys to the gateway. It sends a short-lived signed URL for the specific document.
+- Do not log `document.signed_url` in the gateway, Inngest step output, or DB metadata. Store only job ids, storage paths, and sanitized status.
+- `COMPUTE_GATEWAY_URL` enables real dispatch. Without it, the app keeps the run queued and writes a live `indexing.compute_gateway.pending` event.
+- The gateway token is shared between Vercel and `srv-ia-01`; rotate it if it is pasted into chat or shell history.
+
 ## Next.js links with side effects
 
 - Do not use `next/link` for routes with side effects like `/auth/sign-out`. In production, prefetch/navigation behavior can call the route before the user intends to sign out.
