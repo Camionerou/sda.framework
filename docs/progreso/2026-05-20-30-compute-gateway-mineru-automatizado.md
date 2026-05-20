@@ -53,10 +53,31 @@ Resultado:
 
 ## Pendiente inmediato
 
-Inngest Cloud debe cerrar el loop:
+Inngest Cloud ya cierra el loop de extraccion:
 
 1. crear job en el gateway;
 2. poller `GET /v1/index-jobs/:id`;
 3. persistir `document_extractions`;
 4. persistir `document_extraction_artifacts`;
 5. avanzar el documento a `structuring`, donde entra LangGraph Tree Indexer.
+
+Smoke cloud:
+
+```text
+event_id: 01KS3HQZM38MEG8C3TFM3G06ZJ
+run_id: 2047c294-c4c8-4698-8ba9-d77af6e49e86
+compute_job_id: 63d9abe4-93d1-4471-bcfa-4466f0eba9ce
+```
+
+Resultado:
+
+- `indexing_runs.status`: `running`
+- `indexing_runs.stage`: `structuring`
+- `indexing_runs.progress`: `35`
+- `documents.status`: `structuring`
+- `documents.status_reason`: `Extraccion MinerU lista; Tree Indexer pendiente`
+- `document_extractions.status`: `succeeded`
+- `document_extraction_artifacts`: `49` filas
+
+Siguiente corte real: implementar LangGraph Tree Indexer sobre los artefactos
+MinerU ya persistidos.
