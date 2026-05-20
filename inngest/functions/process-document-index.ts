@@ -26,6 +26,14 @@ type DocumentForIndexing = {
   title: string | null;
 };
 
+type IndexingRunClaim = {
+  id: string;
+  inngest_run_id: string | null;
+  progress: number;
+  stage: string;
+  status: string;
+};
+
 function getWorkflowConcurrency() {
   const value = Number(process.env.INDEXING_WORKFLOW_CONCURRENCY ?? 2);
 
@@ -152,6 +160,98 @@ export const processDocumentIndex = inngest.createFunction(
     triggers: [documentIndexRequested]
   },
   async ({ event, step }) => {
+    const claim = await step.run("claim-indexing-run", async () => {
+      const supabase = createAdminClient();
+      const now = new Date().toISOString();
+      const { data: claimed, error: claimError } = await supabase
+        .from("indexing_runs")
+        .update({
+          error_message: null,
+          inngest_run_id: event.id,
+          progress: 1,
+          stage: "queued",
+          started_at: now,
+          status: "running"
+        })
+        .eq("id", event.data.run_id)
+        .eq("tenant_id", event.data.tenant_id)
+        .eq("status", "queued")
+        .select("id, inngest_run_id, progress, stage, status")
+        .maybeSingle<IndexingRunClaim>();
+
+      if (claimError) {
+        throw claimError;
+      }
+
+      if (claimed) {
+        return {
+          progress: claimed.progress,
+          reason: "claimed",
+          shouldProcess: true,
+          stage: claimed.stage,
+          status: claimed.status
+        };
+      }
+
+      const { data: existing, error: existingError } = await supabase
+        .from("indexing_runs")
+        .select("id, inngest_run_id, progress, stage, status")
+        .eq("id", event.data.run_id)
+        .eq("tenant_id", event.data.tenant_id)
+        .maybeSingle<IndexingRunClaim>();
+
+      if (existingError) {
+        throw existingError;
+      }
+
+      if (existing?.status === "running" && existing.inngest_run_id === event.id) {
+        return {
+          progress: existing.progress,
+          reason: "retry_same_event",
+          shouldProcess: true,
+          stage: existing.stage,
+          status: existing.status
+        };
+      }
+
+      if (existing) {
+        await supabase.from("indexing_events").insert({
+          document_id: event.data.document_id,
+          event_type: "indexing.orchestrator.skipped",
+          metadata: {
+            current_inngest_event_id: existing.inngest_run_id,
+            incoming_inngest_event_id: event.id,
+            reason: "run_already_claimed_or_terminal",
+            source: event.data.source
+          },
+          message: "Evento de indexacion duplicado ignorado",
+          progress: existing.progress,
+          run_id: event.data.run_id,
+          severity: "debug",
+          stage: existing.stage,
+          tenant_id: event.data.tenant_id
+        });
+      }
+
+      return {
+        progress: existing?.progress ?? 0,
+        reason: existing ? "already_claimed_or_terminal" : "run_not_found",
+        shouldProcess: false,
+        stage: existing?.stage ?? "missing",
+        status: existing?.status ?? "missing"
+      };
+    });
+
+    if (!claim.shouldProcess) {
+      return {
+        document_id: event.data.document_id,
+        reason: claim.reason,
+        run_id: event.data.run_id,
+        stage: claim.stage,
+        status: "skipped"
+      };
+    }
+
     await step.run("record-orchestrator-received", async () => {
       const supabase = createAdminClient();
       const { error } = await supabase.from("indexing_events").insert({
@@ -200,7 +300,17 @@ export const processDocumentIndex = inngest.createFunction(
     if (!isComputeGatewayConfigured()) {
       await step.run("record-compute-gateway-pending", async () => {
         const supabase = createAdminClient();
-        const [{ error: eventError }, { error: documentError }] = await Promise.all([
+        const [{ error: runError }, { error: eventError }, { error: documentError }] = await Promise.all([
+          supabase
+            .from("indexing_runs")
+            .update({
+              error_message: "Esperando Compute Gateway",
+              progress: 0,
+              stage: "queued",
+              status: "queued"
+            })
+            .eq("id", event.data.run_id)
+            .eq("tenant_id", event.data.tenant_id),
           supabase.from("indexing_events").insert({
             document_id: event.data.document_id,
             event_type: "indexing.compute_gateway.pending",
@@ -223,6 +333,10 @@ export const processDocumentIndex = inngest.createFunction(
             .eq("id", event.data.document_id)
             .eq("tenant_id", event.data.tenant_id)
         ]);
+
+        if (runError) {
+          throw runError;
+        }
 
         if (eventError) {
           throw eventError;

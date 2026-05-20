@@ -35,7 +35,7 @@
 - Keys alone are not enough for cloud execution. Inngest Cloud also needs a public HTTPS URL for the serve endpoint, for example `https://app.example.com/api/inngest`.
 - A Cloudflare quick tunnel can expose localhost for a temporary test, but it is not production hosting. The final setup needs a stable deploy URL.
 - If keys are pasted in chat, rotate them after validation from Inngest Cloud.
-- Inngest Cloud app sync can be triggered programmatically against `https://api.inngest.com/v2/apps/<app-id>/syncs` using the signing key. The event key is for sending events, not for syncing app configuration.
+- Inngest Cloud app sync can be triggered programmatically against `https://api.inngest.com/v2/apps/<app-id>/syncs` using an Inngest API key. The event key is for sending events, and the signing key secures app/server communication; do not assume either one replaces the REST API key.
 
 ## Compute Gateway
 
@@ -56,6 +56,8 @@
 - Document dedupe uses `checksum_sha256` per tenant only after `uploaded_at` is set. A half-uploaded attempt should not block the same file forever.
 - Duplicate uploads should return the existing document and skip Storage upload; ingestion can be requested separately from the document detail.
 - If Storage rejects an upload after the `documents` row is created, call `mark_document_upload_failed` so the library shows `failed` instead of stale `uploading`.
+- Automatic indexing needs a cloud reconciler, not only the upload request. The upload path may fail after Storage succeeds, so Inngest must periodically enqueue uploaded documents without active runs and redispatch stale queued runs.
+- The indexing worker must claim `indexing_runs` idempotently before creating compute jobs. Reconciler redispatches are expected, and duplicate Inngest events must not create duplicate MinerU jobs.
 
 ## Next.js links with side effects
 
