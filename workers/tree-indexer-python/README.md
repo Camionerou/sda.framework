@@ -30,6 +30,7 @@ SDA_TREE_LLM_API_KEY=
 SDA_TREE_LLM_MODEL=
 SDA_TREE_SUMMARY_MODEL=
 SDA_TREE_LLM_TIMEOUT_SECONDS=120
+SDA_TREE_LLM_TIMEOUT_MS=
 SDA_TREE_LLM_JSON_MODE=
 SDA_TREE_MAX_PROMPT_CHARS=60000
 SDA_TREE_SUMMARY_CONCURRENCY=3
@@ -55,6 +56,18 @@ uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8790}"
 ```bash
 PYTHONPATH=. python -m unittest discover tests
 ```
+
+## Deploy en srv-ia-01
+
+```bash
+cd workers/tree-indexer-python
+./deploy.sh
+```
+
+El script reutiliza `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y el token del
+Compute Gateway remoto si ya existen. Las variables de LLM se conservan desde
+un `.env` remoto previo o se toman del entorno local si se exportan antes de
+correr el deploy.
 
 ## Crear job
 

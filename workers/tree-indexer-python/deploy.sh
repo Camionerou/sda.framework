@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST="${SDA_TREE_INDEXER_SSH_HOST:-sistemas@srv-ia-01}"
+REMOTE_DIR="${SDA_TREE_INDEXER_REMOTE_DIR:-/home/sistemas/sda-tree-indexer-python}"
+DATA_DIR="${SDA_TREE_INDEXER_DATA_DIR:-/home/sistemas/sda-tree-indexer-data}"
+PORT="${SDA_TREE_INDEXER_PORT:-8790}"
+CONCURRENCY="${SDA_TREE_INDEXER_CONCURRENCY:-1}"
+GATEWAY_ENV="${SDA_COMPUTE_GATEWAY_REMOTE_ENV:-/home/sistemas/sda-compute-gateway/.env}"
+
+remote_env_value() {
+  local file="$1"
+  local key="$2"
+  ssh "$HOST" "if [[ -f '$file' ]]; then awk -F= -v key='$key' '\$1 == key {print substr(\$0, index(\$0,\"=\")+1); exit}' '$file'; fi"
+}
+
+if [[ -z "${SDA_TREE_INDEXER_TOKEN:-}" ]]; then
+  SDA_TREE_INDEXER_TOKEN="$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_INDEXER_TOKEN)"
+fi
+
+if [[ -z "${SDA_TREE_INDEXER_TOKEN:-}" ]]; then
+  SDA_TREE_INDEXER_TOKEN="${SDA_COMPUTE_GATEWAY_TOKEN:-$(remote_env_value "$GATEWAY_ENV" SDA_COMPUTE_GATEWAY_TOKEN)}"
+fi
+
+if [[ -z "${SDA_TREE_INDEXER_TOKEN:-}" ]]; then
+  SDA_TREE_INDEXER_TOKEN="$(openssl rand -hex 32)"
+fi
+
+LOCAL_SUPABASE_URL="${SUPABASE_URL:-}"
+LOCAL_SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
+REMOTE_SUPABASE_URL="$(remote_env_value "$GATEWAY_ENV" SUPABASE_URL)"
+REMOTE_SUPABASE_SERVICE_ROLE_KEY="$(remote_env_value "$GATEWAY_ENV" SUPABASE_SERVICE_ROLE_KEY)"
+
+SUPABASE_URL="${SDA_TREE_INDEXER_SUPABASE_URL:-${REMOTE_SUPABASE_URL:-${NEXT_PUBLIC_SUPABASE_URL:-$LOCAL_SUPABASE_URL}}}"
+SUPABASE_SERVICE_ROLE_KEY="${SDA_TREE_INDEXER_SUPABASE_SERVICE_ROLE_KEY:-${REMOTE_SUPABASE_SERVICE_ROLE_KEY:-$LOCAL_SUPABASE_SERVICE_ROLE_KEY}}"
+
+SDA_TREE_LLM_PROVIDER="${SDA_TREE_LLM_PROVIDER:-$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_LLM_PROVIDER)}"
+SDA_TREE_LLM_BASE_URL="${SDA_TREE_LLM_BASE_URL:-$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_LLM_BASE_URL)}"
+SDA_TREE_LLM_API_KEY="${SDA_TREE_LLM_API_KEY:-$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_LLM_API_KEY)}"
+SDA_TREE_LLM_MODEL="${SDA_TREE_LLM_MODEL:-$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_LLM_MODEL)}"
+SDA_TREE_SUMMARY_MODEL="${SDA_TREE_SUMMARY_MODEL:-$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_SUMMARY_MODEL)}"
+SDA_TREE_LLM_TIMEOUT_SECONDS="${SDA_TREE_LLM_TIMEOUT_SECONDS:-$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_LLM_TIMEOUT_SECONDS)}"
+SDA_TREE_LLM_TIMEOUT_MS="${SDA_TREE_LLM_TIMEOUT_MS:-$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_LLM_TIMEOUT_MS)}"
+SDA_TREE_LLM_JSON_MODE="${SDA_TREE_LLM_JSON_MODE:-$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_LLM_JSON_MODE)}"
+SDA_TREE_MAX_PROMPT_CHARS="${SDA_TREE_MAX_PROMPT_CHARS:-$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_MAX_PROMPT_CHARS)}"
+SDA_TREE_SUMMARY_CONCURRENCY="${SDA_TREE_SUMMARY_CONCURRENCY:-$(remote_env_value "$REMOTE_DIR/.env" SDA_TREE_SUMMARY_CONCURRENCY)}"
+OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-$(remote_env_value "$REMOTE_DIR/.env" OPENROUTER_API_KEY)}"
+OPENAI_API_KEY="${OPENAI_API_KEY:-$(remote_env_value "$REMOTE_DIR/.env" OPENAI_API_KEY)}"
+
+ssh "$HOST" "mkdir -p '$REMOTE_DIR' '$DATA_DIR' ~/.config/systemd/user"
+
+rsync -av --delete \
+  --exclude ".env" \
+  --exclude ".venv" \
+  --exclude "__pycache__" \
+  "$SCRIPT_DIR/" \
+  "$HOST:$REMOTE_DIR/"
+
+ssh "$HOST" "cat > '$REMOTE_DIR/.env' <<'EOF'
+PORT=$PORT
+SDA_TREE_INDEXER_DATA_DIR=$DATA_DIR
+SDA_TREE_INDEXER_TOKEN=$SDA_TREE_INDEXER_TOKEN
+SDA_TREE_INDEXER_CONCURRENCY=$CONCURRENCY
+SUPABASE_URL=$SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
+SDA_TREE_LLM_PROVIDER=$SDA_TREE_LLM_PROVIDER
+SDA_TREE_LLM_BASE_URL=$SDA_TREE_LLM_BASE_URL
+SDA_TREE_LLM_API_KEY=$SDA_TREE_LLM_API_KEY
+SDA_TREE_LLM_MODEL=$SDA_TREE_LLM_MODEL
+SDA_TREE_SUMMARY_MODEL=$SDA_TREE_SUMMARY_MODEL
+SDA_TREE_LLM_TIMEOUT_SECONDS=${SDA_TREE_LLM_TIMEOUT_SECONDS:-120}
+SDA_TREE_LLM_TIMEOUT_MS=$SDA_TREE_LLM_TIMEOUT_MS
+SDA_TREE_LLM_JSON_MODE=$SDA_TREE_LLM_JSON_MODE
+SDA_TREE_MAX_PROMPT_CHARS=${SDA_TREE_MAX_PROMPT_CHARS:-60000}
+SDA_TREE_SUMMARY_CONCURRENCY=${SDA_TREE_SUMMARY_CONCURRENCY:-3}
+OPENROUTER_API_KEY=$OPENROUTER_API_KEY
+OPENAI_API_KEY=$OPENAI_API_KEY
+EOF"
+
+ssh "$HOST" "python3 -m venv '$REMOTE_DIR/.venv' && '$REMOTE_DIR/.venv/bin/pip' install --upgrade pip >/dev/null && '$REMOTE_DIR/.venv/bin/pip' install -r '$REMOTE_DIR/requirements.txt'"
+ssh "$HOST" "cp '$REMOTE_DIR/sda-tree-indexer.service' ~/.config/systemd/user/sda-tree-indexer.service"
+ssh "$HOST" "if sudo -n true 2>/dev/null; then sudo loginctl enable-linger \"\$(whoami)\"; fi"
+ssh "$HOST" "systemctl --user daemon-reload && systemctl --user enable sda-tree-indexer.service && systemctl --user restart sda-tree-indexer.service"
+ssh "$HOST" "systemctl --user --no-pager --full status sda-tree-indexer.service"

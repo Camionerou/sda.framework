@@ -44,6 +44,7 @@
 - `COMPUTE_GATEWAY_URL` enables real dispatch. Without it, the app keeps the run queued and writes a live `indexing.compute_gateway.pending` event.
 - The gateway token is shared between Vercel and `srv-ia-01`; rotate it if it is pasted into chat or shell history.
 - `srv-ia-01` is currently exposed through Tailscale Funnel at `https://srv-ia-01.taileb1b9c.ts.net`; keep bearer auth enabled because Funnel is public HTTPS.
+- Worker deploys on `srv-ia-01` should treat the remote Compute Gateway `.env` as the source of truth for `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Local shells may contain stale Supabase URLs from earlier projects.
 
 ## Upload vs Ingestion
 

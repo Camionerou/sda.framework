@@ -39,6 +39,14 @@ def _positive_float(value: str | None, fallback: float) -> float:
     return parsed if parsed > 0 else fallback
 
 
+def _timeout_seconds() -> float:
+    if seconds := os.getenv("SDA_TREE_LLM_TIMEOUT_SECONDS"):
+        return _positive_float(seconds, 120)
+    if milliseconds := os.getenv("SDA_TREE_LLM_TIMEOUT_MS"):
+        return _positive_float(milliseconds, 120_000) / 1000
+    return 120
+
+
 def infer_provider() -> str:
     if provider := os.getenv("SDA_TREE_LLM_PROVIDER"):
         return provider
@@ -86,7 +94,7 @@ def get_tree_llm_config(purpose: Purpose) -> TreeLlmConfig:
         base_url=infer_base_url(provider),
         model=model,
         provider=provider,
-        timeout_seconds=_positive_float(os.getenv("SDA_TREE_LLM_TIMEOUT_SECONDS"), 120),
+        timeout_seconds=_timeout_seconds(),
     )
 
 
