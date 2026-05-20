@@ -21,6 +21,8 @@ SDA_MINERU_BACKEND=pipeline
 SDA_MINERU_LANG=latin
 SUPABASE_URL=https://project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
+SDA_TREE_INDEXER_URL=http://127.0.0.1:8790
+SDA_TREE_INDEXER_TOKEN=secret
 ```
 
 `SDA_COMPUTE_GATEWAY_TOKEN` es opcional para desarrollo, pero obligatorio en el
@@ -43,3 +45,12 @@ El gateway procesa jobs en background con concurrencia limitada. Para cada job:
 2. ejecuta MinerU real;
 3. sube markdown, JSON, PDFs de debug, imagenes y log a Supabase Storage;
 4. deja un manifest consultable en `GET /v1/index-jobs/:id`.
+
+Tambien proxy a `SDA_TREE_INDEXER_URL` para:
+
+- `POST /v1/tree-index-jobs`
+- `GET /v1/tree-index-jobs/:id`
+- `GET /v1/tree-index-jobs/:id/result`
+
+Esto permite que Inngest use una sola `COMPUTE_GATEWAY_URL` publica y el mismo
+control de bearer auth para MinerU y el Tree Indexer Python.

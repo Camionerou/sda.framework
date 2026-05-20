@@ -20,6 +20,11 @@ const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/+$/, "");
 const TOKEN = process.env.SDA_COMPUTE_GATEWAY_TOKEN;
+const TREE_INDEXER_TOKEN = process.env.SDA_TREE_INDEXER_TOKEN ?? TOKEN;
+const TREE_INDEXER_URL = (process.env.SDA_TREE_INDEXER_URL ?? "http://127.0.0.1:8790").replace(
+  /\/+$/,
+  ""
+);
 const execFileAsync = promisify(execFile);
 
 let activeJobs = 0;
@@ -61,6 +66,16 @@ async function readJson(request) {
   }
 
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+async function readText(request) {
+  const chunks = [];
+
+  for await (const chunk of request) {
+    chunks.push(chunk);
+  }
+
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 function validateIndexJob(payload) {
@@ -654,6 +669,40 @@ async function getIndexJob(request, response, jobId) {
   json(response, 200, job);
 }
 
+function isTreeIndexerPath(pathname) {
+  return (
+    pathname === "/v1/tree-index-jobs" ||
+    /^\/v1\/tree-index-jobs\/[a-f0-9-]+(?:\/result)?$/.test(pathname)
+  );
+}
+
+async function proxyTreeIndexer(request, response, url) {
+  if (!requireAuth(request, response)) {
+    return;
+  }
+
+  if (!["GET", "POST"].includes(request.method)) {
+    json(response, 405, { error: "Method not allowed." });
+    return;
+  }
+
+  const body = request.method === "POST" ? await readText(request) : undefined;
+  const upstreamResponse = await fetch(`${TREE_INDEXER_URL}${url.pathname}${url.search}`, {
+    body,
+    headers: {
+      ...(TREE_INDEXER_TOKEN ? { authorization: `Bearer ${TREE_INDEXER_TOKEN}` } : {}),
+      ...(request.headers["content-type"] ? { "content-type": request.headers["content-type"] } : {})
+    },
+    method: request.method
+  });
+  const text = await upstreamResponse.text();
+
+  response.writeHead(upstreamResponse.status, {
+    "content-type": upstreamResponse.headers.get("content-type") ?? "application/json; charset=utf-8"
+  });
+  response.end(text);
+}
+
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
@@ -667,8 +716,14 @@ const server = createServer(async (request, response) => {
         mineru_storage_configured: Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY),
         ok: true,
         pending_jobs: pendingJobs.length,
-        service: "sda-compute-gateway"
+        service: "sda-compute-gateway",
+        tree_indexer_url: TREE_INDEXER_URL
       });
+      return;
+    }
+
+    if (isTreeIndexerPath(url.pathname)) {
+      await proxyTreeIndexer(request, response, url);
       return;
     }
 

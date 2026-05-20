@@ -45,6 +45,7 @@
 - The gateway token is shared between Vercel and `srv-ia-01`; rotate it if it is pasted into chat or shell history.
 - `srv-ia-01` is currently exposed through Tailscale Funnel at `https://srv-ia-01.taileb1b9c.ts.net`; keep bearer auth enabled because Funnel is public HTTPS.
 - Worker deploys on `srv-ia-01` should treat the remote Compute Gateway `.env` as the source of truth for `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Local shells may contain stale Supabase URLs from earlier projects.
+- Keep the FastAPI Tree Indexer private behind the Node Compute Gateway unless there is a specific reason to expose another Funnel route. The gateway already proxies `/v1/tree-index-jobs`.
 
 ## Upload vs Ingestion
 

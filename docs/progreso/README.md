@@ -39,3 +39,4 @@ separado, con estado claro y sin secretos.
 32. `2026-05-20-32-langgraph-tree-indexer-real.md`
 33. `2026-05-20-33-fastapi-tree-indexer-python.md`
 34. `2026-05-20-34-fastapi-tree-indexer-deploy-srv.md`
+35. `2026-05-20-35-compute-gateway-tree-proxy.md`
