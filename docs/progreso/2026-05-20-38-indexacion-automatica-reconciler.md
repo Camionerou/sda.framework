@@ -1,6 +1,7 @@
 # Indexacion automatica con reconciliador
 
-Estado: implementado en codigo, pendiente de validacion cloud completa.
+Estado: implementado, pusheado y deployado en Vercel. Pendiente: sync de
+Inngest Cloud para registrar el cron.
 
 ## Objetivo
 
@@ -32,7 +33,14 @@ el mismo pipeline productivo de MinerU + Tree Indexer.
 
 ## Pendiente
 
-1. Deploy en Vercel.
-2. Sync de Inngest Cloud para registrar el cron. Si no esta instalada la
+1. Sync de Inngest Cloud para registrar el cron. Si no esta instalada la
    integracion de Vercel, el sync programatico requiere `INNGEST_API_KEY`.
-3. Smoke real subiendo un documento y observando que llegue a `indexed`.
+2. Smoke real subiendo un documento y observando que llegue a `indexed`.
+
+## Verificacion
+
+- Commit: `aa8cac9`.
+- Vercel deploy: `success`.
+- `/api/inngest` productivo responde `401 Unauthorized` sin firma, esperado.
+- `.env.local` tiene `INNGEST_EVENT_KEY` e `INNGEST_SIGNING_KEY`, pero no
+  `INNGEST_API_KEY`; por eso no se pudo ejecutar el sync REST desde terminal.

@@ -58,6 +58,8 @@
 - If Storage rejects an upload after the `documents` row is created, call `mark_document_upload_failed` so the library shows `failed` instead of stale `uploading`.
 - Automatic indexing needs a cloud reconciler, not only the upload request. The upload path may fail after Storage succeeds, so Inngest must periodically enqueue uploaded documents without active runs and redispatch stale queued runs.
 - The indexing worker must claim `indexing_runs` idempotently before creating compute jobs. Reconciler redispatches are expected, and duplicate Inngest events must not create duplicate MinerU jobs.
+- Never index a document that does not have `uploaded_at`. If Storage returns `Object not found`, treat it as permanent upload corruption: fail the run/document and emit `indexing.storage_object_missing` instead of leaving the run `running`.
+- A document with persisted `doc_tree` plus chunks is materially indexed even if a previous Inngest run died before the final status update. The reconciler should close that run as `completed/indexed`.
 
 ## Next.js links with side effects
 

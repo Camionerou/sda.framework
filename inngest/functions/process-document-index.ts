@@ -22,8 +22,10 @@ type DocumentForIndexing = {
   mime_type: string;
   r2_bucket: string;
   r2_key: string;
+  status: string;
   tenant_id: string;
   title: string | null;
+  uploaded_at: string | null;
 };
 
 type IndexingRunClaim = {
@@ -148,9 +150,79 @@ function artifactRows(
   }));
 }
 
+function messageFromError(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function isStorageObjectMissingError(error: unknown) {
+  const message = messageFromError(error, "").toLowerCase();
+
+  return message.includes("object not found") || message.includes("storage object not found");
+}
+
+async function recordPermanentIndexingFailure(input: {
+  documentId: string;
+  eventType: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+  progress?: number;
+  runId: string;
+  tenantId: string;
+}) {
+  const supabase = createAdminClient();
+  const now = new Date().toISOString();
+  const progress = input.progress ?? 100;
+  const [{ error: runError }, { error: documentError }, { error: eventError }] =
+    await Promise.all([
+      supabase
+        .from("indexing_runs")
+        .update({
+          error_message: input.message,
+          failed_at: now,
+          progress,
+          stage: "failed",
+          status: "failed"
+        })
+        .eq("id", input.runId)
+        .eq("tenant_id", input.tenantId),
+      supabase
+        .from("documents")
+        .update({
+          status: "failed",
+          status_reason: input.message
+        })
+        .eq("id", input.documentId)
+        .eq("tenant_id", input.tenantId),
+      supabase.from("indexing_events").insert({
+        document_id: input.documentId,
+        event_type: input.eventType,
+        metadata: input.metadata ?? {},
+        message: input.message,
+        progress,
+        run_id: input.runId,
+        severity: "error",
+        stage: "failed",
+        tenant_id: input.tenantId
+      })
+    ]);
+
+  if (runError) {
+    throw runError;
+  }
+
+  if (documentError) {
+    throw documentError;
+  }
+
+  if (eventError) {
+    throw eventError;
+  }
+}
+
 export const processDocumentIndex = inngest.createFunction(
   {
     concurrency: {
+      key: '"sda-document-indexing"',
       limit: getWorkflowConcurrency(),
       scope: "env"
     },
@@ -159,7 +231,8 @@ export const processDocumentIndex = inngest.createFunction(
     retries: 3,
     triggers: [documentIndexRequested]
   },
-  async ({ event, step }) => {
+  async ({ event, runId, step }) => {
+    const executionRunId = runId || event.id;
     const claim = await step.run("claim-indexing-run", async () => {
       const supabase = createAdminClient();
       const now = new Date().toISOString();
@@ -167,7 +240,7 @@ export const processDocumentIndex = inngest.createFunction(
         .from("indexing_runs")
         .update({
           error_message: null,
-          inngest_run_id: event.id,
+          inngest_run_id: executionRunId,
           progress: 1,
           stage: "queued",
           started_at: now,
@@ -204,7 +277,7 @@ export const processDocumentIndex = inngest.createFunction(
         throw existingError;
       }
 
-      if (existing?.status === "running" && existing.inngest_run_id === event.id) {
+      if (existing?.status === "running" && existing.inngest_run_id === executionRunId) {
         return {
           progress: existing.progress,
           reason: "retry_same_event",
@@ -220,7 +293,7 @@ export const processDocumentIndex = inngest.createFunction(
           event_type: "indexing.orchestrator.skipped",
           metadata: {
             current_inngest_event_id: existing.inngest_run_id,
-            incoming_inngest_event_id: event.id,
+            incoming_inngest_event_id: executionRunId,
             reason: "run_already_claimed_or_terminal",
             source: event.data.source
           },
@@ -260,6 +333,7 @@ export const processDocumentIndex = inngest.createFunction(
         metadata: {
           actor_id: event.data.actor_id,
           inngest_event_id: event.id,
+          inngest_run_id: executionRunId,
           source: event.data.source
         },
         message: "Inngest recibio la corrida de indexacion",
@@ -280,7 +354,7 @@ export const processDocumentIndex = inngest.createFunction(
       const { data, error } = await supabase
         .from("documents")
         .select(
-          "id, tenant_id, title, filename, mime_type, byte_size, checksum_sha256, r2_bucket, r2_key"
+          "id, tenant_id, title, filename, mime_type, byte_size, checksum_sha256, r2_bucket, r2_key, status, uploaded_at"
         )
         .eq("id", event.data.document_id)
         .eq("tenant_id", event.data.tenant_id)
@@ -296,6 +370,32 @@ export const processDocumentIndex = inngest.createFunction(
 
       return data;
     });
+
+    if (!document.uploaded_at) {
+      const message = "Upload incompleto: archivo no confirmado en Storage";
+      await step.run("record-document-upload-incomplete", async () =>
+        recordPermanentIndexingFailure({
+          documentId: event.data.document_id,
+          eventType: "indexing.storage_object_missing",
+          message,
+          metadata: {
+            document_status: document.status,
+            r2_bucket: document.r2_bucket,
+            r2_key: document.r2_key,
+            reason: "uploaded_at_missing"
+          },
+          runId: event.data.run_id,
+          tenantId: event.data.tenant_id
+        })
+      );
+
+      return {
+        document_id: event.data.document_id,
+        reason: "uploaded_at_missing",
+        run_id: event.data.run_id,
+        status: "storage_missing"
+      };
+    }
 
     if (!isComputeGatewayConfigured()) {
       await step.run("record-compute-gateway-pending", async () => {
@@ -407,7 +507,7 @@ export const processDocumentIndex = inngest.createFunction(
       }
     });
 
-    const gatewayJob = await (async (): Promise<ComputeGatewayIndexJobResponse> => {
+    const gatewayJob = await (async (): Promise<ComputeGatewayIndexJobResponse | null> => {
       try {
         return await step.run("create-compute-gateway-job", async () => {
           const supabase = createAdminClient();
@@ -439,12 +539,31 @@ export const processDocumentIndex = inngest.createFunction(
           });
         });
       } catch (dispatchError) {
+        const message = messageFromError(
+          dispatchError,
+          "No se pudo crear el job en Compute Gateway."
+        );
+        const storageObjectMissing = isStorageObjectMissingError(dispatchError);
+
         await step.run("record-compute-gateway-dispatch-failed", async () => {
           const supabase = createAdminClient();
-          const message =
-            dispatchError instanceof Error
-              ? dispatchError.message
-              : "No se pudo crear el job en Compute Gateway.";
+          if (storageObjectMissing) {
+            await recordPermanentIndexingFailure({
+              documentId: event.data.document_id,
+              eventType: "indexing.storage_object_missing",
+              message: "Upload incompleto: archivo no encontrado en Storage",
+              metadata: {
+                original_error: message,
+                r2_bucket: document.r2_bucket,
+                r2_key: document.r2_key,
+                reason: "signed_url_failed"
+              },
+              runId: event.data.run_id,
+              tenantId: event.data.tenant_id
+            });
+            return;
+          }
+
           const [{ error: runError }, { error: documentError }, { error: eventError }] =
             await Promise.all([
               supabase
@@ -493,9 +612,22 @@ export const processDocumentIndex = inngest.createFunction(
           }
         });
 
+        if (storageObjectMissing) {
+          return null;
+        }
+
         throw dispatchError;
       }
     })();
+
+    if (!gatewayJob) {
+      return {
+        document_id: event.data.document_id,
+        reason: "storage_object_missing",
+        run_id: event.data.run_id,
+        status: "storage_missing"
+      };
+    }
 
     await step.run("record-compute-gateway-job-created", async () => {
       const supabase = createAdminClient();

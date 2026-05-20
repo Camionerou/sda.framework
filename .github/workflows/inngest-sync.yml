@@ -1,0 +1,29 @@
+name: Sync Inngest
+
+on:
+  deployment_status:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.deployment_status.state == 'success' &&
+        github.event.deployment.environment == 'Production'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync SDA Inngest app
+        env:
+          INNGEST_API_KEY: ${{ secrets.INNGEST_API_KEY }}
+          INNGEST_APP_ID: sda-framework
+          INNGEST_APP_URL: https://sda-framework.vercel.app/api/inngest
+        run: |
+          test -n "$INNGEST_API_KEY"
+          curl --fail-with-body \
+            --request POST \
+            "https://api.inngest.com/v2/apps/${INNGEST_APP_ID}/syncs" \
+            --header "Authorization: Bearer ${INNGEST_API_KEY}" \
+            --header "Content-Type: application/json" \
+            --data "{\"url\":\"${INNGEST_APP_URL}\"}"

@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "indexing:health": "node scripts/indexing-health.mjs",
     "bootstrap:owner-invite": "node scripts/bootstrap-owner-invite.mjs"
   },
   "overrides": {
