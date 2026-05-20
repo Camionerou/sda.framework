@@ -4,6 +4,7 @@ Estado: implementado.
 
 ## Hecho
 
+- El bucket `documents` sube su limite a `5GiB`.
 - El frontend calcula `sha256` del archivo antes de crear el upload.
 - `create_document_upload` recibe `_checksum_sha256`.
 - Si ya existe un documento del mismo tenant con ese checksum y `uploaded_at`

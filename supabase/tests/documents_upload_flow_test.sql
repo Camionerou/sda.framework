@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(12);
+SELECT plan(13);
 
 insert into public.tenants (id, slug, name)
 values
@@ -78,6 +78,16 @@ SELECT ok(
       and public = false
   ),
   'Private documents storage bucket exists'
+);
+
+SELECT is(
+  (
+    select file_size_limit
+    from storage.buckets
+    where id = 'documents'
+  ),
+  5368709120::bigint,
+  'Documents storage bucket allows files up to 5 GiB'
 );
 
 SELECT ok(

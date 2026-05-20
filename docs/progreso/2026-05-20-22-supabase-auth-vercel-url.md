@@ -25,7 +25,8 @@ http://127.0.0.1:3000/auth/callback
   - provider habilitado;
   - client id restaurado;
   - secret presente en remoto.
-- Storage global quedo restaurado a `500MiB`.
+- Storage global quedo restaurado inicialmente a `500MiB`. Luego el bucket
+  `documents` se elevo a `5GiB` para soportar PDFs pesados.
 
 ## Verificacion
 
