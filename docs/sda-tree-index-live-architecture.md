@@ -85,19 +85,29 @@ para administracion por SSH y operacion interna.
 ```text
 Inngest Cloud
   -> https://compute.tudominio.com/v1/index-jobs
+  -> https://compute.tudominio.com/v1/tree-index-jobs
   -> Cloudflare Access valida service token
   -> cloudflared en srv-ia-01
-  -> SDA Compute Gateway local
+  -> SDA Compute Gateway / FastAPI Tree Indexer local
 ```
 
 No queremos requests HTTP largas de 15 minutos. Preferimos jobs async:
 
 ```text
 POST /v1/index-jobs
-  responde rapido: job_id
+  responde rapido: job_id de extraccion MinerU
 
 GET /v1/index-jobs/:id
   estado actual
+
+POST /v1/tree-index-jobs
+  responde rapido: job_id de arbol PageIndex-style
+
+GET /v1/tree-index-jobs/:id
+  estado actual
+
+GET /v1/tree-index-jobs/:id/result
+  tree/chunks/summaries cuando termina
 
 worker interno
   procesa en background

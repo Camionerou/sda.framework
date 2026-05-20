@@ -86,10 +86,11 @@ La arquitectura combina:
                         ▼
       ┌────────────────────────────────────────────────────────────────┐
       │ srv-ia-01 · SDA COMPUTE GATEWAY                                │
-      │ FastAPI / job worker                                           │
+      │ job workers privados                                           │
       │                                                                │
-      │ /v1/index-jobs  -> crea job async                              │
-      │ /v1/health      -> healthcheck                                 │
+      │ Node gateway:    /v1/index-jobs                                │
+      │ FastAPI tree:    /v1/tree-index-jobs                           │
+      │ Healthchecks:    /v1/health                                    │
       │                                                                │
       │ MinerU extraction                                              │
       │ LangGraph SDA Tree Indexer                                     │
@@ -191,8 +192,15 @@ Servicios esperados:
 
 ```text
 GET  /v1/health
+
+Node Compute Gateway:
 POST /v1/index-jobs
 GET  /v1/index-jobs/:id
+
+FastAPI Tree Indexer:
+POST /v1/tree-index-jobs
+GET  /v1/tree-index-jobs/:id
+GET  /v1/tree-index-jobs/:id/result
 ```
 
 Responsabilidades:
@@ -266,6 +274,13 @@ Referencia operativa: `docs/pageindex-tree-builder-reference.md`. La decision
 central queda fijada ahi: el arbol candidato lo propone un LLM al estilo
 PageIndex; las heuristicas deterministicas solo preparan evidencia, validan,
 normalizan rangos y persisten.
+
+Implementacion inicial:
+
+- TypeScript/Inngest en `lib/tree-indexer` como control-plane integrado a la app.
+- Python/FastAPI en `workers/tree-indexer-python` para correr en `srv-ia-01`
+  cuando pasemos el trabajo estructural pesado al servidor privado.
+- Ambos mantienen la misma regla: sin LLM configurado, no se crea arbol fake.
 
 Pipeline conceptual:
 
@@ -613,13 +628,12 @@ Estado ya implementado:
 
 Siguiente corte:
 
-1. Automatizar MinerU real dentro del Compute Gateway.
-2. Persistir `document_extractions` y `document_extraction_artifacts`.
-3. Hacer que Inngest Cloud observe el job hasta terminal.
-4. Implementar LangGraph SDA Tree Indexer minimo.
-5. Persistir `doc_tree`.
-6. Persistir nodos/paginas en `chunks`.
-7. Agregar retrieval tools iniciales.
+1. Desplegar `workers/tree-indexer-python` en `srv-ia-01` con Python 3.12.
+2. Configurar provider/modelo LLM estructural con secrets de servidor.
+3. Hacer que Inngest cree jobs en el FastAPI Tree Indexer y observe estado
+   hasta terminal.
+4. Persistir `doc_tree` y nodos recuperables desde el resultado Python.
+5. Agregar embeddings jerarquicos y retrieval tools iniciales.
 
 ---
 

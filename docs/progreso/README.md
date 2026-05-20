@@ -37,3 +37,4 @@ separado, con estado claro y sin secretos.
 30. `2026-05-20-30-compute-gateway-mineru-automatizado.md`
 31. `2026-05-20-31-pageindex-tree-builder-reference.md`
 32. `2026-05-20-32-langgraph-tree-indexer-real.md`
+33. `2026-05-20-33-fastapi-tree-indexer-python.md`
