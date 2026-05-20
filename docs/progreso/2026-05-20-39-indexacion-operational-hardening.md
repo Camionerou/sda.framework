@@ -1,6 +1,8 @@
 # Hardening operacional de indexacion
 
-Estado: implementado en codigo, pendiente de aplicar migracion y deploy.
+Estado: implementado, migracion aplicada, deployado en Vercel y datos
+operacionales reparados. Pendiente externo: sync de Inngest Cloud bloqueado por
+GitHub Actions billing.
 
 ## Hallazgos que dispara este sprint
 
@@ -40,12 +42,24 @@ es efimero: locks con TTL por documento, rate limits por tenant/user,
 heartbeats de jobs y cache de retrieval/LLM. No debe reemplazar Postgres como
 fuente de verdad.
 
+## Verificacion aplicada
+
+- Migracion aplicada en Supabase remoto:
+  `20260520233000_indexing_operational_hardening.sql`.
+- Commit publicado: `181e23c`.
+- Vercel Production deploy: `dpl_5PRSnoxYbfFwQnAgQqsXgp7DH2Qn`.
+- `npm run typecheck` y `npm run lint` pasan.
+- `npm run indexing:health` queda sin anomalias accionables:
+  - 2 documentos `indexed`;
+  - 1 corrida `failed` terminal por upload incompleto;
+  - 0 corridas activas sin `uploaded_at`;
+  - 0 documentos `uploaded` sin corrida activa;
+  - 0 documentos `indexed` sin arbol/chunks.
+
 ## Pendiente operativo
 
-1. Aplicar la migracion `20260520233000_indexing_operational_hardening.sql`.
-2. Publicar `.github/workflows/inngest-sync.yml` para que Inngest Cloud registre
-   el cron despues de deploys productivos.
-3. Deployar Vercel.
-4. Ejecutar `npm run indexing:health`.
-5. Verificar que el documento SQL pase de `uploaded` a `queued/running/indexed`
-   por reconciliador.
+1. Resolver billing/spending limit de GitHub Actions o ejecutar sync REST con
+   `INNGEST_API_KEY` local para registrar el cron en Inngest Cloud.
+2. Cuando el sync corra, confirmar en Inngest Cloud que existen
+   `process-document-index` y `reconcile-document-indexing`.
+3. Mantener `npm run indexing:health` como smoke operativo despues de deploys.
