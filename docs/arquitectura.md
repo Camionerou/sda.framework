@@ -1,487 +1,576 @@
 # Arquitectura del Sistema
 
-App empresarial multitenant para ingesta, indexación y consulta de documentos mediante agentes de IA.
+App empresarial multitenant para ingesta, indexacion y consulta de documentos
+mediante agentes de IA.
+
+Este documento describe la arquitectura general vigente. La especificacion de
+indexacion estructural vive en
+[`docs/sda-tree-index-live-architecture.md`](./sda-tree-index-live-architecture.md).
 
 ---
 
 ## 1. Resumen ejecutivo
 
-El sistema permite a clientes empresariales subir documentos (principalmente PDFs), indexarlos automáticamente con un enfoque de razonamiento estructural (no solo embeddings), y consultarlos mediante un agente conversacional. La arquitectura combina **servicios cloud managed** para todo lo síncrono y de auth, **un workflow engine durable** para la ingesta, y **un servidor local con GPU** para el LLM open-source y el parsing de documentos.
+El sistema permite a clientes empresariales subir documentos, indexarlos con una
+arquitectura de arbol semantico verificable y consultarlos mediante un agente
+conversacional. La prioridad es evitar naive RAG: no tratamos el documento como
+una bolsa de chunks, sino como una memoria navegable.
 
-**Principios rectores:**
+La arquitectura combina:
 
-- **Multitenancy desde el primer día** vía Row Level Security (RLS) en Postgres con `tenant_id` en JWT.
-- **Separación sync/durable**: el chat corre en un runtime persistente; la ingesta vive en un workflow engine con reintentos.
-- **Hybrid reasoning**: razonamiento estructural complejo en LLM local; tareas triviales (resúmenes) en LLM hosted barato.
+- **Next.js + Supabase** para app, auth, storage inicial, Postgres, RLS,
+  Realtime y pgvector.
+- **Inngest** para ingesta durable, retries, fan-out y observabilidad.
+- **srv-ia-01** como compute gateway privado para MinerU, LangGraph Tree
+  Indexer y VLM futuro.
+- **Cloudflare Tunnel + Access** para exponer el compute gateway sin abrir
+  puertos inbound.
+- **OpenRouter/model providers** para chat, summaries, routing summaries y
+  embeddings cuando convenga costo/calidad.
+
+## Principios rectores
+
+- **Multitenancy desde el primer dia** via RLS en Postgres con `tenant_id` en
+  JWT.
+- **Live-first**: upload, indexacion, chat, tool calls y errores deben sentirse
+  en vivo siempre que sea razonable.
+- **Separacion sync/durable**: la app y el chat son interactivos; la ingesta
+  corre como workflow durable.
+- **No naive RAG**: el indice principal es el arbol, no el chunk.
+- **Extraccion fiel antes de razonamiento**: MinerU conserva paginas, layout,
+  tablas, OCR y bloques; el LLM estructural interpreta.
+- **Evidencia verificable**: summaries y embeddings sirven para navegar; la
+  respuesta final debe anclarse en paginas/bloques recuperables.
 - **Sin lock-in fuerte**: cada componente es reemplazable con esfuerzo razonable.
 
 ---
 
 ## 2. Diagrama de arquitectura
 
-```
+```text
                          ┌──────────────────────────┐
-                         │  CLIENTE (Next.js)       │
+                         │  CLIENTE NEXT.JS         │
+                         │  UI live + SSE           │
                          └────────────┬─────────────┘
-                                      │ HTTPS + SSE
-                                      ▼
-                         ┌──────────────────────────┐
-                         │  CLOUDFLARE              │
-                         │  WAF · rate limit ·      │
-                         │  Worker (upload gw) ·    │
-                         │  Tunnel + Access (mTLS)  │
-                         └──┬─────────┬─────────────┘
-                            │         │
-              ┌─────────────┘         └─────────────────┐
-              │ chat (SSE)                              │ upload PDF
-              ▼                                         ▼
-   ┌──────────────────────┐                   ┌────────────────────┐
-   │  AGENT RUNTIME       │                   │  CLOUDFLARE R2     │
-   │  Fly.io              │                   │  PDFs originales   │
-   │  FastAPI · LangGraph │                   │  zero egress       │
-   └──┬───────────┬───────┘                   └─────────┬──────────┘
-      │           │                                     │ event
-      │           ▼                                     ▼
-      │   ┌──────────────────────┐           ┌────────────────────────┐
-      │   │  OPENROUTER          │           │  INNGEST               │
-      │   │  • chat agente       │           │  workflow durable      │
-      │   │  • embeddings        │           │  concurrency control   │
-      │   │  • hybrid reasoning  │◄──────────┤                        │
-      │   │    (Gemini Flash     │  summary  │  Steps:                │
-      │   │     para resúmenes   │  calls    │  1. signed R2 URL      │
-      │   │     de hojas)        │  fan-out  │  2. /v1/parse  (local) │
-      │   └──────────────────────┘           │  3. /v1/structure      │
-      │                                      │     (local, reasoning) │
-      │                                      │  4. fan-out resúmenes  │
-      │                                      │     → OpenRouter Flash │
-      │                                      │  5. embed chunks       │
-      │                                      │     → OpenRouter       │
-      │                                      │  6. upsert Postgres    │
-      │                                      └──────────┬─────────────┘
-      │                                                 │ HTTPS via
-      │                                                 │ CF Tunnel
-      │                                                 ▼
-      │   ┌──────────────────────────────────────────────────────────┐
-      │   │  SERVIDOR LOCAL (GPU)                                    │
-      │   │  ─────────────────────────────────────────────           │
-      │   │  cloudflared (outbound tunnel)                           │
-      │   │       │                                                  │
-      │   │       ▼                                                  │
-      │   │  FastAPI Gateway                                         │
-      │   │   ├── /v1/parse      → MinerU                            │
-      │   │   ├── /v1/chat       → vLLM (Nemotron)                   │
-      │   │   └── /v1/structure  → reasoning estructural local       │
-      │   │  ─────────────────────────────────────────────           │
-      │   │  vLLM serving Nemotron Omni 3 30B-A3B (NVFP4)            │
-      │   └──────────────────────────────────────────────────────────┘
-      │
-      │   ┌────────────────┐    ┌─────────────────┐
-      │   │  LANGSMITH     │    │  UPSTASH REDIS  │
-      ├──►│  traces        │    │  cache          │
-      │   │  costo/tenant  │    │  rate limit     │
-      │   │  evals         │    │  quotas         │
-      │   └────────────────┘    └─────────────────┘
-      ▼
-   ┌────────────────────────────────────────────────────────────────┐
-   │  SUPABASE                                                      │
-   │  ┌────────────────────────────────────────────────────────┐   │
-   │  │  AUTH — SAML SSO · JWT con tenant_id                   │   │
-   │  └────────────────────────────────────────────────────────┘   │
-   │  ┌────────────────────────────────────────────────────────┐   │
-   │  │  POSTGRES + pgvector — RLS por tenant_id en todas      │   │
-   │  │  · tenants · users · roles                             │   │
-   │  │  · documents (metadata + r2_key + ACL)                 │   │
-   │  │  · doc_tree (JSONB del SDA Tree Index)                 │   │
-   │  │  · chunks (text + embedding vector)                    │   │
-   │  │  · conversations + messages                            │   │
-   │  │  · langgraph_checkpoints                               │   │
-   │  │  · audit_log                                           │   │
-   │  └────────────────────────────────────────────────────────┘   │
-   └────────────────────────────────────────────────────────────────┘
+                                      │
+                 ┌────────────────────┼────────────────────┐
+                 │                    │                    │
+                 ▼                    ▼                    ▼
+      ┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐
+      │ SUPABASE AUTH     │  │ SUPABASE STORAGE  │  │ SUPABASE REALTIME │
+      │ Google/SAML       │  │ PDFs privados     │  │ docs/events live  │
+      └─────────┬─────────┘  └─────────┬─────────┘  └─────────┬─────────┘
+                │                      │                      │
+                ▼                      ▼                      ▼
+      ┌────────────────────────────────────────────────────────────────┐
+      │ SUPABASE POSTGRES + PGVECTOR                                  │
+      │ tenants · users · documents · doc_tree · chunks               │
+      │ indexing_runs · indexing_events · conversations · messages    │
+      │ langgraph_checkpoints · audit_log                             │
+      │ RLS por tenant_id en todas las superficies de datos            │
+      └───────────────┬────────────────────────────────────────────────┘
+                      │ event/status
+                      ▼
+              ┌───────────────────┐
+              │ INNGEST           │
+              │ workflow durable  │
+              │ retries/fan-out   │
+              └─────────┬─────────┘
+                        │ HTTPS + service token
+                        ▼
+              ┌─────────────────────────────┐
+              │ CLOUDFLARE TUNNEL + ACCESS  │
+              │ sin inbound abierto          │
+              └─────────┬───────────────────┘
+                        │
+                        ▼
+      ┌────────────────────────────────────────────────────────────────┐
+      │ srv-ia-01 · SDA COMPUTE GATEWAY                                │
+      │ FastAPI / job worker                                           │
+      │                                                                │
+      │ /v1/index-jobs  -> crea job async                              │
+      │ /v1/health      -> healthcheck                                 │
+      │                                                                │
+      │ MinerU extraction                                              │
+      │ LangGraph SDA Tree Indexer                                     │
+      │ LLM estructural local/hosted                                   │
+      │ VLM enricher futuro                                            │
+      └───────────────┬────────────────────────────────────────────────┘
+                      │ summaries / embeddings / chat cuando aplique
+                      ▼
+              ┌───────────────────┐
+              │ OPENROUTER        │
+              │ model gateway     │
+              └───────────────────┘
 
-   TRANSVERSALES
-   ┌──────────────┐  ┌──────────────────┐
-   │  DOPPLER     │  │  GITHUB ACTIONS  │
-   │  secrets     │  │  CI/CD           │
-   └──────────────┘  └──────────────────┘
+Transversales:
+
+GitHub Actions · Doppler/secrets · LangSmith traces · Upstash Redis
 ```
 
 ---
 
 ## 3. Componentes
 
-### 3.1 Cliente — Next.js
+### 3.1 Next.js
 
-Frontend que sirve la UI de chat y la UI de upload. Vive en Vercel o donde sea (no es decisión crítica).
+Frontend de la app. Hoy cubre login, dashboard, invitaciones, upload de
+documentos y detalle de documento.
 
-**Por qué Next.js**: ecosystem maduro de SSE y streaming, fácil de wirear a Supabase Auth en cliente, vibe-codeable.
+Responsabilidades:
 
-### 3.2 Cloudflare — capa de borde
+- UI de usuario final.
+- Upload directo a Supabase Storage.
+- Lectura de datos via Supabase SSR/client.
+- Streaming de chat via SSE cuando entre el Agent Runtime.
+- Suscripciones live a documentos, `indexing_runs` e `indexing_events`.
 
-Cumple cuatro roles en una sola cuenta:
+### 3.2 Supabase
 
+Source of truth del sistema.
 
-| Subcomponente               | Función                                                                                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **CDN + WAF + DDoS**        | Capa de borde estándar                                                                                              |
-| **Rate limit por tenant**   | Reglas custom por header/JWT claim                                                                                  |
-| **Worker (Upload Gateway)** | Recibe pedido del cliente, valida JWT, genera signed URL para R2, inserta row en `documents` con status `uploading` |
-| **R2**                      | Bucket S3-compatible para PDFs originales, con zero egress fee                                                      |
-| **Tunnel + Access**         | Expone el servidor local con TLS sin abrir puertos inbound; Access aplica service tokens para auth cloud→local      |
+Incluye:
 
+- Auth con Google OAuth hoy; SAML SSO futuro para clientes enterprise.
+- Postgres con RLS por `tenant_id`.
+- Storage privado `documents` para PDFs y archivos originales.
+- Realtime para que la app se sienta en vivo.
+- pgvector para embeddings jerarquicos.
 
-**Por qué Cloudflare**: un solo vendor cubre edge, storage, gateway y túnel al server local. Tres servicios de competidores reemplazados con uno.
+Tablas principales:
 
-### 3.3 Supabase — Auth + Postgres + pgvector
+- `tenants`
+- `users`
+- `tenant_invites`
+- `documents`
+- `doc_tree`
+- `chunks`
+- `indexing_runs`
+- `indexing_events`
+- `conversations`
+- `messages`
+- `langgraph_checkpoints`
+- `audit_log`
 
-El **source of truth** del sistema.
+Nota de fase: el plan anterior mencionaba Cloudflare R2 como storage principal.
+Hoy usamos Supabase Storage para reducir superficie operativa y mover rapido. R2
+queda como opcion futura si el egress/costo de reprocesamiento lo justifica.
 
-**Auth**: SAML SSO para clientes enterprise, OAuth para self-serve. Emite JWT con `tenant_id`, `user_id`, `role` como claims. Ese JWT viaja en todos los requests.
+### 3.3 Inngest
 
-**Postgres + pgvector**: una sola base de datos para todo:
+Workflow engine durable para ingesta e indexacion.
 
-- Tablas operacionales (`tenants`, `users`, `documents`, `chunks`, etc.)
-- Estado del agente (`langgraph_checkpoints`)
-- Audit log
-- Vectores de embeddings en columnas `pgvector`
+Responsabilidades:
 
-**RLS (Row Level Security)** activado en TODAS las tablas con políticas que filtran por `tenant_id` del JWT. Esto significa que aunque el agente o un bug intente leer datos de otro tenant, Postgres devuelve vacío.
+- Arrancar indexacion cuando un documento queda `uploaded`.
+- Crear y actualizar `indexing_runs`.
+- Llamar al compute gateway.
+- Aplicar retries con backoff.
+- Controlar concurrencia para no saturar `srv-ia-01`.
+- Fan-out de summaries/embeddings cuando convenga.
+- Marcar `documents.status` final.
 
-**Por qué Supabase**: Postgres + Auth + Storage en un solo producto, RLS battle-tested para multitenant, CLI excelente para migrations, dashboard vibe-codeable.
+Inngest no debe ejecutar el computo pesado directamente. Orquesta.
 
-### 3.4 Fly.io — Agent Runtime
+### 3.4 srv-ia-01 · SDA Compute Gateway
 
-Servidor persistente que corre el agente conversacional.
+Servidor propio accesible por SSH via Tailscale:
 
-**Stack interno**:
+```text
+ssh sistemas@srv-ia-01
+```
 
-- **FastAPI** sirviendo endpoint SSE para streaming de tokens al cliente
-- **LangGraph** orquestando el grafo del agente (tool calls, branches, loops)
-- **LangChain** para tools que consultan Postgres con cliente RLS-aware
-- **OpenAI SDK** apuntando a OpenRouter como provider
+Uso recomendado:
 
-**Características operativas**:
+- Tailscale para administracion y acceso interno.
+- Cloudflare Tunnel + Access para endpoint consumible por Inngest Cloud.
 
-- Auto-scale por carga (1 mínimo, N máximo)
-- SSE/WebSocket nativo, sin timeout artificial
-- Cold start rápido para no destruir UX
-- Multi-región si hace falta (`fly scale count --region`)
+Servicios esperados:
 
-**Por qué Fly.io**: containers Docker como microVMs, sin límite de duración de request, DX excelente para vibe-coding, cold start mucho mejor que Lambda.
+```text
+GET  /v1/health
+POST /v1/index-jobs
+GET  /v1/index-jobs/:id
+```
 
-### 3.5 OpenRouter — LLM gateway
+Responsabilidades:
 
-Un solo API key + endpoint OpenAI-compatible para tres usos:
+- Descargar el documento privado.
+- Correr MinerU.
+- Correr LangGraph SDA Tree Indexer.
+- Llamar LLM estructural local u hosted segun etapa.
+- Enriquecer con VLM en el futuro.
+- Persistir resultados o devolverlos a Inngest segun el modo elegido.
+- Emitir eventos live hacia Supabase.
 
+### 3.5 MinerU
 
-| Uso                                              | Modelo sugerido                                                |
-| ------------------------------------------------ | -------------------------------------------------------------- |
-| Chat del agente                                  | GPT-5, Gemini 2.5 Pro, o el modelo que mejor performe en evals |
-| Embeddings de chunks                             | `text-embedding-3-large` o `text-embedding-3-small`            |
-| Hybrid reasoning (resúmenes de hojas en indexer) | Gemini 2.5 Flash                                               |
+Primera herramienta de extraccion fiel.
 
+Debe producir:
 
-**Por qué OpenRouter**:
+- paginas
+- bloques
+- tablas
+- figuras
+- markdown
+- OCR
+- coordenadas
+- reading order
+- metadata de layout
 
-- Switching de modelo con un string, sin tocar código
-- Failover automático entre providers
-- Billing unificado
-- Soporte de embeddings desde noviembre 2025
+MinerU no decide el arbol final. Conserva evidencia.
 
-**Trade-off conocido**: prompt caching es desigual según provider. Para el agente, que repite system prompts cada turn, vale la pena verificar el cache hit rate en el dashboard de OR. Si el costo escala feo, se puede bypasear OR para el modelo principal del agente.
+### 3.6 LangGraph · SDA Tree Indexer
 
-### 3.6 Servidor Local — GPU dedicada
+Construye el indice estructural propio.
 
-Hardware del cliente con RTX PRO 6000 Blackwell (96GB VRAM). Corre dos servicios principales y un gateway:
+Pipeline conceptual:
 
-**FastAPI Gateway** unifica auth, logging y routing:
+```text
+MinerU extraction
+  -> detectar tipo documental
+  -> proponer arbol candidato
+  -> verificar cobertura/evidencia
+  -> refinar nodos grandes o inciertos
+  -> generar summaries bottom-up
+  -> generar routing summaries
+  -> generar embeddings jerarquicos
+  -> persistir doc_tree + chunks/nodes
+```
 
-- `/v1/parse` → MinerU (extracción de PDFs)
-- `/v1/structure` → reasoning estructural Nemotron
-- `/v1/chat` → endpoint OpenAI-compatible para llamadas directas a Nemotron (uso interno, no exposed al agent runtime)
+El resultado principal es `doc_tree`: un arbol polimorfico con nodos que tienen
+evidencia, rango de paginas, summaries, routing summaries, confianza y origen.
 
-**MinerU**: librería open-source para parsing avanzado de PDFs. Maneja layout, tablas, fórmulas, OCR. Corre mayormente en CPU con uso ligero de GPU, lo que evita competir con vLLM por VRAM.
+Los registros en `chunks` no representan split naive; representan nodos,
+paginas o bloques recuperables.
 
-**vLLM serving Nemotron Omni 3 30B-A3B**: modelo MoE de NVIDIA con ~3B parámetros activos por token, cuantizado en NVFP4 (formato nativo de Blackwell). Sirve API OpenAI-compatible.
+### 3.7 LLM estructural
 
-**Cloudflared** mantiene un túnel outbound siempre activo hacia Cloudflare. Inngest workers llaman al endpoint público (`ml.tudominio.com`) y CF Access valida el service token antes de proxear al server local.
+SDA Tree Indexer requiere LLM.
 
-**Por qué un server local**:
+MinerU extrae evidencia. El LLM interpreta:
 
-- Datos sensibles no salen de infraestructura del cliente en el cold path
-- Costo marginal cero por token una vez amortizado el hardware
-- Control total de versión del modelo y disponibilidad
+- tipo documental
+- estructura candidata
+- cobertura
+- ubicacion de nodos
+- refinamiento
+- summaries
+- routing summaries
 
-**Trade-offs aceptados**:
+Politica de modelos:
 
-- Single point of failure para ingest (mitigado por queue durable en Inngest + alertas)
-- Throughput finito y conocido, no elástico
-- Mantenimiento (drivers, vLLM updates, modelo) lo opera el equipo
+| Etapa | Modelo |
+| --- | --- |
+| Tipo documental | barato/rapido |
+| Arbol candidato | fuerte |
+| Verificacion | fuerte |
+| Refinamiento | fuerte solo en nodos problematicos |
+| Summary | barato/rapido |
+| Routing summary | medio, optimizado para retrieval |
+| Embeddings | modelo dedicado |
 
-### 3.7 Inngest — Workflow engine durable
+### 3.8 OpenRouter / providers
 
-Orquesta toda la pipeline de ingest como un workflow con steps tipados, reintentos automáticos, y observabilidad nativa.
+Gateway para modelos hosted cuando convenga.
 
-**Workflow de ingest** (steps):
+Usos:
 
-1. Generar signed URL de R2 con el `doc_id`
-2. `POST /v1/parse` al server local → recibe markdown estructurado + metadata
-3. `POST /v1/structure` al server local → recibe árbol estructural del documento (nodos sin resúmenes)
-4. Fan-out: para cada nodo hoja del árbol, llamar a OpenRouter (Gemini Flash) para generar el resumen
-5. Embeddings de chunks vía OpenRouter
-6. Upsert en Postgres: `documents`, `doc_tree` (JSONB), `chunks`
-7. Update `documents.status = 'indexed'`
-8. (opcional) webhook al cliente
+- chat del agente
+- summaries
+- routing summaries
+- embeddings
+- fallback si el modelo local o `srv-ia-01` no estan disponibles
 
-**Concurrency control**: límite explícito de N calls paralelas a `/v1/index` para no saturar el server local. Inngest acumula el resto en cola, no falla.
+Secretos siempre por env vars. No se hardcodean keys.
 
-**Por qué Inngest**:
+### 3.9 Agent Runtime
 
-- TypeScript-first, vibe-codeable
-- Reintentos por step con backoff exponencial
-- Dashboard visual de runs en vivo
-- Fan-out, scheduling, cancelación todo nativo
-- Free tier generoso
+Servidor persistente futuro para chat.
 
-### 3.8 SDA Tree Index — indexación estructural
+Responsabilidades:
 
-Construye un árbol jerárquico y polimórfico sobre el documento, donde cada nodo tiene evidencia, rango de páginas, resumen y `routing_summary`. El agente navega ese árbol usando reasoning y búsqueda jerárquica, no similitud vectorial plana.
+- Validar JWT.
+- Mantener sesiones/conversaciones.
+- Ejecutar LangGraph del agente.
+- Stream de tokens por SSE.
+- Stream de tool calls/progreso.
+- Usar tools RLS-aware contra Supabase.
 
-Se implementa como **SDA Tree Indexer** propio con MinerU + LangGraph. PageIndex queda como referencia conceptual, no como dependencia central.
+Tools esperadas:
 
-La especificación viva de esta decisión está en [`docs/sda-tree-index-live-architecture.md`](./sda-tree-index-live-architecture.md).
+- `search_documents`
+- `search_tree_nodes`
+- `navigate_tree`
+- `get_document_evidence`
+- `verify_answer_evidence`
 
-**Por qué**: para documentos largos o complejos, el approach estructural supera a RAG vectorial puro. Igualmente generamos embeddings sobre summaries/nodos para búsqueda híbrida cuando aplique, sin destruir contexto.
+### 3.10 Redis, LangSmith y secrets
 
-### 3.9 Upstash Redis
+Upstash Redis:
 
-Cache + rate limit + quotas + dedup hash.
+- rate limits
+- quotas
+- dedup hash
+- cache corto
 
+LangSmith:
 
-| Uso                                     | TTL típico |
-| --------------------------------------- | ---------- |
-| Session state del agente (corto plazo)  | minutos    |
-| Rate limit counter por tenant           | segundos   |
-| Quota usage por tenant                  | día / mes  |
-| Dedup hash de uploads (mismo contenido) | día        |
+- traces de LangGraph
+- tool calls
+- latencias
+- tokens/costo por tenant
 
+Doppler o equivalente:
 
-**Por qué Upstash**: serverless Redis con REST API, paga por request, integración trivial. Sin servidor a operar.
-
-### 3.10 LangSmith
-
-Observabilidad LLM nativa de LangGraph. Cada llamada al modelo, cada tool call, cada step del grafo se trace automáticamente con metadata.
-
-**Lo que usamos**:
-
-- Traces por conversation con drill-down a cada call
-- Costo por tenant (vía metadata)
-- Datasets de evals para regresión cuando cambiamos modelo o prompt
-- Replay de sesiones para debugging y auditoría
-
-**Por qué LangSmith** (no Langfuse): viene "gratis" con LangGraph — un env var y trace todo. Si en el futuro compliance exige self-host, Langfuse open-source es el plan B.
-
-### 3.11 Doppler
-
-Secrets management. Inyecta env vars en Fly.io, en runners de Inngest, en GitHub Actions, en el server local. Rotación con CLI.
-
-**Por qué Doppler**: vibe-codeable, integración nativa con Fly y GitHub, free tier suficiente para empezar.
-
-### 3.12 GitHub Actions
-
-CI/CD para todo:
-
-- Deploy a Fly.io del agent runtime
-- Deploy de migrations a Supabase
-- Deploy de Workers a Cloudflare
-- Tests unitarios y de integración
+- secrets para app, Inngest, compute gateway, GitHub Actions y deploys.
 
 ---
 
 ## 4. Flujos clave
 
-### 4.1 Flujo de Auth
+### 4.1 Auth
 
-1. Usuario se loguea en el cliente (SAML SSO o OAuth)
-2. Supabase Auth emite un JWT firmado con claims: `sub`, `tenant_id`, `role`, `exp`
-3. El cliente guarda el JWT y lo manda en cada request (`Authorization: Bearer ...`)
-4. Cloudflare en el borde puede inspeccionar el JWT para rate limit por tenant
-5. El Agent Runtime valida el JWT en cada conexión SSE
-6. Postgres recibe el JWT vía Supabase client → RLS aplica políticas usando `auth.jwt() ->> 'tenant_id'`
+1. Usuario entra con Google OAuth o SAML futuro.
+2. Supabase emite JWT.
+3. Custom claims agregan `tenant_id` y `tenant_role`.
+4. Next.js usa Supabase SSR/client.
+5. RLS filtra todas las queries por tenant.
 
-**Resultado**: una sola fuente de verdad de tenancy que se propaga end-to-end. Imposible que un agente o un bug "olviden" aplicar el filtro de tenant.
+Resultado: la seguridad multitenant vive en Postgres, no en la memoria del
+agente ni en convenciones de app.
 
-### 4.2 Flujo de Upload + Ingest
+### 4.2 Upload + estado live
 
-1. Cliente pide URL de upload al **Cloudflare Worker** (con JWT)
-2. Worker valida JWT, verifica quota en Redis, genera signed URL de R2 con path `tenants/{tenant_id}/{doc_id}.pdf`, inserta row en `documents` con status `uploading`
-3. Cliente hace PUT multipart directo a R2 (sin pasar por backend propio)
-4. R2 dispara **event notification** al webhook de Inngest cuando el upload termina
-5. Inngest arranca el workflow de ingest:
-  - Genera signed URL de lectura para que el server local descargue
-  - Llama `POST /v1/parse` al server local → MinerU procesa, devuelve markdown estructurado
-  - Llama `POST /v1/structure` al server local → Nemotron razona sobre la estructura, devuelve árbol sin resúmenes
-  - Fan-out: para cada nodo hoja, llama OpenRouter (Gemini Flash) para generar resumen
-  - Chunkea el contenido de cada hoja, genera embeddings vía OpenRouter
-  - Upsert en `documents`, `doc_tree`, `chunks`
-  - Actualiza `documents.status = 'indexed'`
-6. (opcional) Webhook al cliente avisando que el doc está listo
+Estado actual implementado:
 
-**Resiliencia**: cada step es reintentable; si Nemotron está caído, Inngest acumula la cola y reintenta cuando vuelve. Si el cliente del agente está esperando, ve el status del documento en tiempo real.
+1. Usuario sube archivo desde `/app/documents`.
+2. RPC `create_document_upload` crea row en `documents`.
+3. Browser sube directo a Supabase Storage bucket `documents`.
+4. RPC `mark_document_uploaded` pasa estado a `uploaded`.
+5. UI ve el documento en la lista y detalle.
 
-### 4.3 Flujo de Chat
+Siguiente paso:
 
-1. Cliente abre conexión SSE con el **Agent Runtime** (con JWT)
-2. Runtime valida JWT, extrae `tenant_id`, abre/recupera sesión en Redis y/o `langgraph_checkpoints`
-3. LangGraph arranca el grafo del agente con la pregunta del usuario
-4. El agente decide tool calls — las tools consultan Postgres usando cliente Supabase RLS-aware (el `tenant_id` del JWT se inyecta automáticamente)
-5. Las tools típicas:
-  - `search_documents`: búsqueda híbrida (vector + filtros) sobre `chunks`
-  - `navigate_tree`: navegación del SDA Tree Index en `doc_tree`
-  - `get_document_text`: contenido completo de un doc o rango
-6. LLM llamado vía OpenRouter genera respuesta token por token
-7. Cada token streamea al cliente vía SSE
-8. Todo el grafo (steps, tool calls, latencias, tokens) se trace a LangSmith con `tenant_id` como metadata
-9. Conversation + messages se persisten en Postgres con RLS
+1. `uploaded` dispara workflow de Inngest.
+2. Se crea `indexing_run`.
+3. Se emiten `indexing_events`.
+4. UI muestra timeline en vivo por Supabase Realtime.
 
-**Punto crítico**: el agente NUNCA bypassa RLS. Aunque "alucine" un `tenant_id` distinto, Postgres no le devuelve nada. La seguridad vive en la DB, no en el código del agente.
+### 4.3 Ingest + SDA Tree Index
 
-### 4.4 Flujo de Observabilidad
+```text
+documents.status = uploaded
+  -> Inngest document.index.requested
+  -> indexing_runs.status = queued
+  -> compute gateway job
+  -> extracting
+  -> structuring
+  -> verifying_tree
+  -> refining_tree
+  -> summarizing
+  -> embedding
+  -> persisting
+  -> indexed | failed
+```
 
-- **LLM calls**: LangSmith captura prompt, completion, tokens, latencia, modelo, costo, conversation_id, tenant_id
-- **Workflow steps**: Inngest dashboard muestra cada step, retries, duración, errores
-- **HTTP requests**: Cloudflare Analytics + logs de Fly.io
-- **DB queries**: Supabase logs + slow query monitoring
-- **Local server**: logs estructurados del FastAPI Gateway, métricas de vLLM (tokens/s, queue depth, KV cache util)
+Cada step escribe eventos:
 
-Sin servicio APM unificado por ahora; cada plano tiene su observabilidad nativa. Si en el futuro exige correlación, OpenTelemetry + Grafana es el upgrade.
+- `indexing.extract.started`
+- `indexing.extract.completed`
+- `indexing.tree.candidate_created`
+- `indexing.tree.node_refined`
+- `indexing.summary.node_completed`
+- `indexing.embedding.batch_completed`
+- `indexing.persist.completed`
+- `indexing.run.completed`
+- `indexing.run.failed`
 
----
+### 4.4 Retrieval del agente
 
-## 5. Decisiones arquitectónicas
+El agente no busca primero en texto crudo.
 
-### 5.1 Multitenant via RLS, no app-level
+```text
+query
+  -> documentos candidatos por summary global
+  -> ramas por routing_summary embedding
+  -> navegar hijos/padres/hermanos
+  -> recuperar paginas/bloques exactos
+  -> verificar evidencia
+  -> responder
+```
 
-Cada tabla del schema tiene una política RLS que filtra por `tenant_id` del JWT. El filtro no está en el código del agente ni en queries SQL — está en la DB.
+El summary guia. La evidencia confirma.
 
-**Por qué**: el agente puede equivocarse, un bug puede olvidar un `WHERE tenant_id = ?`, un endpoint nuevo puede saltarse el middleware. RLS hace que todos esos errores se manifiesten como "no se devuelve nada" en lugar de "leak de datos cross-tenant".
+### 4.5 Chat streaming
 
-### 5.2 Separación sync vs durable
+El chat debe streamear:
 
-El chat agente vive en un servidor persistente (Fly.io). La ingesta vive en un workflow engine durable (Inngest).
+- tokens del asistente
+- tool calls
+- busqueda de documentos
+- apertura de nodos del arbol
+- lectura de evidencia
+- errores recuperables
 
-**Por qué**: una ingesta de 10K docs no debe degradar el chat. Workers de Inngest pueden saturarse o reintentar sin que el runtime del agente se entere. Además, los time scales son distintos: chat = segundos, ingest = minutos-horas.
+Texto para usuario final:
 
-### 5.3 Hybrid reasoning en el indexer
+```text
+Buscando en tus documentos...
+Revisando las secciones mas relevantes...
+Leyendo las paginas encontradas...
+Preparando respuesta...
+```
 
-El reasoning estructural corre con LLM. MinerU extrae páginas, bloques, layout y tablas, pero no decide por sí solo la memoria navegable final.
-
-El LLM estructural detecta tipo documental, propone el árbol, verifica cobertura/evidencia, corrige nodos dudosos y refina partes demasiado grandes. Ese trabajo corre preferentemente en `srv-ia-01` con modelo fuerte/local. Los summaries y `routing_summary` pueden correr en modelos hosted más baratos vía OpenRouter.
-
-**Por qué**: el árbol define la calidad futura de recuperación. Si el árbol está mal, el agente trabaja más y encuentra peor evidencia. Los summaries son tareas más repetitivas y toleran modelos más baratos.
-
-**Trade-off**: dependencia de LLM en el cold path. Mitigación: versionado de prompts/modelos, retries por Inngest, degradación graceful cuando falten summaries y reindexación selectiva cuando mejore el indexer.
-
-### 5.4 Server local detrás de Cloudflare Tunnel
-
-El server local nunca abre puertos inbound. `cloudflared` mantiene una conexión outbound y todo el tráfico entrante viene proxeado por CF.
-
-**Por qué**: el server puede vivir en una red residencial, oficina del cliente, o cualquier lugar sin IP estática ni firewall configurable. No hay superficie de ataque pública sobre el server. CF Access aplica auth con service tokens.
-
-### 5.5 OpenRouter como gateway único (en vez de N providers directos)
-
-Una sola API key para chat agente + embeddings + hybrid reasoning. Switching de modelo con un string.
-
-**Por qué**: vibe-coding amigable, billing unificado, failover automático. Trade-off de ~5% markup vs. precios directos.
-
-**Plan B si el markup duele**: bypasear OR para el modelo principal del agente (que es donde está el grueso del costo), dejar OR solo para embeddings y hybrid reasoning.
-
-### 5.6 Cloudflare R2 para storage de PDFs
-
-Storage S3-compatible con **zero egress fee**.
-
-**Por qué**: documentos empresariales generan mucho egress potencial (descargas, re-procesamiento, auditorías). En cualquier otro provider eso se traduce en factura mensual variable. R2 lo elimina como variable.
-
-### 5.7 pgvector dentro de la misma Postgres
-
-Embeddings viven en una columna `pgvector` de la tabla `chunks`, no en un vector DB separado.
-
-**Por qué**: una sola DB simplifica todo. Permite joins entre embeddings y metadata (filtrar por `tenant_id`, `doc_acl`, fechas, tipo de doc) en un solo query, sin sincronización entre dos sistemas. Para volúmenes razonables (millones de chunks), pgvector + HNSW alcanza.
-
-**Cuándo reconsiderar**: si superamos las decenas de millones de chunks, o necesitamos filtros muy complejos, o el query time se vuelve un problema, migrar a Qdrant/Pinecone para vectors y mantener Postgres para todo lo demás.
-
-### 5.8 LangGraph en lugar de DIY agent loop
-
-Usamos el framework con su grafo, checkpointer en Postgres, y tracing nativo.
-
-**Por qué**: el agente tiene estado complejo, branches condicionales, posibles loops. Hacerlo a mano son semanas de plomería. LangGraph también nos da el checkpointer (estado persistente del grafo) gratis.
-
-**Trade-off**: dependencia del ecosystem LangChain. Aceptable porque la abstracción es lo suficientemente delgada como para reemplazar si fuera necesario.
+La UI admin/debug puede mostrar detalles tecnicos: modelos, tokens, latencias,
+Inngest run id, compute job id y retries.
 
 ---
 
-## 6. Lo que NO incluye (y por qué)
+## 5. Live-first
 
+La app debe sentirse en tiempo real.
 
-| Componente                             | Por qué no                                                                    |
-| -------------------------------------- | ----------------------------------------------------------------------------- |
-| Vector DB dedicado (Qdrant, Pinecone)  | pgvector alcanza para empezar. Joins con metadata son clave para multitenant. |
-| Kubernetes                             | Over-engineering. Fly.io da scaling sin complejidad operacional.              |
-| Service mesh                           | Sin valor agregado a este tamaño.                                             |
-| Message broker (Kafka, RabbitMQ)       | Inngest cubre el rol con DX mucho mejor.                                      |
-| Search engine separado (Elasticsearch) | Postgres FTS + pgvector híbrido alcanza al inicio.                            |
-| Claude API                             | Decisión explícita del proyecto.                                              |
-| OpenAI directo                         | Reemplazado por OpenRouter para tener single API key.                         |
-| Servicio OCR separado                  | MinerU incluye OCR cuando hace falta.                                         |
-| Langfuse                               | LangSmith es nativo de LangGraph y suficiente.                                |
-| Vault de HashiCorp                     | Doppler alcanza para el tamaño actual.                                        |
-| CDN extra                              | Cloudflare ya cumple.                                                         |
-| AWS / GCP completos                    | El stack actual no necesita un cloud completo, solo servicios puntuales.      |
+Superficies live:
 
+- lista de documentos
+- detalle de documento
+- timeline de indexacion
+- preview parcial del arbol
+- chat
+- tool calls
+- errores/retries
+
+Tecnologias:
+
+- Supabase Realtime para cambios de DB.
+- SSE para chat y agent runtime.
+- Inngest para estado durable y retries.
+- `indexing_events` para timeline historico y live.
+
+Regla: si una operacion tarda mas de 1-2 segundos, debe tener feedback visible.
+
+---
+
+## 6. Decisiones arquitectonicas
+
+### 6.1 Supabase Storage primero, R2 despues si hace falta
+
+Usamos Supabase Storage ahora porque ya esta integrado con Auth/RLS, reduce
+piezas y acelera desarrollo. Cloudflare R2 sigue siendo buen upgrade si el
+egress o reprocesamiento de PDFs se vuelve caro.
+
+### 6.2 Inngest orquesta, srv-ia-01 computa
+
+Inngest no es el lugar para correr MinerU/VLM pesado. Inngest conserva estado,
+reintentos y concurrencia. `srv-ia-01` hace el trabajo caro.
+
+### 6.3 Compute gateway async, no requests largas
+
+Preferimos:
+
+```text
+POST /v1/index-jobs -> job_id
+GET /v1/index-jobs/:id -> status
+```
+
+en vez de un `POST /v1/index` que queda abierto muchos minutos.
+
+### 6.4 SDA Tree Index, no naive chunks
+
+`chunks` es una tabla de recuperacion, no una obligacion conceptual. Puede
+almacenar nodos, paginas o bloques. El arbol en `doc_tree` es la memoria
+principal.
+
+### 6.5 RLS como frontera de seguridad
+
+Todas las queries normales pasan por Supabase/RLS. Service role solo para
+workers confiables y operaciones backend controladas.
+
+### 6.6 Versionado de indexacion
+
+Cada corrida debe guardar:
+
+- `indexer_version`
+- `mineru_version`
+- `tree_builder_version`
+- `summary_model`
+- `embedding_model`
+- `vlm_model`
+- `document_checksum`
+- `prompt_version`
+
+Esto permite reindexacion selectiva y auditoria.
 
 ---
 
 ## 7. Riesgos y mitigaciones
 
-
-| Riesgo                                         | Mitigación                                                                                                             |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Server local cae → ingest detenido             | Inngest acumula cola durable; alerta por queue depth; degradación temporal a extracción/summaries hosted cuando aplique |
-| Throughput del server local insuficiente       | Hybrid reasoning ya offloadea ~65% de calls; segunda GPU como upgrade futuro                                           |
-| OpenRouter down                                | Failover entre providers configurable en cada request; modelo principal puede bypasear OR si hace falta                |
-| Supabase down                                  | Sin mitigación real a este tamaño; aceptable porque es el caso menos probable                                          |
-| Modelo Nemotron cambia salidas entre versiones | Version pinning del modelo; re-indexación selectiva si hace falta                                                      |
-| Crecimiento de chunks excede pgvector          | Threshold definido (decenas de millones); plan de migración a vector DB dedicado                                       |
-| Costo de tokens en OpenRouter escala feo       | Métricas por tenant en LangSmith; alertas por umbral; quotas por tenant en Redis                                       |
-| Cliente intenta acceder cross-tenant           | RLS bloquea automáticamente; auditoría en `audit_log`                                                                  |
-
-
----
-
-## 8. Próximos pasos
-
-En orden sugerido de implementación:
-
-1. **Schema de Postgres** — tablas, índices, RLS policies, migrations
-2. **Supabase Auth setup** — providers, JWT claims, RLS testing
-3. **Cloudflare Worker (Upload Gateway)** — signed URLs a R2, validación JWT
-4. **Inngest workflow skeleton** — steps placeholder con mock de server local
-5. **Server local — FastAPI Gateway** — endpoints `/v1/parse` y `/v1/structure` con MinerU + vLLM
-6. **Cloudflare Tunnel + Access** — exposición segura del server local
-7. **Inngest workflow real** — wireado con el server local + OpenRouter
-8. **Agent Runtime básico** — FastAPI + LangGraph + tools sobre Postgres
-9. **Frontend** — chat UI + upload UI
-10. **LangSmith + observabilidad por tenant**
-11. **Hardening** — rate limits, quotas, audit log, alertas
+| Riesgo | Mitigacion |
+| --- | --- |
+| `srv-ia-01` cae | Inngest acumula cola, UI muestra estado, retry automatico |
+| Compute lento | limites de concurrencia, cola durable, segunda GPU como upgrade |
+| LLM estructura mal el arbol | verifier, confidence por nodo, reintentos y reindexacion |
+| Summaries incompletos | arbol sin summaries sigue navegable; completar en background |
+| OpenRouter/provider caido | fallback de proveedor o modelo local cuando aplique |
+| Supabase caido | aceptado como dependencia central inicial |
+| Leakage cross-tenant | RLS, service role restringido a workers, audit log |
+| Costo de tokens escala | metadata de costo por step/tenant, quotas, cache y modelos baratos |
+| Crecimiento de vectores | pgvector al inicio; Qdrant/Pinecone si se superan limites razonables |
 
 ---
 
-## 9. Glosario rápido
+## 8. Lo que no incluye ahora
 
-- **MCP** (Model Context Protocol): protocolo para exponer herramientas y contexto a agentes LLM.
-- **MoE** (Mixture of Experts): arquitectura de modelo donde solo un subset de parámetros se activa por token.
-- **NVFP4**: formato de cuantización de 4 bits de NVIDIA para Blackwell.
-- **SDA Tree Index**: índice jerárquico propio que representa documentos como árboles semánticos verificables.
-- **RLS** (Row Level Security): mecanismo de Postgres para filtrar filas según el usuario.
-- **SSE** (Server-Sent Events): protocolo para streaming unidireccional de servidor a cliente.
-- **vLLM**: servidor de inferencia LLM open-source con continuous batching.
+| Componente | Motivo |
+| --- | --- |
+| Kubernetes | Over-engineering para esta etapa |
+| Vector DB dedicado | pgvector alcanza al inicio |
+| Elasticsearch | Postgres FTS + pgvector + arbol alcanza |
+| R2 como storage inicial | Supabase Storage ya cubre el flujo actual |
+| PageIndex como dependencia central | Usamos la idea, no la caja |
+| Servicio OCR separado | MinerU incluye OCR cuando hace falta |
+| Message broker propio | Inngest cubre la cola durable |
+
+---
+
+## 9. Roadmap inmediato
+
+Estado ya implementado:
+
+1. Supabase remoto conectado.
+2. Google OAuth.
+3. Invite-only.
+4. Schema multitenant con RLS.
+5. Upload a Supabase Storage.
+6. Vista de documentos y detalle.
+7. Docs de SDA Tree Index + live architecture.
+8. Primer push a GitHub.
+
+Siguiente corte:
+
+1. Agregar `indexing_runs` e `indexing_events`.
+2. Mostrar timeline live en detalle de documento.
+3. Crear skeleton de Inngest.
+4. Crear skeleton de Compute Gateway para `srv-ia-01`.
+5. Conectar evento `document.uploaded -> indexing queued`.
+6. Integrar MinerU extraction.
+7. Implementar LangGraph SDA Tree Indexer minimo.
+8. Persistir `doc_tree`.
+9. Persistir nodos/paginas en `chunks`.
+10. Agregar retrieval tools iniciales.
+
+---
+
+## 10. Glosario
+
+- **SDA Tree Index**: indice jerarquico propio que representa documentos como
+  arboles semanticos verificables.
+- **MinerU**: herramienta de extraccion PDF/OCR/layout/tablas.
+- **Routing summary**: summary optimizado para decidir si una rama sirve para
+  una query.
+- **SSE**: Server-Sent Events, streaming unidireccional server -> cliente.
+- **RLS**: Row Level Security de Postgres.
+- **Compute Gateway**: servicio privado en `srv-ia-01` para jobs pesados.
+- **Inngest**: workflow engine durable para ingesta y jobs largos.

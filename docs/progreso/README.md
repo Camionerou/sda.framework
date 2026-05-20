@@ -20,3 +20,4 @@ separado, con estado claro y sin secretos.
 13. `2026-05-20-13-sda-tree-index-live-architecture.md`
 14. `2026-05-20-14-llm-estructural-tree-index.md`
 15. `2026-05-20-15-publicacion-github.md`
+16. `2026-05-20-16-arquitectura-general-actualizada.md`
