@@ -48,10 +48,10 @@ export function AppTopbar({
               Invitaciones
             </Link>
           </nav>
-          <Link className="button button-ghost" href="/auth/sign-out">
+          <a className="button button-ghost" href="/auth/sign-out">
             <LogOut aria-hidden="true" size={16} />
             Salir
-          </Link>
+          </a>
         </div>
       </div>
     </header>

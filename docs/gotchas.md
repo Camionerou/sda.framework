@@ -28,3 +28,9 @@
 - Keys alone are not enough for cloud execution. Inngest Cloud also needs a public HTTPS URL for the serve endpoint, for example `https://app.example.com/api/inngest`.
 - A Cloudflare quick tunnel can expose localhost for a temporary test, but it is not production hosting. The final setup needs a stable deploy URL.
 - If keys are pasted in chat, rotate them after validation from Inngest Cloud.
+- Inngest Cloud app sync can be triggered programmatically against `https://api.inngest.com/v2/apps/<app-id>/syncs` using the signing key. The event key is for sending events, not for syncing app configuration.
+
+## Next.js links with side effects
+
+- Do not use `next/link` for routes with side effects like `/auth/sign-out`. In production, prefetch/navigation behavior can call the route before the user intends to sign out.
+- Use a plain `<a>` tag or a POST form for sign-out. Keep `next/link` for safe navigation only.

@@ -27,3 +27,5 @@ separado, con estado claro y sin secretos.
 20. `2026-05-20-20-inngest-keys-local.md`
 21. `2026-05-20-21-vercel-frontend.md`
 22. `2026-05-20-22-supabase-auth-vercel-url.md`
+23. `2026-05-20-23-inngest-cloud-sync.md`
+24. `2026-05-20-24-signout-prefetch-fix.md`
