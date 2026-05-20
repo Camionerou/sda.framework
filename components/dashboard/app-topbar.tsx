@@ -1,7 +1,13 @@
-import { LogOut, ShieldCheck } from "lucide-react";
+import { FileText, Gauge, LogOut, ShieldCheck, UserPlus } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+
+const NAV_ITEMS = [
+  { key: "dashboard", href: "/app", label: "Consola", icon: Gauge },
+  { key: "documents", href: "/app/documents", label: "Documentos", icon: FileText },
+  { key: "invites", href: "/app/invites", label: "Invitaciones", icon: UserPlus }
+] as const;
 
 export function AppTopbar({
   active,
@@ -13,47 +19,41 @@ export function AppTopbar({
   tenantRole?: string;
 }) {
   return (
-    <header className="topbar">
-      <div className="topbar-inner">
-        <div className="topbar-brand">
-          <div className="brand-mark">
-            <ShieldCheck aria-hidden="true" size={19} strokeWidth={2.2} />
-          </div>
-          <span>SDA Framework</span>
+    <aside className="sidebar">
+      <div className="sidebar-brand">
+        <div className="brand-mark">
+          <ShieldCheck aria-hidden="true" size={19} strokeWidth={2.2} />
         </div>
-        <div className="topbar-actions">
-          <Badge tone={tenantActive ? "success" : "warning"}>
-            {tenantActive ? `Rol: ${tenantRole ?? "sin asignar"}` : "Sin tenant"}
-          </Badge>
-          <nav aria-label="Principal" className="topbar-nav">
-            <Link
-              aria-current={active === "dashboard" ? "page" : undefined}
-              className="button button-ghost"
-              href="/app"
-            >
-              Consola
-            </Link>
-            <Link
-              aria-current={active === "documents" ? "page" : undefined}
-              className="button button-ghost"
-              href="/app/documents"
-            >
-              Documentos
-            </Link>
-            <Link
-              aria-current={active === "invites" ? "page" : undefined}
-              className="button button-ghost"
-              href="/app/invites"
-            >
-              Invitaciones
-            </Link>
-          </nav>
-          <a className="button button-ghost" href="/auth/sign-out">
-            <LogOut aria-hidden="true" size={16} />
-            Salir
-          </a>
+        <div className="sidebar-brand-text">
+          <strong>SDA</strong>
+          <span>Framework</span>
         </div>
       </div>
-    </header>
+
+      <div className="sidebar-label">Navegación</div>
+      <nav aria-label="Principal" className="sidebar-nav">
+        {NAV_ITEMS.map(({ key, href, label, icon: Icon }) => (
+          <Link
+            aria-current={active === key ? "page" : undefined}
+            className="nav-item"
+            href={href}
+            key={key}
+          >
+            <Icon aria-hidden="true" size={16} />
+            {label}
+          </Link>
+        ))}
+      </nav>
+
+      <div className="sidebar-foot">
+        <Badge tone={tenantActive ? "success" : "warning"}>
+          {tenantActive ? `Rol · ${tenantRole ?? "sin asignar"}` : "Sin tenant"}
+        </Badge>
+        <a aria-label="Cerrar sesión" className="nav-item nav-signout" href="/auth/sign-out">
+          <LogOut aria-hidden="true" size={16} />
+          Salir
+        </a>
+      </div>
+    </aside>
   );
 }

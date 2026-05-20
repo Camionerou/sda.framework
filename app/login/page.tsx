@@ -49,6 +49,7 @@ export default async function LoginPage({
             <ShieldCheck aria-hidden="true" size={20} strokeWidth={2.2} />
           </div>
           <div>
+            <div className="kicker">Acceso restringido</div>
             <h1>SDA Framework</h1>
             <p>Acceso privado por invitación para operar el tenant y la sesión.</p>
           </div>

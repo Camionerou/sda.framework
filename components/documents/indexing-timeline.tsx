@@ -17,7 +17,8 @@ import {
   indexingStageLabel,
   type IndexingEventRow,
   type IndexingRunStatus,
-  type IndexingRunRow
+  type IndexingRunRow,
+  type IndexingStage
 } from "@/lib/documents";
 import { compactId, formatDateTime } from "@/lib/session";
 import { INDEXING_VERSION_COLUMNS } from "@/lib/system-versions";
@@ -28,6 +29,58 @@ type IndexingTimelineProps = {
   initialEvents: IndexingEventRow[];
   initialRun: IndexingRunRow | null;
 };
+
+const PIPELINE: IndexingStage[] = [
+  "queued",
+  "extracting",
+  "structuring",
+  "verifying_tree",
+  "refining_tree",
+  "summarizing",
+  "embedding",
+  "persisting",
+  "indexed"
+];
+
+type StageState = "done" | "active" | "pending" | "error";
+
+function railRows(run: IndexingRunRow | null): { stage: IndexingStage; state: StageState }[] {
+  const completed = run?.status === "completed";
+  const failed = run?.status === "failed" || run?.status === "canceled";
+  const currentIndex = run ? PIPELINE.indexOf(run.stage as IndexingStage) : -1;
+
+  return PIPELINE.map((stage, index) => {
+    let state: StageState = "pending";
+
+    if (completed) {
+      state = "done";
+    } else if (currentIndex === -1) {
+      state = "pending";
+    } else if (index < currentIndex) {
+      state = "done";
+    } else if (index === currentIndex) {
+      state = failed ? "error" : "active";
+    }
+
+    return { stage, state };
+  });
+}
+
+function stageGlyph(state: StageState) {
+  if (state === "done") {
+    return <CheckCircle2 aria-hidden="true" size={14} />;
+  }
+
+  if (state === "active") {
+    return <Loader2 aria-hidden="true" className="spin" size={14} />;
+  }
+
+  if (state === "error") {
+    return <AlertTriangle aria-hidden="true" size={14} />;
+  }
+
+  return <Circle aria-hidden="true" size={14} />;
+}
 
 function eventIcon(event: IndexingEventRow) {
   if (event.severity === "error") {
@@ -58,6 +111,7 @@ export function IndexingTimeline({
   const [requesting, setRequesting] = useState(false);
 
   const sortedEvents = useMemo(() => sortEvents(events), [events]);
+  const stages = useMemo(() => railRows(run), [run]);
   const canRequest = !run || run.status === "completed" || run.status === "failed" || run.status === "canceled";
 
   useEffect(() => {
@@ -205,10 +259,28 @@ export function IndexingTimeline({
         </div>
       ) : null}
 
+      <div className="stage-rail" aria-hidden="true">
+        {stages.map(({ stage, state }) => (
+          <div className={`stage-row is-${state}`} key={stage}>
+            <span className="stage-ico">{stageGlyph(state)}</span>
+            <span className="stage-name">{indexingStageLabel(stage)}</span>
+            <span className="stage-tag">
+              {state === "done" ? "ok" : state === "active" ? "···" : state === "error" ? "err" : ""}
+            </span>
+          </div>
+        ))}
+      </div>
+
       <div className="card-actions">
         <Button
           disabled={!canRequest || requesting}
-          leftIcon={requesting ? <Loader2 aria-hidden="true" size={16} /> : <Play aria-hidden="true" size={16} />}
+          leftIcon={
+            requesting ? (
+              <Loader2 aria-hidden="true" className="spin" size={16} />
+            ) : (
+              <Play aria-hidden="true" size={16} />
+            )
+          }
           onClick={requestIndexing}
           variant="primary"
         >
