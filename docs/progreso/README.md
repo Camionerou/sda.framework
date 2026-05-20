@@ -32,3 +32,4 @@ separado, con estado claro y sin secretos.
 25. `2026-05-20-25-invitaciones-sin-expiracion.md`
 26. `2026-05-20-26-compute-gateway-contract.md`
 27. `2026-05-20-27-upload-dedupe-ingesta-separada.md`
+28. `2026-05-20-28-mineru-extraccion-real.md`
