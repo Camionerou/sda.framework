@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
@@ -22,6 +23,7 @@ from .versions import INDEXING_VERSION_COLUMNS, TREE_PROMPT_VERSION
 DATA_DIR = Path(os.getenv("SDA_TREE_INDEXER_DATA_DIR", "/var/lib/sda-tree-indexer"))
 TOKEN = os.getenv("SDA_TREE_INDEXER_TOKEN") or os.getenv("SDA_COMPUTE_GATEWAY_TOKEN")
 ALLOW_UNAUTHENTICATED_WORKER = os.getenv("SDA_ALLOW_UNAUTHENTICATED_WORKER") == "1"
+INNGEST_EVENT_KEY = os.getenv("INNGEST_EVENT_KEY")
 
 
 def positive_int_env(name: str, fallback: int) -> int:
@@ -143,6 +145,22 @@ def patch_job(job_id: str, patch: dict[str, Any]) -> dict[str, Any]:
     return next_job
 
 
+async def publish_inngest_event(name: str, data: dict[str, Any]) -> None:
+    if not INNGEST_EVENT_KEY:
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"https://inn.gs/e/{INNGEST_EVENT_KEY}",
+                json={"name": name, "data": data},
+            )
+            if response.status_code >= 400:
+                print(f"Inngest event {name} rejected with {response.status_code}.")
+    except Exception as error:
+        print(f"Inngest event {name} could not be published: {error}")
+
+
 async def require_auth(authorization: str | None = Header(default=None)) -> None:
     if not TOKEN:
         if ALLOW_UNAUTHENTICATED_WORKER:
@@ -223,7 +241,7 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
             )
 
             if not is_tree_llm_configured():
-                patch_job(
+                terminal_job = patch_job(
                     job_id,
                     {
                         "error": "Tree LLM no configurado; paginas MinerU listas.",
@@ -234,9 +252,10 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
                         "status": "failed",
                     },
                 )
+                await publish_inngest_event("compute/tree.completed", terminal_job)
                 return
 
-            patch_job(
+            terminal_job = patch_job(
                 job_id,
                 {
                     "message": "Running LangGraph PageIndex-style Tree Indexer.",
@@ -308,8 +327,9 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
                     "version": result["version"],
                 },
             )
+            await publish_inngest_event("compute/tree.completed", terminal_job)
         except Exception as error:
-            patch_job(
+            terminal_job = patch_job(
                 job_id,
                 {
                     "error": str(error),
@@ -320,6 +340,7 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
                     "status": "failed",
                 },
             )
+            await publish_inngest_event("compute/tree.completed", terminal_job)
 
 
 @app.get("/v1/health", dependencies=[Depends(require_auth)])

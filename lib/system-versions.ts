@@ -1,16 +1,15 @@
-export const SYSTEM_COMPONENT_VERSIONS = {
-  app: "0.1.7",
-  chat_agent: "0.0.0",
-  compute_gateway_extraction: "0.1.4",
-  embedding_pipeline: "0.0.0",
-  extraction_pipeline: "0.1.7",
-  indexing_pipeline: "0.1.8",
-  inngest_indexing_workflow: "0.1.6",
-  tree_indexer_python: "0.1.4",
-  tree_prompt: "0.1.2"
-} as const;
+import versions from "@/lib/system-versions.json";
+
+export const SYSTEM_COMPONENT_VERSIONS = versions;
 
 export type SystemComponent = keyof typeof SYSTEM_COMPONENT_VERSIONS;
+
+export const SYSTEM_COMPONENT_VERSION_ROWS = Object.entries(SYSTEM_COMPONENT_VERSIONS).map(
+  ([component, version]) => ({
+    component,
+    version
+  })
+);
 
 export const TREE_INDEXER_PYTHON_ID = "sda-pageindex-python-langgraph";
 

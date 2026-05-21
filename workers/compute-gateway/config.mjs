@@ -1,15 +1,51 @@
+import { readFileSync } from "node:fs";
+
+const LOCAL_SYSTEM_VERSIONS_FILE = new URL("../../lib/system-versions.json", import.meta.url);
+
 export function positiveInteger(value, fallback) {
   const parsed = Number(value);
 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function loadSystemVersions() {
+  const candidates = [process.env.SDA_SYSTEM_VERSIONS_FILE, LOCAL_SYSTEM_VERSIONS_FILE].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      const source = readFileSync(candidate, "utf8");
+
+      return JSON.parse(source);
+    } catch {
+      // Deployment can run with explicit env overrides before the JSON is copied.
+    }
+  }
+
+  return {};
+}
+
+const SYSTEM_COMPONENT_VERSIONS = loadSystemVersions();
+
+function componentVersion(envName, component) {
+  return process.env[envName] ?? SYSTEM_COMPONENT_VERSIONS[component] ?? "0.0.0";
+}
+
 export const PORT = Number(process.env.PORT ?? 8787);
 export const DATA_DIR =
   process.env.SDA_COMPUTE_GATEWAY_DATA_DIR ?? "/var/lib/sda-compute-gateway";
-export const COMPUTE_GATEWAY_VERSION = process.env.SDA_COMPUTE_GATEWAY_VERSION ?? "0.1.4";
-export const EXTRACTION_PIPELINE_VERSION = process.env.SDA_EXTRACTION_PIPELINE_VERSION ?? "0.1.7";
-export const INDEXING_PIPELINE_VERSION = process.env.SDA_INDEXING_PIPELINE_VERSION ?? "0.1.8";
+export const COMPUTE_GATEWAY_VERSION = componentVersion(
+  "SDA_COMPUTE_GATEWAY_VERSION",
+  "compute_gateway_extraction"
+);
+export const EXTRACTION_PIPELINE_VERSION = componentVersion(
+  "SDA_EXTRACTION_PIPELINE_VERSION",
+  "extraction_pipeline"
+);
+export const INDEXING_PIPELINE_VERSION = componentVersion(
+  "SDA_INDEXING_PIPELINE_VERSION",
+  "indexing_pipeline"
+);
+export const INNGEST_EVENT_KEY = process.env.INNGEST_EVENT_KEY;
 export const MAX_CONCURRENT_JOBS = positiveInteger(process.env.SDA_COMPUTE_GATEWAY_CONCURRENCY, 1);
 export const MAX_REQUEST_BODY_BYTES = positiveInteger(
   process.env.SDA_COMPUTE_GATEWAY_MAX_BODY_BYTES,

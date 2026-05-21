@@ -26,17 +26,9 @@ import {
 import {
   documentStatusLabel,
   documentStatusTone,
-  formatBytes,
-  type DocumentRow,
-  type IndexingRunRow
+  formatBytes
 } from "@/lib/documents";
-import {
-  getDocumentDetailSnapshotCache,
-  setDocumentDetailSnapshotCache,
-  type ComponentVersionRow,
-  type DocumentDetailSnapshot,
-  type TreeRow
-} from "@/lib/redis/document-detail-cache";
+import { getDocumentDetailSnapshot } from "@/lib/documents/detail";
 import {
   documentPipelineVersions,
   isPipelineVersionStale,
@@ -53,21 +45,6 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-
-async function countRows(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  documentId: string
-) {
-  const { count, error } = await supabase
-    .from("chunks")
-    .select("id", { count: "exact", head: true })
-    .eq("document_id", documentId);
-
-  return {
-    count: count ?? 0,
-    error: error?.message
-  };
-}
 
 export default async function DocumentDetailPage({
   params
@@ -90,73 +67,10 @@ export default async function DocumentDetailPage({
     redirect("/app");
   }
 
-  let snapshot = (await getDocumentDetailSnapshotCache({ documentId: id, tenantId })).value;
+  const snapshot = await getDocumentDetailSnapshot({ documentId: id, tenantId });
 
   if (!snapshot) {
-    const { data: document, error } = await supabase
-      .from("documents")
-      .select(
-        "id, title, filename, mime_type, byte_size, r2_bucket, r2_key, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
-      )
-      .eq("id", id)
-      .maybeSingle<DocumentRow>();
-
-    if (error || !document) {
-      notFound();
-    }
-
-    const [
-      { data: tree },
-      chunks,
-      { data: indexingRuns },
-      { data: indexingEvents },
-      { data: componentVersions }
-    ] = await Promise.all([
-      supabase
-        .from("doc_tree")
-        .select(
-          "summary, model, version, created_at, indexing_pipeline_version, tree_indexer_version, tree_prompt_version"
-        )
-        .eq("document_id", document.id)
-        .maybeSingle<TreeRow>(),
-      countRows(supabase, document.id),
-      supabase
-        .from("indexing_runs")
-        .select(
-          "id, document_id, status, stage, progress, attempt, created_at, started_at, completed_at, failed_at, error_message, compute_job_id, inngest_run_id, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
-        )
-        .eq("document_id", document.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .returns<IndexingRunRow[]>(),
-      supabase
-        .from("indexing_events")
-        .select("id, run_id, document_id, event_type, stage, severity, message, progress, created_at")
-        .eq("document_id", document.id)
-        .order("created_at", { ascending: true })
-        .limit(80),
-      supabase
-        .from("system_component_versions")
-        .select("component, version")
-        .returns<ComponentVersionRow[]>()
-    ]);
-
-    snapshot = {
-      chunks,
-      componentVersions: componentVersions ?? [],
-      document,
-      indexingEvents: indexingEvents ?? [],
-      latestRun: indexingRuns?.[0] ?? null,
-      tree: tree ?? null
-    } satisfies DocumentDetailSnapshot;
-
-    await setDocumentDetailSnapshotCache(
-      {
-        documentId: document.id,
-        tenantId
-      },
-      snapshot
-    );
+    notFound();
   }
 
   const { chunks, componentVersions, document, indexingEvents, latestRun, tree } = snapshot;

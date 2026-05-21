@@ -6,7 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 type IndexingEventSeverity = "debug" | "error" | "info" | "warning";
 
-type IndexingTransitionInput = {
+export type IndexingTransitionInput = {
   document?: Record<string, unknown>;
   documentId: string;
   event: {

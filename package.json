@@ -11,13 +11,12 @@
     "typecheck": "tsc --noEmit",
     "test:db": "supabase test db",
     "test:tree-indexer": "python3 -m pytest workers/tree-indexer-python/tests",
+    "types:gen": "supabase gen types typescript --linked > lib/supabase/types.gen.ts",
     "env:doctor": "node scripts/health/env-doctor.mjs",
     "indexing:health": "node scripts/health/indexing-health.mjs",
     "inngest:sync": "node scripts/ci/inngest-sync.mjs",
     "redis:health": "node scripts/health/redis-health.mjs",
     "secrets:scan": "node scripts/ci/secret-scan.mjs",
-    "versions:check": "node scripts/db/versions-check.mjs",
-    "versions:sync": "node scripts/db/versions-sync.mjs",
     "bootstrap:owner-invite": "node scripts/db/bootstrap-owner-invite.mjs"
   },
   "overrides": {

@@ -2,6 +2,7 @@ import { recordIndexingTransition, recordPermanentIndexingFailure } from "@/lib/
 import { createAdminClient } from "@/lib/supabase/admin";
 import { INDEXING_VERSION_COLUMNS, INDEXING_VERSION_METADATA } from "@/lib/system-versions";
 
+import { recordTransition, transitionInput } from "./transitions";
 import type {
   DocumentForIndexing,
   IndexingRunClaim,
@@ -74,26 +75,20 @@ export async function claimIndexingRun(input: {
     }
 
     if (existing) {
-      await recordIndexingTransition({
-        documentId: event.data.document_id,
-        event: {
-          eventType: "indexing.orchestrator.skipped",
-          message: "Evento de indexacion duplicado ignorado",
+      await recordIndexingTransition(
+        transitionInput(event, "orchestrator_skipped", {
           metadata: {
             current_inngest_event_id: existing.inngest_run_id,
             incoming_inngest_event_id: executionRunId,
             reason: "run_already_claimed_or_terminal",
             source: event.data.source
           },
-          severity: "debug"
-        },
-        progress: existing.progress,
-        releaseActiveRun: ["canceled", "completed", "failed"].includes(existing.status),
-        runId: event.data.run_id,
-        stage: existing.stage,
-        status: existing.status,
-        tenantId: event.data.tenant_id
-      });
+          progress: existing.progress,
+          releaseActiveRun: ["canceled", "completed", "failed"].includes(existing.status),
+          stage: existing.stage,
+          status: existing.status
+        })
+      );
     }
 
     return {
@@ -114,27 +109,20 @@ export async function recordOrchestratorReceived(input: {
 }) {
   const { event, executionRunId, step } = input;
 
-  await step.run("record-orchestrator-received", async () => {
-    await recordIndexingTransition({
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.orchestrator.received",
-        message: "Inngest recibio la corrida de indexacion",
-        metadata: {
-          ...INDEXING_VERSION_METADATA,
-          actor_id: event.data.actor_id,
-          inngest_event_id: event.id,
-          inngest_run_id: executionRunId,
-          source: event.data.source
-        },
-        severity: "info"
-      },
-      progress: 0,
-      runId: event.data.run_id,
-      stage: "queued",
-      status: "running",
-      tenantId: event.data.tenant_id
-    });
+  await recordTransition({
+    event,
+    extras: {
+      metadata: {
+        ...INDEXING_VERSION_METADATA,
+        actor_id: event.data.actor_id,
+        inngest_event_id: event.id,
+        inngest_run_id: executionRunId,
+        source: event.data.source
+      }
+    },
+    step,
+    stepId: "record-orchestrator-received",
+    transition: "orchestrator_received"
   });
 }
 

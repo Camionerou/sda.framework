@@ -14,41 +14,31 @@ npm run indexing:health
 npm run indexing:health -- --strict
 npm run inngest:sync
 npm run redis:health
-npm run versions:sync
 npm run bootstrap:owner-invite
 ```
 
 `indexing:health` revisa DB con service role y devuelve JSON con:
 
-- distribucion de documentos y corridas;
-- errores recientes;
-- si hay compute gateway configurado;
 - documentos `uploaded` sin corrida activa;
 - documentos `queued`, `parsing` o `structuring` sin corrida activa;
 - corridas activas sin upload completo;
 - documentos `indexed` sin arbol o chunks;
-- corridas running con arbol ya persistido.
-- drift de versiones contra `system_component_versions`.
+- corridas running con arbol ya persistido;
+- drift de versiones contra `lib/system-versions.json`.
 
-Con `--strict`, el script falla por senales operativas criticas como
-`COMPUTE_GATEWAY_URL`, `INNGEST_EVENT_KEY`, anomalias o errores de query. El
-drift de versiones es informativo por defecto: los documentos siguen siendo
-usables. Si se quiere exigir que todo este reindexado con latest, usar
-`--strict --require-fresh-indexes`.
+Con `--strict`, el script falla por anomalias, errores de query y stale indexes
+si se pide explicitamente. El drift de versiones es informativo por defecto: los
+documentos siguen siendo usables. Si se quiere exigir que todo este reindexado
+con latest, usar `--strict --require-fresh-indexes`.
 
-`versions:sync` lee `lib/system-versions.ts` y sincroniza
-`system_component_versions` con service role. Los version bumps no requieren una
-migration propia; la tabla es el espejo runtime que consume la RPC. Por defecto
-usa `NEXT_PUBLIC_SUPABASE_URL` antes que `SUPABASE_URL` para evitar shells con
-admin URL vieja; `VERSION_SYNC_SUPABASE_URL` fuerza un host especifico.
+Las versiones operativas viven en `lib/system-versions.json`. Los workers copian
+ese JSON durante deploy y la RPC recibe las versiones por `_metadata.versions`;
+`system_component_versions` ya no requiere sync manual para crear corridas.
 
-`env:doctor` valida configuracion sin imprimir secretos y toma `.env.local`
-como fuente local del proyecto por encima de exports stale del shell. Reporta
-pares incompletos, URLs invalidas, reuse accidental de service key como public
-key, mismatch de Supabase admin/public URL y prefijos Redis peligrosos en
-produccion. En modo default, faltantes intencionalmente locales como
-`INNGEST_API_KEY`, Compute Gateway o Google OAuth se informan como `info`; con
-`--strict` vuelven a aparecer como readiness warnings.
+`env:doctor` valida configuracion sin imprimir secretos. Reporta mismatch de
+Supabase admin/public URL, reuse accidental de service key como public key y
+prefijos Redis peligrosos en produccion. En modo default, el mismatch de
+Supabase se informa como warning local; con `--strict` o CI pasa a error.
 
 `secrets:scan` revisa archivos trackeables por Git y falla si encuentra tokens
 con forma de secreto. No escanea `.env.local` porque esta ignorado, pero evita
@@ -234,8 +224,8 @@ Documento figura `indexed` pero con version vieja:
 - Reencolarlo es opcional y se decide cuando una version nueva cambie calidad,
   parsing, estructura o compatibilidad. La version sirve tambien como marca de
   epoca/auditoria.
-- Si el deploy acaba de cambiar versiones, correr `npm run versions:sync`
-  antes de reencolar.
+- Si el deploy acaba de cambiar versiones, confirmar que `lib/system-versions.json`
+  fue incluido en el deploy antes de reencolar.
 - No desplegar Vercel/Inngest mientras haya reindexaciones activas salvo
   hotfix necesario.
 

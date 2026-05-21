@@ -27,6 +27,7 @@ import {
   mapGatewayStage,
   messageFromError
 } from "./helpers";
+import { recordTransition, transitionInput } from "./transitions";
 import type { DocumentForIndexing, ProcessDocumentIndexEvent, StepLike } from "./types";
 
 export async function recordComputeGatewayPending(input: {
@@ -35,39 +36,39 @@ export async function recordComputeGatewayPending(input: {
 }) {
   const { event, step } = input;
 
-  await step.run("record-compute-gateway-pending", async () => {
-    await recordIndexingTransition({
-      document: {
-        status_reason: "Esperando Compute Gateway"
-      },
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.compute_gateway.pending",
-        message: "Esperando Compute Gateway para ejecutar MinerU",
-        metadata: {
-          expected_worker: "mineru",
-          host: "srv-ia-01"
-        },
-        severity: "info"
-      },
-      progress: 0,
-      releaseActiveRun: true,
-      run: {
-        error_message: "Esperando Compute Gateway",
-        progress: 0,
-        stage: "queued",
-        status: "queued"
-      },
-      runId: event.data.run_id,
-      stage: "queued",
-      status: "queued",
-      tenantId: event.data.tenant_id
-    });
+  await recordTransition({
+    event,
+    step,
+    stepId: "record-compute-gateway-pending",
+    transition: "compute_gateway_pending"
   });
 }
 
 export function canUseComputeGateway() {
   return isComputeGatewayConfigured();
+}
+
+async function waitForComputeGatewayEvent(input: {
+  attempt: number;
+  interval: string;
+  jobId: string;
+  step: StepLike;
+}) {
+  const { attempt, interval, jobId, step } = input;
+
+  if (!step.waitForEvent) {
+    await step.sleep(`wait-compute-gateway-job-${attempt}`, interval);
+    return null;
+  }
+
+  return step.waitForEvent<ComputeGatewayIndexJobStatus>(
+    `wait-compute-gateway-event-${attempt}`,
+    {
+      event: "compute/mineru.completed",
+      if: `async.data.job_id == ${JSON.stringify(jobId)}`,
+      timeout: interval
+    }
+  );
 }
 
 export async function recordComputeGatewayDispatching(input: {
@@ -76,35 +77,16 @@ export async function recordComputeGatewayDispatching(input: {
 }) {
   const { event, step } = input;
 
-  await step.run("record-compute-gateway-dispatching", async () => {
-    await recordIndexingTransition({
-      document: {
-        status: "parsing",
-        status_reason: "Enviando documento al Compute Gateway"
-      },
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.compute_gateway.dispatching",
-        message: "Enviando documento al Compute Gateway",
-        metadata: {
-          expected_worker: "mineru",
-          host: "srv-ia-01"
-        },
-        severity: "info"
-      },
-      progress: 5,
+  await recordTransition({
+    event,
+    extras: {
       run: {
-        error_message: null,
-        progress: 5,
-        stage: "extracting",
-        started_at: new Date().toISOString(),
-        status: "running"
-      },
-      runId: event.data.run_id,
-      stage: "extracting",
-      status: "running",
-      tenantId: event.data.tenant_id
-    });
+        started_at: new Date().toISOString()
+      }
+    },
+    step,
+    stepId: "record-compute-gateway-dispatching",
+    transition: "compute_gateway_dispatching"
   });
 }
 
@@ -177,32 +159,14 @@ export async function dispatchComputeGatewayJob(input: {
         return;
       }
 
-      await recordIndexingTransition({
-        document: {
-          status: "parsing",
-          status_reason: "Compute Gateway no recibio el job; Inngest puede reintentar"
-        },
-        documentId: event.data.document_id,
-        event: {
-          eventType: "indexing.compute_gateway.dispatch_failed",
-          message,
-          metadata: {
-            retry_owner: "inngest"
-          },
-          severity: "error"
-        },
-        progress: 5,
-        run: {
-          error_message: message,
-          progress: 5,
-          stage: "extracting",
-          status: "running"
-        },
-        runId: event.data.run_id,
-        stage: "extracting",
-        status: "running",
-        tenantId: event.data.tenant_id
-      });
+      await recordIndexingTransition(
+        transitionInput(event, "compute_gateway_dispatch_failed", {
+          event: { message },
+          run: {
+            error_message: message
+          }
+        })
+      );
     });
 
     if (storageObjectMissing) {
@@ -220,35 +184,20 @@ export async function recordComputeGatewayJobCreated(input: {
 }) {
   const { event, gatewayJob, step } = input;
 
-  await step.run("record-compute-gateway-job-created", async () => {
-    await recordIndexingTransition({
-      document: {
-        status: "parsing",
-        status_reason: "Compute Gateway ejecutando MinerU"
+  await recordTransition({
+    event,
+    extras: {
+      metadata: {
+        gateway_status: gatewayJob.status,
+        job_id: gatewayJob.job_id
       },
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.compute_gateway.job_created",
-        message: "Compute Gateway recibio el job de MinerU",
-        metadata: {
-          gateway_status: gatewayJob.status,
-          job_id: gatewayJob.job_id
-        },
-        severity: "info"
-      },
-      progress: 8,
       run: {
-        compute_job_id: gatewayJob.job_id,
-        error_message: null,
-        progress: 8,
-        stage: "extracting",
-        status: "running"
-      },
-      runId: event.data.run_id,
-      stage: "extracting",
-      status: "running",
-      tenantId: event.data.tenant_id
-    });
+        compute_job_id: gatewayJob.job_id
+      }
+    },
+    step,
+    stepId: "record-compute-gateway-job-created",
+    transition: "compute_gateway_job_created"
   });
 }
 
@@ -271,43 +220,49 @@ export async function pollComputeGatewayJob(input: {
     }
 
     if (attempt === 1 || attempt % 4 === 0) {
-      await step.run(`record-compute-gateway-progress-${attempt}`, async () => {
-        const progress = mapGatewayProgress(currentJob);
-        const stage = mapGatewayStage(currentJob);
-        const message = currentJob.message ?? "Compute Gateway procesando MinerU";
+      const progress = mapGatewayProgress(currentJob);
+      const stage = mapGatewayStage(currentJob);
+      const message = currentJob.message ?? "Compute Gateway procesando MinerU";
 
-        await recordIndexingTransition({
+      await recordTransition({
+        event,
+        extras: {
           document: {
-            status: "parsing",
             status_reason: message
           },
-          documentId: event.data.document_id,
-          event: {
-            eventType: "indexing.compute_gateway.progress",
-            message,
-            metadata: {
-              gateway_progress: currentJob.progress,
-              gateway_stage: currentJob.stage,
-              gateway_status: currentJob.status,
-              job_id: currentJob.job_id
-            },
-            severity: "info"
+          event: { message },
+          metadata: {
+            gateway_progress: currentJob.progress,
+            gateway_stage: currentJob.stage,
+            gateway_status: currentJob.status,
+            job_id: currentJob.job_id
           },
           progress,
           run: {
             progress,
-            stage,
-            status: "running"
+            stage
           },
-          runId: event.data.run_id,
-          stage,
-          status: "running",
-          tenantId: event.data.tenant_id
-        });
+          stage
+        },
+        step,
+        stepId: `record-compute-gateway-progress-${attempt}`,
+        transition: "compute_gateway_progress"
       });
     }
 
-    await step.sleep(`wait-compute-gateway-job-${attempt}`, interval);
+    const terminalEvent = await waitForComputeGatewayEvent({
+      attempt,
+      interval,
+      jobId: gatewayJob.job_id,
+      step
+    });
+
+    if (
+      terminalEvent?.data &&
+      (terminalEvent.data.status === "succeeded" || terminalEvent.data.status === "failed")
+    ) {
+      return terminalEvent.data;
+    }
   }
 
   throw new Error(`Compute Gateway job ${gatewayJob.job_id} no termino dentro del tiempo esperado.`);
@@ -357,36 +312,23 @@ export async function recordMineruExtractionFailed(input: {
       throw extractionError;
     }
 
-    await recordIndexingTransition({
-      document: {
-        status: "failed",
-        status_reason: message
-      },
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.extract.failed",
-        message,
+    await recordIndexingTransition(
+      transitionInput(event, "extract_failed", {
+        document: {
+          status_reason: message
+        },
+        event: { message },
         metadata: {
           gateway_stage: terminalGatewayJob.stage,
           gateway_status: terminalGatewayJob.status,
           job_id: terminalGatewayJob.job_id
         },
-        severity: "error"
-      },
-      progress: 100,
-      releaseActiveRun: true,
-      run: {
-        error_message: message,
-        failed_at: new Date().toISOString(),
-        progress: 100,
-        stage: "failed",
-        status: "failed"
-      },
-      runId: event.data.run_id,
-      stage: "failed",
-      status: "failed",
-      tenantId: event.data.tenant_id
-    });
+        run: {
+          error_message: message,
+          failed_at: new Date().toISOString()
+        }
+      })
+    );
   });
 }
 
@@ -453,15 +395,8 @@ export async function recordMineruExtractionSucceeded(input: {
       throw artifactError;
     }
 
-    await recordIndexingTransition({
-      document: {
-        status: "structuring",
-        status_reason: "Extraccion MinerU lista; Tree Indexer pendiente"
-      },
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.extract.completed",
-        message: "Extraccion MinerU persistida en Storage",
+    await recordIndexingTransition(
+      transitionInput(event, "extract_completed", {
         metadata: {
           artifact_count: artifacts.length,
           artifact_prefix: extractionRecord.artifact_prefix,
@@ -470,20 +405,8 @@ export async function recordMineruExtractionSucceeded(input: {
           indexing_pipeline_version: indexingPipelineVersion,
           job_id: terminalGatewayJob.job_id,
           parser_version: parserVersion
-        },
-        severity: "info"
-      },
-      progress: 35,
-      run: {
-        error_message: null,
-        progress: 35,
-        stage: "structuring",
-        status: "running"
-      },
-      runId: event.data.run_id,
-      stage: "structuring",
-      status: "running",
-      tenantId: event.data.tenant_id
-    });
+        }
+      })
+    );
   });
 }

@@ -24,9 +24,9 @@ Hace:
 Si Inngest no esta configurado, la ruta responde con `eventQueued: false` y una
 advertencia, pero conserva la corrida en DB.
 
-La RPC toma las versiones latest desde `system_component_versions`. No debe
-tener literales de version hardcodeados: si se sube un componente, la corrida
-nueva debe nacer con esas versiones.
+La RPC toma las versiones latest desde `_metadata.versions`, generado por
+`lib/system-versions.json` en la app. No debe consultar
+`system_component_versions` para decidir versiones operativas.
 
 ## Tablas
 
@@ -93,8 +93,8 @@ Archivo:
 lib/indexing/state.ts
 ```
 
-`recordIndexingTransition` es la ruta canonica para cambios de estado del
-workflow de indexacion. Coordina en un solo lugar:
+`recordTransition` usa descriptores declarativos del workflow y termina llamando
+a `recordIndexingTransition`, que coordina en un solo lugar:
 
 - update opcional de `indexing_runs`;
 - update opcional de `documents`;
@@ -106,8 +106,9 @@ workflow de indexacion. Coordina en un solo lugar:
 El workflow puede seguir haciendo escrituras de dominio por fuera de este
 helper, por ejemplo `document_extractions` y `document_extraction_artifacts`.
 Lo que no debe duplicarse por fuera es el paquete run/document/event/snapshot:
-si se agrega un nuevo estado operativo, debe pasar por
-`recordIndexingTransition` o por `recordPermanentIndexingFailure`.
+si se agrega un nuevo estado operativo, debe declararse en
+`inngest/functions/process-document-index/transitions.ts` y pasar por
+`recordTransition`, `transitionInput` o `recordPermanentIndexingFailure`.
 
 El claim inicial de `indexing_runs` sigue siendo directo porque necesita un
 `update ... where status = queued ... select` atomico para evitar doble

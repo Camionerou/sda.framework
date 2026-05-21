@@ -594,10 +594,11 @@ Esto permite auditoria por epoca y reindexacion selectiva cuando una mejora lo
 justifique. Un documento con version anterior sigue siendo usable si tiene
 `doc_tree` y `chunks` validos.
 
-`lib/system-versions.ts` es el registro canonico de latest en el repo.
-`system_component_versions` es el espejo runtime que consume la RPC
-`request_document_indexing`; se actualiza con `npm run versions:sync`, no con
-una migration por cada bump. El reconciliador no puede cerrar corridas usando
+`lib/system-versions.json` es el registro canonico de latest en el repo.
+`lib/system-versions.ts` deriva metadata tipada para la app y los workers
+reciben esas versiones por `_metadata.versions` al crear la corrida. La tabla
+`system_component_versions` queda como auditoria historica opcional, no como
+fuente de verdad del hot path. El reconciliador no puede cerrar corridas usando
 arboles de otro run aunque las versiones coincidan: tambien debe validar `run_id`
 en metadata de `doc_tree` y `chunks`.
 

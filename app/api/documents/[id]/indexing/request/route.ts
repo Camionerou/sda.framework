@@ -5,7 +5,7 @@ import {
   documentIndexRequested,
   inngest
 } from "@/inngest/client";
-import { invalidateDocumentDetailSnapshotCache } from "@/lib/redis/document-detail-cache";
+import { revalidateDocumentDetailSnapshotCache } from "@/lib/documents/detail";
 import {
   acquireIndexingDispatchLock,
   recordIndexingApiHeartbeat,
@@ -101,10 +101,7 @@ export async function POST(
     );
   }
 
-  await invalidateDocumentDetailSnapshotCache({
-    documentId: run.document_id,
-    tenantId
-  });
+  revalidateDocumentDetailSnapshotCache();
 
   if (!canDispatchInngestEvents()) {
     return NextResponse.json({

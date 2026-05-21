@@ -6,7 +6,6 @@ import {
   type ComputeGatewayTreeIndexJobResponse,
   type ComputeGatewayTreeIndexJobStatus
 } from "@/lib/indexing/compute-gateway";
-import { recordIndexingTransition } from "@/lib/indexing/state";
 import {
   INDEXING_VERSION_COLUMNS,
   INDEXING_VERSION_METADATA,
@@ -20,7 +19,31 @@ import {
   mapTreeProgress,
   mapTreeStage
 } from "./helpers";
+import { recordTransition } from "./transitions";
 import type { DocumentForIndexing, ProcessDocumentIndexEvent, StepLike } from "./types";
+
+async function waitForTreeIndexerEvent(input: {
+  attempt: number;
+  interval: string;
+  jobId: string;
+  step: StepLike;
+}) {
+  const { attempt, interval, jobId, step } = input;
+
+  if (!step.waitForEvent) {
+    await step.sleep(`wait-tree-indexer-job-${attempt}`, interval);
+    return null;
+  }
+
+  return step.waitForEvent<ComputeGatewayTreeIndexJobStatus>(
+    `wait-tree-indexer-event-${attempt}`,
+    {
+      event: "compute/tree.completed",
+      if: `async.data.job_id == ${JSON.stringify(jobId)}`,
+      timeout: interval
+    }
+  );
+}
 
 export async function recordTreeIndexerStarted(input: {
   event: ProcessDocumentIndexEvent;
@@ -29,35 +52,18 @@ export async function recordTreeIndexerStarted(input: {
 }) {
   const { event, step, terminalGatewayJob } = input;
 
-  await step.run("record-tree-indexer-started", async () => {
-    await recordIndexingTransition({
-      document: {
-        status: "structuring",
-        status_reason: "Tree Indexer construyendo arbol con LLM"
-      },
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.tree.started",
-        message: "Tree Indexer Python inicio construccion PageIndex-style con LLM",
-        metadata: {
-          ...INDEXING_VERSION_METADATA,
-          extraction_id: terminalGatewayJob.job_id,
-          indexer: TREE_INDEXER_PYTHON_VERSION
-        },
-        severity: "info"
-      },
-      progress: 40,
-      run: {
-        error_message: null,
-        progress: 40,
-        stage: "structuring",
-        status: "running"
-      },
-      runId: event.data.run_id,
-      stage: "structuring",
-      status: "running",
-      tenantId: event.data.tenant_id
-    });
+  await recordTransition({
+    event,
+    extras: {
+      metadata: {
+        ...INDEXING_VERSION_METADATA,
+        extraction_id: terminalGatewayJob.job_id,
+        indexer: TREE_INDEXER_PYTHON_VERSION
+      }
+    },
+    step,
+    stepId: "record-tree-indexer-started",
+    transition: "tree_started"
   });
 }
 
@@ -83,39 +89,25 @@ export async function createTreeIndexerJob(input: {
       })
     );
   } catch (dispatchError) {
-    await step.run("record-tree-indexer-dispatch-failed", async () => {
-      const message =
-        dispatchError instanceof Error
-          ? dispatchError.message
-          : "No se pudo crear el job en Tree Indexer.";
+    const message =
+      dispatchError instanceof Error
+        ? dispatchError.message
+        : "No se pudo crear el job en Tree Indexer.";
 
-      await recordIndexingTransition({
-        document: {
-          status: "structuring",
-          status_reason: "Tree Indexer no recibio el job; Inngest puede reintentar"
+    await recordTransition({
+      event,
+      extras: {
+        event: { message },
+        metadata: {
+          extraction_id: terminalGatewayJob.job_id
         },
-        documentId: event.data.document_id,
-        event: {
-          eventType: "indexing.tree.dispatch_failed",
-          message,
-          metadata: {
-            extraction_id: terminalGatewayJob.job_id,
-            retry_owner: "inngest"
-          },
-          severity: "error"
-        },
-        progress: 40,
         run: {
-          error_message: message,
-          progress: 40,
-          stage: "structuring",
-          status: "running"
-        },
-        runId: event.data.run_id,
-        stage: "structuring",
-        status: "running",
-        tenantId: event.data.tenant_id
-      });
+          error_message: message
+        }
+      },
+      step,
+      stepId: "record-tree-indexer-dispatch-failed",
+      transition: "tree_dispatch_failed"
     });
 
     throw dispatchError;
@@ -130,35 +122,18 @@ export async function recordTreeIndexerJobCreated(input: {
 }) {
   const { event, step, terminalGatewayJob, treeJob } = input;
 
-  await step.run("record-tree-indexer-job-created", async () => {
-    await recordIndexingTransition({
-      document: {
-        status: "structuring",
-        status_reason: "Tree Indexer Python procesando estructura"
-      },
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.tree.job_created",
-        message: "Tree Indexer Python recibio el job",
-        metadata: {
-          extraction_id: terminalGatewayJob.job_id,
-          tree_job_id: treeJob.job_id,
-          tree_status: treeJob.status
-        },
-        severity: "info"
-      },
-      progress: 42,
-      run: {
-        error_message: null,
-        progress: 42,
-        stage: "structuring",
-        status: "running"
-      },
-      runId: event.data.run_id,
-      stage: "structuring",
-      status: "running",
-      tenantId: event.data.tenant_id
-    });
+  await recordTransition({
+    event,
+    extras: {
+      metadata: {
+        extraction_id: terminalGatewayJob.job_id,
+        tree_job_id: treeJob.job_id,
+        tree_status: treeJob.status
+      }
+    },
+    step,
+    stepId: "record-tree-indexer-job-created",
+    transition: "tree_job_created"
   });
 }
 
@@ -182,44 +157,50 @@ export async function pollTreeIndexerJob(input: {
     }
 
     if (attempt === 1 || attempt % 4 === 0) {
-      await step.run(`record-tree-indexer-progress-${attempt}`, async () => {
-        const progress = mapTreeProgress(currentJob);
-        const stage = mapTreeStage(currentJob);
-        const message = currentJob.message ?? "Tree Indexer Python procesando estructura";
+      const progress = mapTreeProgress(currentJob);
+      const stage = mapTreeStage(currentJob);
+      const message = currentJob.message ?? "Tree Indexer Python procesando estructura";
 
-        await recordIndexingTransition({
+      await recordTransition({
+        event,
+        extras: {
           document: {
-            status: "structuring",
             status_reason: message
           },
-          documentId: event.data.document_id,
-          event: {
-            eventType: "indexing.tree.progress",
-            message,
-            metadata: {
-              extraction_id: terminalGatewayJob.job_id,
-              tree_job_id: currentJob.job_id,
-              tree_progress: currentJob.progress,
-              tree_stage: currentJob.stage,
-              tree_status: currentJob.status
-            },
-            severity: "info"
+          event: { message },
+          metadata: {
+            extraction_id: terminalGatewayJob.job_id,
+            tree_job_id: currentJob.job_id,
+            tree_progress: currentJob.progress,
+            tree_stage: currentJob.stage,
+            tree_status: currentJob.status
           },
           progress,
           run: {
             progress,
-            stage,
-            status: "running"
+            stage
           },
-          runId: event.data.run_id,
-          stage,
-          status: "running",
-          tenantId: event.data.tenant_id
-        });
+          stage
+        },
+        step,
+        stepId: `record-tree-indexer-progress-${attempt}`,
+        transition: "tree_progress"
       });
     }
 
-    await step.sleep(`wait-tree-indexer-job-${attempt}`, interval);
+    const terminalEvent = await waitForTreeIndexerEvent({
+      attempt,
+      interval,
+      jobId: treeJob.job_id,
+      step
+    });
+
+    if (
+      terminalEvent?.data &&
+      (terminalEvent.data.status === "succeeded" || terminalEvent.data.status === "failed")
+    ) {
+      return terminalEvent.data;
+    }
   }
 
   throw new Error(`Tree Indexer job ${treeJob.job_id} no termino dentro del tiempo esperado.`);
@@ -233,39 +214,27 @@ export async function recordTreeLlmMissing(input: {
 }) {
   const { event, step, terminalGatewayJob, terminalTreeJob } = input;
 
-  await step.run("record-tree-llm-missing", async () => {
-    const message = terminalTreeJob.error ?? "Tree LLM no configurado; extraccion MinerU lista.";
+  const message = terminalTreeJob.error ?? "Tree LLM no configurado; extraccion MinerU lista.";
 
-    await recordIndexingTransition({
+  await recordTransition({
+    event,
+    extras: {
       document: {
-        status: "structuring",
         status_reason: message
       },
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.tree.llm_missing",
-        message,
-        metadata: {
-          extraction_id: terminalGatewayJob.job_id,
-          required_env: ["SDA_TREE_LLM_API_KEY", "SDA_TREE_LLM_MODEL"],
-          tree_job_id: terminalTreeJob.job_id
-        },
-        severity: "warning"
+      event: { message },
+      metadata: {
+        extraction_id: terminalGatewayJob.job_id,
+        tree_job_id: terminalTreeJob.job_id
       },
-      progress: 35,
-      releaseActiveRun: true,
       run: {
         error_message: message,
-        failed_at: new Date().toISOString(),
-        progress: 35,
-        stage: "structuring",
-        status: "failed"
-      },
-      runId: event.data.run_id,
-      stage: "structuring",
-      status: "failed",
-      tenantId: event.data.tenant_id
-    });
+        failed_at: new Date().toISOString()
+      }
+    },
+    step,
+    stepId: "record-tree-llm-missing",
+    transition: "tree_llm_missing"
   });
 }
 
@@ -277,39 +246,28 @@ export async function recordTreeIndexerFailed(input: {
 }) {
   const { event, step, terminalGatewayJob, terminalTreeJob } = input;
 
-  await step.run("record-tree-indexer-failed", async () => {
-    const message = terminalTreeJob.error ?? "Tree Indexer fallo.";
+  const message = terminalTreeJob.error ?? "Tree Indexer fallo.";
 
-    await recordIndexingTransition({
+  await recordTransition({
+    event,
+    extras: {
       document: {
-        status: "failed",
         status_reason: `Tree Indexer fallo; MinerU disponible. ${message}`
       },
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.tree.failed",
-        message,
-        metadata: {
-          extraction_id: terminalGatewayJob.job_id,
-          tree_job_id: terminalTreeJob.job_id,
-          tree_stage: terminalTreeJob.stage
-        },
-        severity: "error"
+      event: { message },
+      metadata: {
+        extraction_id: terminalGatewayJob.job_id,
+        tree_job_id: terminalTreeJob.job_id,
+        tree_stage: terminalTreeJob.stage
       },
-      progress: 100,
-      releaseActiveRun: true,
       run: {
         error_message: message,
-        failed_at: new Date().toISOString(),
-        progress: 100,
-        stage: "failed",
-        status: "failed"
-      },
-      runId: event.data.run_id,
-      stage: "failed",
-      status: "failed",
-      tenantId: event.data.tenant_id
-    });
+        failed_at: new Date().toISOString()
+      }
+    },
+    step,
+    stepId: "record-tree-indexer-failed",
+    transition: "tree_failed"
   });
 }
 
@@ -322,10 +280,11 @@ export async function recordTreeIndexerSucceeded(input: {
 }) {
   const { event, step, terminalGatewayJob, terminalTreeJob } = input;
 
-  await step.run("record-tree-indexer-succeeded", async () => {
-    const now = new Date().toISOString();
+  const now = new Date().toISOString();
 
-    await recordIndexingTransition({
+  await recordTransition({
+    event,
+    extras: {
       document: {
         embedding_pipeline_version: INDEXING_VERSION_COLUMNS.embedding_pipeline_version,
         extraction_pipeline_version: getExtractionPipelineVersion(terminalGatewayJob),
@@ -335,40 +294,27 @@ export async function recordTreeIndexerSucceeded(input: {
         status_reason: "Tree Index listo; embeddings jerarquicos pendientes",
         tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version
       },
-      documentId: event.data.document_id,
-      event: {
-        eventType: "indexing.tree.completed",
-        message: "Tree Index persistido en doc_tree y chunks recuperables",
-        metadata: {
-          ...INDEXING_VERSION_METADATA,
-          chunk_count: terminalTreeJob.chunk_count,
-          content_list_path: terminalTreeJob.content_list_path,
-          extraction_id: terminalGatewayJob.job_id,
-          extraction_pipeline_version: getExtractionPipelineVersion(terminalGatewayJob),
-          indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
-          model: terminalTreeJob.model,
-          page_count: terminalTreeJob.page_count,
-          persisted_at: terminalTreeJob.persisted_at,
-          provider: terminalTreeJob.provider,
-          tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version,
-          tree_job_id: terminalTreeJob.job_id,
-          version: terminalTreeJob.version
-        },
-        severity: "info"
+      metadata: {
+        ...INDEXING_VERSION_METADATA,
+        chunk_count: terminalTreeJob.chunk_count,
+        content_list_path: terminalTreeJob.content_list_path,
+        extraction_id: terminalGatewayJob.job_id,
+        extraction_pipeline_version: getExtractionPipelineVersion(terminalGatewayJob),
+        indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
+        model: terminalTreeJob.model,
+        page_count: terminalTreeJob.page_count,
+        persisted_at: terminalTreeJob.persisted_at,
+        provider: terminalTreeJob.provider,
+        tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version,
+        tree_job_id: terminalTreeJob.job_id,
+        version: terminalTreeJob.version
       },
-      progress: 100,
-      releaseActiveRun: true,
       run: {
-        completed_at: now,
-        error_message: null,
-        progress: 100,
-        stage: "indexed",
-        status: "completed"
-      },
-      runId: event.data.run_id,
-      stage: "indexed",
-      status: "completed",
-      tenantId: event.data.tenant_id
-    });
+        completed_at: now
+      }
+    },
+    step,
+    stepId: "record-tree-indexer-succeeded",
+    transition: "tree_completed"
   });
 }

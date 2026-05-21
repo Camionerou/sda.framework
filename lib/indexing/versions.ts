@@ -1,4 +1,4 @@
-import type { ComponentVersionRow, TreeRow } from "@/lib/redis/document-detail-cache";
+import type { ComponentVersionRow, TreeRow } from "@/lib/documents/detail";
 import type { DocumentRow, DocumentStatus, IndexingRunRow } from "@/lib/documents";
 
 export type PipelineVersionKey =

@@ -61,7 +61,7 @@
 - Never index a document that does not have `uploaded_at`. If Storage returns `Object not found`, treat it as permanent upload corruption: fail the run/document and emit `indexing.storage_object_missing` instead of leaving the run `running`.
 - A document with persisted `doc_tree` plus chunks is materially indexed even if a previous Inngest run died before the final status update, but the reconciler may only close the run when `doc_tree.metadata.run_id`, `chunks.metadata.run_id`, `indexing_pipeline_version`, and `tree_indexer_version` match that same run.
 - `document_extractions` cache keys must include `extraction_pipeline_version`. Otherwise a new extraction pipeline cannot reprocess the same source checksum.
-- `request_document_indexing` reads latest versions from `system_component_versions`, which is synced from `lib/system-versions.ts` with `npm run versions:sync`.
+- `request_document_indexing` reads operative versions from `_metadata.versions`; `lib/system-versions.json` is the source of truth.
 - Version drift is informational by default. Do not automatically reindex every document after every bump; documents with valid `doc_tree` and `chunks` remain usable.
 - Upstash Redis is used for operational state: indexing dispatch locks, tenant backpressure, request rate limits, heartbeats, live run snapshots, and short server-side caches. If Redis is missing or degraded, indexing must stay usable and rely on Postgres/Inngest idempotency.
 - During active indexing runs, avoid deploys unless it is a hotfix. If a deploy interrupts polling, verify `npm run indexing:health` and let the reconciler recover or requeue any `nonterminal_without_active_run`.

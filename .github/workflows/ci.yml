@@ -45,12 +45,6 @@ jobs:
 
       - run: npm run build
 
-      - name: Check component version bumps
-        if: github.event_name == 'pull_request'
-        run: npm run versions:check -- --base origin/${{ github.base_ref }} --head HEAD
-
-      - run: npm run versions:sync -- --dry-run
-
       - run: npm run redis:health
 
       - run: python -m pip install -r workers/tree-indexer-python/requirements.txt pytest

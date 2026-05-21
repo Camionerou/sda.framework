@@ -310,6 +310,33 @@ Principio rector: si Vercel, Supabase, Upstash, Inngest o GitHub ya hacen una
 cosa, no la reimplementamos. Las propuestas de esta seccion borran codigo neto:
 el repo termina con menos archivos y menos lineas.
 
+### Estado de ejecucion — 2026-05-21
+
+- [x] 2.1 Eliminar dualidad de versiones: implementado; fuente unica en
+  `lib/system-versions.json`, TS/Python/workers leen de ahi y la RPC usa
+  `_metadata.versions`.
+- [x] 2.2 Wrapper generico Compute Gateway: implementado; tipos extraidos a
+  `lib/indexing/types.ts` y fetches duplicados colapsados en `callGateway`.
+- [~] 2.3 Secret scanning nativo: implementado parcialmente; GitHub Secret
+  Scanning y Push Protection habilitados en remoto, scanner local retenido
+  porque los patrones no-provider siguen sin cobertura nativa verificada.
+- [x] 2.4 `env-doctor` minimo: implementado; queda limitado a mismatch
+  Supabase, reuse de keys y prefijo Redis local en production.
+- [x] 2.5 `indexing-health` como SQL view: implementado; anomalías
+  estructurales viven en `public.indexing_health_anomalies` y el script solo
+  consume/formatea.
+- [x] 2.6 Cache de detalle con `unstable_cache`: implementado; Redis manual
+  eliminado para detalle documental y revalidación por tag estático.
+- [x] 2.7 Transiciones declarativas de Inngest: implementado; nuevo
+  `transitions.ts` centraliza descriptores y los steps de MinerU/Tree usan
+  `recordTransition`.
+- [x] 2.8 Supabase typed RPC: implementado; clientes Supabase tipados con
+  `Database` y RPCs principales declaradas en `types.gen.ts`.
+- [x] 2.9 `lib/utils.ts`: implementado como decisión de no tocar; `cn()` queda
+  como alias shadcn oficial.
+- [x] 2.10 `waitForEvent`: implementado en modo híbrido; workers publican
+  eventos terminales y el workflow espera eventos con fallback a polling.
+
 ### 2.1 Eliminar dualidad `lib/system-versions.ts` ↔ `system_component_versions`
 
 Hoy hay **dos fuentes de verdad** para versiones:
@@ -1067,15 +1094,14 @@ npm run secrets:scan
 npm run env:doctor
 npm run redis:health
 npm run indexing:health
-npm run versions:check
 ```
 
-5 comandos, 5 outputs distintos, cada uno con un JSON distinto.
+4 comandos, 4 outputs distintos, cada uno con un JSON distinto.
 
 Propuesta:
 
 ```bash
-sda doctor                # rapido (env + redis + versions)
+sda doctor                # rapido (env + redis + version registry)
 sda doctor --deep         # agrega indexing health (consulta DB)
 sda doctor --json         # output structurado para CI
 ```
@@ -1106,13 +1132,12 @@ Hoy para deployar un cambio se corre:
 npm run lint
 npm run typecheck
 npm run build
-npm run versions:check
 git add .
 git commit -m "..."
 git push
 ```
 
-7 pasos, 4 errores posibles en cada uno.
+6 pasos, 3 errores posibles en checks.
 
 Propuesta:
 
@@ -1126,8 +1151,8 @@ sda ship --skip-checks    # emergencia (warning visible)
 Flujo:
 
 1. Detecta si la branch es `main` y avisa
-2. Corre `lint`, `typecheck`, `build`, `versions:check` en paralelo (todos
-   independientes; falla rapida si uno trona)
+2. Corre `lint`, `typecheck` y `build` en paralelo (todos independientes; falla
+   rapida si uno trona)
 3. Si hay cambios sin commit, abre `@clack/prompts` con multiselect de
    archivos modificados y pide commit message
 4. Push a la branch actual

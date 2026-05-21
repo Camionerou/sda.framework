@@ -74,7 +74,6 @@ Con URL/token, hace `PING` al REST endpoint de Upstash y falla si no recibe
 - `lib/redis/rate-limit.ts`: rate limit de requests de indexacion.
 - `lib/indexing/redis.ts`: wrappers especificos de indexacion, backpressure y
   snapshots live.
-- `lib/redis/document-detail-cache.ts`: cache de snapshots terminales de detalle.
 - `scripts/health/redis-health.mjs`: smoke de conectividad.
-- `scripts/health/indexing-health.mjs`: incluye Redis configurado, heartbeats,
-  ultimo snapshot live y corridas activas por tenant.
+- `scripts/health/indexing-health.mjs`: consume la view SQL de anomalias de
+  indexacion; Redis tiene smoke propio en `redis-health`.

@@ -17,6 +17,7 @@ import {
   MINERU_PDF_RENDER_TIMEOUT,
   MINERU_TASK_RESULT_TIMEOUT
 } from "../config.mjs";
+import { publishInngestEvent } from "../inngest-events.mjs";
 import { uploadStorageObject } from "../storage.mjs";
 import { inputPath, mineruLogPath, mineruOutputPath, patchJob } from "./store.mjs";
 
@@ -397,7 +398,7 @@ export async function processJob(job, payload) {
     const artifactUpload = await uploadArtifacts(job, payload, mineruResult);
     const manifest = await buildExtractionManifest(payload, mineruResult, artifactUpload);
 
-    await patchJob(job.job_id, {
+    const terminalJob = await patchJob(job.job_id, {
       artifact_bucket: manifest.artifact_bucket,
       artifact_count: manifest.artifact_count,
       artifact_prefix: manifest.artifact_prefix,
@@ -416,13 +417,15 @@ export async function processJob(job, payload) {
       started_at: startedAt,
       status: "succeeded"
     });
+    await publishInngestEvent("compute/mineru.completed", terminalJob);
   } catch (error) {
-    await patchJob(job.job_id, {
+    const terminalJob = await patchJob(job.job_id, {
       error: error instanceof Error ? error.message : "Unknown gateway error.",
       failed_at: new Date().toISOString(),
       progress: 100,
       stage: "failed",
       status: "failed"
     });
+    await publishInngestEvent("compute/mineru.completed", terminalJob);
   }
 }

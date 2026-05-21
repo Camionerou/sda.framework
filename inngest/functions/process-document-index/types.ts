@@ -31,4 +31,12 @@ export type ProcessDocumentIndexEvent = {
 export type StepLike = {
   run<T>(id: string, handler: () => Promise<T> | T): Promise<T>;
   sleep(id: string, duration: string): Promise<void>;
+  waitForEvent?<TData extends object>(
+    id: string,
+    options: {
+      event: string;
+      if: string;
+      timeout: string;
+    }
+  ): Promise<{ data: TData } | null>;
 };
