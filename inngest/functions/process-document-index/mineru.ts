@@ -7,6 +7,7 @@ import {
   type ComputeGatewayIndexJobStatus
 } from "@/lib/indexing/compute-gateway";
 import { recordIndexingTransition, recordPermanentIndexingFailure } from "@/lib/indexing/state";
+import { signedUrl as asSignedUrl } from "@/lib/security/signed-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   INDEXING_VERSION_COLUMNS,
@@ -126,7 +127,7 @@ export async function dispatchComputeGatewayJob(input: {
           byte_size: document.byte_size,
           filename: document.filename,
           mime_type: document.mime_type,
-          signed_url: signedUrl.signedUrl,
+          signed_url: asSignedUrl(signedUrl.signedUrl),
           storage_bucket: document.storage_bucket,
           storage_path: document.storage_path
         },

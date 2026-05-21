@@ -23,7 +23,9 @@ from .versions import INDEXING_VERSION_COLUMNS, TREE_PROMPT_VERSION
 
 DATA_DIR = Path(os.getenv("SDA_TREE_INDEXER_DATA_DIR", "/var/lib/sda-tree-indexer"))
 TOKEN = os.getenv("SDA_TREE_INDEXER_TOKEN") or os.getenv("SDA_COMPUTE_GATEWAY_TOKEN")
-ALLOW_UNAUTHENTICATED_WORKER = os.getenv("SDA_ALLOW_UNAUTHENTICATED_WORKER") == "1"
+
+if not TOKEN:
+    raise RuntimeError("SDA_TREE_INDEXER_TOKEN is required.")
 
 
 def positive_int_env(name: str, fallback: int) -> int:
@@ -147,8 +149,6 @@ def patch_job(job_id: str, patch: dict[str, Any]) -> dict[str, Any]:
 
 async def require_auth(authorization: str | None = Header(default=None)) -> None:
     if not TOKEN:
-        if ALLOW_UNAUTHENTICATED_WORKER:
-            return
         raise HTTPException(status_code=503, detail="Worker auth token is not configured.")
     if authorization == f"Bearer {TOKEN}":
         return

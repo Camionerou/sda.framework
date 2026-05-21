@@ -2047,7 +2047,11 @@ Borrar `docs/sda-tree-index-live-architecture.md` (631 LOC duplicadas).
 
 Lista priorizada por severidad: criticos primero, luego defense-in-depth.
 
-### 7.1 CRITICO: rotar tokens visibles en historia conversacional
+### 7.1 CRITICO: rotar tokens visibles en historia conversacional — Pendiente externo
+
+Estado tanda 7: **pendiente externo/manual**. El repo ahora tiene escaneo de
+secretos en working tree e historial (`npm run secrets:scan:history`), pero la
+rotacion real requiere dashboards de Supabase, Inngest y Upstash.
 
 Durante la lectura del repo encontre tokens reales en `.env.local`:
 
@@ -2078,7 +2082,10 @@ Accion inmediata:
 explicitamente: "Rotar las claves despues de validar, porque fueron
 compartidas en chat". Si nunca se hizo, hacerlo ahora.
 
-### 7.2 ALTA: `app/auth/sign-out` debe ser POST (CSRF)
+### 7.2 ALTA: `app/auth/sign-out` debe ser POST (CSRF) — Implementado
+
+Estado tanda 7: **implementado**. `app/auth/sign-out` ya es POST y ahora valida
+same-origin antes de cerrar sesion.
 
 Ya cubierto en 6.5 desde el angulo correctness. Lo repito desde el angulo
 seguridad: una pagina maliciosa con `<img src="https://tu-app/auth/sign-out">`
@@ -2088,7 +2095,10 @@ Hoy mitigado parcialmente porque la cookie de Supabase es `SameSite=Lax`,
 pero atacantes pueden hacer redirects desde su origen. Cambiar a POST cierra
 el vector.
 
-### 7.3 ALTA: rate-limit en `accept_tenant_invite`
+### 7.3 ALTA: rate-limit en `accept_tenant_invite` — Implementado
+
+Estado tanda 7: **implementado**. El callback OAuth rate-limitea
+`accept_tenant_invite` con Upstash por usuario autenticado e IP.
 
 `supabase/migrations/20260520155323_invite_only_onboarding.sql:181-332` no
 tiene rate limit. Un atacante autenticado puede brute-forcear tokens.
@@ -2113,7 +2123,10 @@ if (!limit.success) return redirectWithError(request, "rate_limited");
 Usar el mismo `@upstash/ratelimit` ya configurado. Limit sugerido: 5
 intentos/hora por usuario.
 
-### 7.4 ALTA: CSRF en route handlers POST
+### 7.4 ALTA: CSRF en route handlers POST — Implementado
+
+Estado tanda 7: **implementado**. Se agrego `lib/auth/csrf.ts` y se aplica en
+los POST handlers actuales: sign-out e indexing request.
 
 Hoy `app/api/documents/[id]/indexing/request/route.ts:41-193` (POST) no valida
 origin ni token CSRF. Acepta cualquier POST con cookie de Supabase valida.
@@ -2143,7 +2156,12 @@ export function requireSameOrigin(request: Request) {
 
 Aplicar al request de indexing y a cualquier futuro POST handler.
 
-### 7.5 ALTA: Compute Gateway token compartido sin rotacion
+### 7.5 ALTA: Compute Gateway token compartido sin rotacion — Implementado corto plazo
+
+Estado tanda 7: **implementado corto plazo**. Se elimino el opt-in
+`SDA_ALLOW_UNAUTHENTICATED_WORKER`, los workers fallan al arrancar sin token y
+los deploys generan/reusan un token propio para Tree Indexer en vez de caer al
+token del Gateway.
 
 `workers/compute-gateway/server.mjs:29` lee `SDA_COMPUTE_GATEWAY_TOKEN`.
 Mismo token en:
@@ -2168,7 +2186,10 @@ Adicional: eliminar `SDA_ALLOW_UNAUTHENTICATED_WORKER=1` como opcion
 alguien va a setear en prod por error. Reemplazar por "si no hay token, el
 proceso no arranca, log fatal".
 
-### 7.6 MEDIA: RLS sin policies de DELETE en muchas tablas
+### 7.6 MEDIA: RLS sin policies de DELETE en muchas tablas — Implementado
+
+Estado tanda 7: **implementado**. Se agrego policy/grant de DELETE solo para el
+owner del documento y solo si el estado es `uploading` o `failed`.
 
 Reviso las migraciones. Las policies cubren:
 
@@ -2204,7 +2225,11 @@ create policy documents_delete_owner on public.documents
 
 (solo borrable si no esta indexado).
 
-### 7.7 MEDIA: Storage RLS path traversal
+### 7.7 MEDIA: Storage RLS path traversal — Implementado
+
+Estado tanda 7: **implementado**. Se endurecio el sanitizer, se agregaron
+helpers SQL para paths seguros, una constraint defensiva sobre `documents` y
+policies de Storage que rechazan segmentos `.`/`..`.
 
 `supabase/migrations/20260520164528_documents_upload_flow.sql:23-46` valida
 storage policies con:
@@ -2235,7 +2260,11 @@ end if;
 Hoy el path lo arma la RPC misma, asi que es controlado. Pero defense in
 depth.
 
-### 7.8 MEDIA: `audit_log` no captura todas las escrituras criticas
+### 7.8 MEDIA: `audit_log` no captura todas las escrituras criticas — Implementado
+
+Estado tanda 7: **implementado**. Se agregaron triggers de auditoria para
+status terminal de documentos, status terminal de indexing runs, cambios de rol
+de usuario y cambios de estado de invitaciones.
 
 `audit_log` (`supabase/migrations/20260520145604_core_multitenant_schema.sql:220-232`)
 es la base para forense. Cobertura actual:
@@ -2256,7 +2285,10 @@ Propuesta: trigger BEFORE INSERT/UPDATE en tablas criticas que escribe a
 Cubrir minimamente: `documents`, `indexing_runs`, `users.role` (escalation
 detection), `tenant_invites`.
 
-### 7.9 MEDIA: dependencias sin actualizar
+### 7.9 MEDIA: dependencias sin actualizar — Implementado
+
+Estado tanda 7: **implementado**. Se agrego `renovate.json` para npm y
+`pip_requirements`, con PRs programados y alertas de vulnerabilidades.
 
 `package.json:42-50` tiene devDeps con versiones especificas. No hay
 `renovate` ni dependabot configurado.
@@ -2278,7 +2310,11 @@ inmediatamente.
 Idem `workers/tree-indexer-python/requirements.txt` para Python (Dependabot
 soporta `pip`).
 
-### 7.10 BAJA: tokens en environment variables del worker (proceso visible)
+### 7.10 BAJA: tokens en environment variables del worker (proceso visible) — Documentado/aceptado
+
+Estado tanda 7: **documentado/aceptado**. No se migro a systemd
+`LoadCredential=` todavia; el corto plazo fue eliminar workers sin auth y
+separar tokens de Gateway/Tree Indexer.
 
 `workers/compute-gateway/server.mjs` corre con `EnvironmentFile=.env` por
 systemd. El `.env` tiene chmod 600 (correcto, ver
@@ -2291,7 +2327,11 @@ secretos en runtime sin estar en env del proceso).
 Mas pragmatico: aceptar el riesgo (server privado, single-tenant) y
 documentar.
 
-### 7.11 BAJA: log de signed URLs en Inngest steps
+### 7.11 BAJA: log de signed URLs en Inngest steps — Implementado
+
+Estado tanda 7: **implementado**. Se agrego un tipo branded `SignedUrl` y helper
+de redaccion para que el payload del Compute Gateway marque explicitamente ese
+campo como sensible.
 
 `docs/gotchas.md:43` advierte:
 
@@ -2311,7 +2351,10 @@ Add una guardrail: tipo `Brand<string, "SignedUrl">` que tiene un `toJSON()`
 custom que retorna `"<redacted>"`. Cualquier intento de loguearlo lo redacta
 automaticamente.
 
-### 7.12 BAJA: `secrets:scan` no cubre PRs con history rewrite
+### 7.12 BAJA: `secrets:scan` no cubre PRs con history rewrite — Implementado
+
+Estado tanda 7: **implementado**. `scripts/ci/secret-scan.mjs` ahora soporta
+`--history` y existe `npm run secrets:scan:history`.
 
 `scripts/secret-scan.mjs:39-54` corre `git ls-files`. Solo ve la working
 copy. No detecta secretos en commits viejos.
@@ -2322,7 +2365,11 @@ Protection cubre push. Pero historia previa no se reescanea automaticamente.
 Accion unica: correr `gitleaks` contra todo el historial **hoy**. Si encuentra
 algo, `git filter-repo`. Despues, GitHub se encarga del futuro.
 
-### 7.13 MEDIA: revisar `app.current_tenant_role()` default a `'member'`
+### 7.13 MEDIA: revisar `app.current_tenant_role()` default a `'member'` — Implementado
+
+Estado tanda 7: **implementado**. Nueva migracion redefine
+`app.current_tenant_role()` para devolver `null` cuando el claim falta y las
+policies fallan cerrado.
 
 `supabase/migrations/20260520145604_core_multitenant_schema.sql:37-50`:
 
@@ -2355,21 +2402,21 @@ Las policies que comparan a `'admin'`/`'owner'` siguen funcionando.
 
 ### Resumen ejecutable de la seccion
 
-| # | Issue | Severidad | Costo de fix |
+| # | Issue | Severidad | Estado tanda 7 |
 |---|---|---|---|
-| 7.1 | Rotar tokens vistos en chat | CRITICA | 30 min manual |
-| 7.2 | sign-out a POST | ALTA | 1 commit |
-| 7.3 | Rate-limit invite accept | ALTA | 15 LOC |
-| 7.4 | CSRF en route POST | ALTA | helper + 3 llamadas |
-| 7.5 | Token gateway sin rotacion | ALTA | medio plazo (mTLS) |
-| 7.6 | Sin policies DELETE | MEDIA | 5 policies SQL |
-| 7.7 | Storage path traversal | MEDIA | regex en RPC |
-| 7.8 | audit_log cobertura | MEDIA | triggers |
-| 7.9 | Renovate/Dependabot | MEDIA | 1 file |
-| 7.10 | Env vars visibles en proceso | BAJA | aceptar/documentar |
-| 7.11 | Signed URLs en logs | BAJA | branded type |
-| 7.12 | Historial pre-secret-scan | BAJA | gitleaks one-shot |
-| 7.13 | Default `'member'` en JWT hook | MEDIA | 1 linea SQL |
+| 7.1 | Rotar tokens vistos en chat | CRITICA | Pendiente externo/manual |
+| 7.2 | sign-out a POST | ALTA | Implementado |
+| 7.3 | Rate-limit invite accept | ALTA | Implementado |
+| 7.4 | CSRF en route POST | ALTA | Implementado |
+| 7.5 | Token gateway sin rotacion | ALTA | Implementado corto plazo |
+| 7.6 | Sin policies DELETE | MEDIA | Implementado |
+| 7.7 | Storage path traversal | MEDIA | Implementado |
+| 7.8 | audit_log cobertura | MEDIA | Implementado |
+| 7.9 | Renovate/Dependabot | MEDIA | Implementado |
+| 7.10 | Env vars visibles en proceso | BAJA | Documentado/aceptado |
+| 7.11 | Signed URLs en logs | BAJA | Implementado |
+| 7.12 | Historial pre-secret-scan | BAJA | Implementado |
+| 7.13 | Default `'member'` en JWT hook | MEDIA | Implementado |
 
 ---
 

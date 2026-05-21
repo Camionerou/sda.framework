@@ -21,10 +21,6 @@ if [[ -z "${SDA_TREE_INDEXER_TOKEN:-}" ]]; then
 fi
 
 if [[ -z "${SDA_TREE_INDEXER_TOKEN:-}" ]]; then
-  SDA_TREE_INDEXER_TOKEN="${SDA_COMPUTE_GATEWAY_TOKEN:-$(remote_env_value "$GATEWAY_ENV" SDA_COMPUTE_GATEWAY_TOKEN)}"
-fi
-
-if [[ -z "${SDA_TREE_INDEXER_TOKEN:-}" ]]; then
   SDA_TREE_INDEXER_TOKEN="$(openssl rand -hex 32)"
 fi
 

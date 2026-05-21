@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { requireSameOrigin } from "@/lib/auth/csrf";
 import { getClaimValue, type AppClaims } from "@/lib/auth/session";
 import {
   dispatchIndexingRun,
@@ -25,6 +26,12 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const csrf = requireSameOrigin(request);
+
+  if (!csrf.ok) {
+    return NextResponse.json({ error: csrf.error }, { status: csrf.status });
+  }
+
   const { id } = await params;
   const source = await readIndexingSource(request);
   const supabase = await createClient();

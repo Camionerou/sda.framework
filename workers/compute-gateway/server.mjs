@@ -18,6 +18,11 @@ import { createQueuedIndexJob, queueSnapshot } from "./jobs/queue.mjs";
 import { readJob } from "./jobs/store.mjs";
 import { isTreeIndexerPath, proxyTreeIndexer } from "./proxy.mjs";
 
+if (!TOKEN) {
+  console.error("SDA_COMPUTE_GATEWAY_TOKEN is required.");
+  process.exit(1);
+}
+
 function validateIndexJob(payload) {
   if (!payload || typeof payload !== "object") {
     throw new Error("Invalid JSON payload.");

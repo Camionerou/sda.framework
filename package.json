@@ -24,6 +24,7 @@
     "indexing:health": "node scripts/health/indexing-health.mjs",
     "redis:health": "node scripts/health/redis-health.mjs",
     "secrets:scan": "node scripts/ci/secret-scan.mjs",
+    "secrets:scan:history": "node scripts/ci/secret-scan.mjs --history",
     "bootstrap:owner-invite": "node scripts/db/bootstrap-owner-invite.mjs"
   },
   "overrides": {

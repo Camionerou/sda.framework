@@ -1,8 +1,10 @@
+import type { SignedUrl } from "@/lib/security/signed-url";
+
 export type ComputeGatewayDocumentRef = {
   byte_size: number | null;
   filename: string;
   mime_type: string;
-  signed_url: string;
+  signed_url: SignedUrl;
   storage_bucket: string;
   storage_path: string;
 };

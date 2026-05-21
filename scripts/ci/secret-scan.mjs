@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 
 const MAX_FILE_BYTES = 1_500_000;
+const MAX_HISTORY_BYTES = 80_000_000;
 const SKIP_PATHS = new Set(["package-lock.json"]);
 const SKIP_PREFIXES = [".next/", "node_modules/", "workers/tree-indexer-python/.venv/"];
+const SCAN_HISTORY = process.argv.includes("--history");
 
 const PATTERNS = [
   {
@@ -71,6 +73,20 @@ function lineNumberFor(source, index) {
 
 const findings = [];
 
+function scanSource(path, source) {
+  for (const pattern of PATTERNS) {
+    pattern.regex.lastIndex = 0;
+
+    for (const match of source.matchAll(pattern.regex)) {
+      findings.push({
+        line: lineNumberFor(source, match.index ?? 0),
+        pattern: pattern.name,
+        path
+      });
+    }
+  }
+}
+
 for (const path of gitFiles()) {
   if (shouldSkip(path) || !existsSync(path)) {
     continue;
@@ -90,17 +106,30 @@ for (const path of gitFiles()) {
 
   const source = buffer.toString("utf8");
 
-  for (const pattern of PATTERNS) {
-    pattern.regex.lastIndex = 0;
+  scanSource(path, source);
+}
 
-    for (const match of source.matchAll(pattern.regex)) {
-      findings.push({
-        line: lineNumberFor(source, match.index ?? 0),
-        pattern: pattern.name,
-        path
-      });
+if (SCAN_HISTORY) {
+  const history = execFileSync(
+    "git",
+    [
+      "log",
+      "-p",
+      "--all",
+      "--no-ext-diff",
+      "--",
+      ".",
+      ":(exclude)package-lock.json",
+      ":(exclude)workers/tree-indexer-python/.venv"
+    ],
+    {
+      encoding: "utf8",
+      maxBuffer: MAX_HISTORY_BYTES,
+      stdio: ["ignore", "pipe", "pipe"]
     }
-  }
+  );
+
+  scanSource("git-history", history);
 }
 
 if (findings.length > 0) {
@@ -113,4 +142,8 @@ if (findings.length > 0) {
   process.exit(1);
 }
 
-console.log("No secret-like values found in git-trackable files.");
+console.log(
+  SCAN_HISTORY
+    ? "No secret-like values found in git-trackable files or git history."
+    : "No secret-like values found in git-trackable files."
+);

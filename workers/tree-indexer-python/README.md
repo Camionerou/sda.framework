@@ -21,7 +21,6 @@ SDA_TREE_INDEXER_DATA_DIR=/var/lib/sda-tree-indexer
 SDA_TREE_INDEXER_TOKEN=secret
 SDA_TREE_INDEXER_CONCURRENCY=1
 SDA_TREE_INDEXER_MAX_BODY_BYTES=1048576
-SDA_ALLOW_UNAUTHENTICATED_WORKER=0
 
 SUPABASE_URL=https://project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
@@ -59,8 +58,7 @@ SDA_EMBEDDING_PROVIDER_ORDER=
 SDA_EMBEDDING_TIMEOUT_SECONDS=120
 ```
 
-`SDA_TREE_INDEXER_TOKEN` es obligatorio por defecto. Para desarrollo local sin
-auth hay que optar explicitamente con `SDA_ALLOW_UNAUTHENTICATED_WORKER=1`.
+`SDA_TREE_INDEXER_TOKEN` es obligatorio. Si falta, el proceso no arranca.
 
 ## Desarrollo local
 
@@ -87,8 +85,8 @@ cd workers/tree-indexer-python
 ./deploy.sh
 ```
 
-El script reutiliza `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y el token del
-Compute Gateway remoto si ya existen. Las variables de LLM se conservan desde
+El script reutiliza `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y el token
+propio remoto del Tree Indexer si ya existe. Las variables de LLM se conservan desde
 un `.env` remoto previo o se toman del entorno local si se exportan antes de
 correr el deploy. Los embeddings usan `SDA_EMBEDDING_API_KEY`; si no esta
 definida y `SDA_EMBEDDING_PROVIDER=openrouter`, usan `OPENROUTER_API_KEY`.

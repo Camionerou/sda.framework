@@ -1,4 +1,4 @@
-import { ALLOW_UNAUTHENTICATED_WORKER, MAX_REQUEST_BODY_BYTES, TOKEN } from "./config.mjs";
+import { MAX_REQUEST_BODY_BYTES, TOKEN } from "./config.mjs";
 
 export function json(response, statusCode, body) {
   response.writeHead(statusCode, {
@@ -17,10 +17,6 @@ export class RequestBodyTooLargeError extends Error {
 
 export function requireAuth(request, response) {
   if (!TOKEN) {
-    if (ALLOW_UNAUTHENTICATED_WORKER) {
-      return true;
-    }
-
     json(response, 503, { error: "Worker auth token is not configured." });
     return false;
   }

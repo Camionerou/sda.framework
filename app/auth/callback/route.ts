@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { clientIpFromHeaders, limitInviteAccept } from "@/lib/redis/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 
 function redirectWithError(request: NextRequest, error: string, message?: string) {
@@ -39,6 +40,36 @@ export async function GET(request: NextRequest) {
   }
 
   if (inviteToken) {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !userData.user) {
+      await supabase.auth.signOut();
+      return redirectWithError(request, "invite_auth", "No se pudo validar el usuario autenticado.");
+    }
+
+    const inviteRateLimit = await limitInviteAccept({
+      actorId: userData.user.id,
+      ip: clientIpFromHeaders(request.headers)
+    });
+
+    if (!inviteRateLimit.success) {
+      await supabase.auth.signOut();
+      const response = redirectWithError(
+        request,
+        "invite_rate_limited",
+        "Demasiados intentos de aceptar invitaciones. Reintenta mas tarde."
+      );
+
+      if (inviteRateLimit.reset) {
+        response.headers.set(
+          "retry-after",
+          String(Math.max(1, Math.ceil((inviteRateLimit.reset - Date.now()) / 1000)))
+        );
+      }
+
+      return response;
+    }
+
     const { error: inviteError } = await supabase.rpc("accept_tenant_invite", {
       _invite_token: inviteToken
     });

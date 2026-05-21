@@ -17,7 +17,6 @@ SDA_COMPUTE_GATEWAY_DATA_DIR=/var/lib/sda-compute-gateway
 SDA_COMPUTE_GATEWAY_TOKEN=secret
 SDA_COMPUTE_GATEWAY_CONCURRENCY=1
 SDA_COMPUTE_GATEWAY_MAX_BODY_BYTES=1048576
-SDA_ALLOW_UNAUTHENTICATED_WORKER=0
 SDA_MINERU_BIN=/home/sistemas/sda-mineru/.venv/bin/mineru
 SDA_MINERU_BACKEND=pipeline
 SDA_MINERU_LANG=latin
@@ -27,8 +26,7 @@ SDA_TREE_INDEXER_URL=http://127.0.0.1:8790
 SDA_TREE_INDEXER_TOKEN=secret
 ```
 
-`SDA_COMPUTE_GATEWAY_TOKEN` es obligatorio por defecto. Para desarrollo local
-sin auth hay que optar explicitamente con `SDA_ALLOW_UNAUTHENTICATED_WORKER=1`.
+`SDA_COMPUTE_GATEWAY_TOKEN` es obligatorio. Si falta, el proceso no arranca.
 El health check tambien requiere bearer auth.
 
 `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` son obligatorios para una ingesta
@@ -39,7 +37,9 @@ Storage. El disco local queda como cache operacional.
 
 ```bash
 cd workers/compute-gateway
-SDA_COMPUTE_GATEWAY_TOKEN="$(openssl rand -hex 32)" ./deploy.sh
+SDA_COMPUTE_GATEWAY_TOKEN="$(openssl rand -hex 32)" \
+SDA_TREE_INDEXER_TOKEN="$(openssl rand -hex 32)" \
+./deploy.sh
 ```
 
 El gateway procesa jobs en background con concurrencia limitada. Para cada job:

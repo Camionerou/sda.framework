@@ -29,8 +29,7 @@ Responsabilidades:
 - Subir markdown, JSON, PDFs de debug, imagenes y logs a Storage.
 - Devolver manifest y lista de artefactos.
 - Proteger endpoints con bearer token.
-- Fallar cerrado si no hay token, salvo opt-in local
-  `SDA_ALLOW_UNAUTHENTICATED_WORKER=1`.
+- Fallar al arrancar si no hay token.
 - Rechazar bodies HTTP demasiado grandes antes de procesar jobs.
 - Limitar concurrencia.
 
@@ -41,7 +40,6 @@ COMPUTE_GATEWAY_URL
 COMPUTE_GATEWAY_TOKEN
 SDA_COMPUTE_GATEWAY_TOKEN
 SDA_COMPUTE_GATEWAY_MAX_BODY_BYTES
-SDA_ALLOW_UNAUTHENTICATED_WORKER
 SDA_MINERU_BIN
 SDA_MINERU_BACKEND
 SDA_MINERU_LANG
@@ -108,8 +106,7 @@ Fases:
 `chunks.metadata.source_blocks`. El sistema de coordenadas queda indicado como
 `normalized_page_bbox_top_left_v1`.
 
-El Tree Indexer tambien falla cerrado sin token salvo
-`SDA_ALLOW_UNAUTHENTICATED_WORKER=1`, y limita bodies con
+El Tree Indexer tambien falla al arrancar sin token y limita bodies con
 `SDA_TREE_INDEXER_MAX_BODY_BYTES`.
 
 ## LLM

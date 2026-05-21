@@ -62,7 +62,6 @@ export const SUPABASE_SERVICE_ROLE_KEY =
 export const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/+$/, "");
 export const TOKEN = process.env.SDA_COMPUTE_GATEWAY_TOKEN;
 export const TREE_INDEXER_TOKEN = process.env.SDA_TREE_INDEXER_TOKEN ?? TOKEN;
-export const ALLOW_UNAUTHENTICATED_WORKER = process.env.SDA_ALLOW_UNAUTHENTICATED_WORKER === "1";
 export const TREE_INDEXER_URL = (process.env.SDA_TREE_INDEXER_URL ?? "http://127.0.0.1:8790").replace(
   /\/+$/,
   ""
