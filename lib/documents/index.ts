@@ -13,3 +13,9 @@ export {
   indexingRunTone,
   indexingStageLabel
 } from "@/lib/documents/format";
+export {
+  isPendingVisibleDocument,
+  isVisibleDocument,
+  pendingVisibleDocumentStatuses,
+  visibleDocumentStatuses
+} from "@/lib/documents/visibility";

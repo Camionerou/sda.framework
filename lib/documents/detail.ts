@@ -1,6 +1,7 @@
 import { revalidateTag, unstable_cache } from "next/cache";
 
 import type { DocumentRow, IndexingEventRow, IndexingRunRow } from "@/lib/documents/types";
+import { visibleDocumentStatuses } from "@/lib/documents/visibility";
 import { SYSTEM_COMPONENT_VERSION_ROWS } from "@/lib/system-versions";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -60,6 +61,8 @@ async function fetchDocumentDetailSnapshot(
     )
     .eq("id", documentId)
     .eq("tenant_id", tenantId)
+    .in("status", [...visibleDocumentStatuses])
+    .not("uploaded_at", "is", null)
     .maybeSingle<DocumentRow>();
 
   if (error) {

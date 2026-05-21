@@ -23,6 +23,8 @@ import {
   documentStatusLabel,
   documentStatusTone,
   formatBytes,
+  isPendingVisibleDocument,
+  visibleDocumentStatuses,
   type DocumentRow
 } from "@/lib/documents";
 import {
@@ -57,6 +59,8 @@ export default async function DocumentsPage() {
     .select(
       "id, title, filename, mime_type, byte_size, storage_bucket, storage_path, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
     )
+    .in("status", [...visibleDocumentStatuses])
+    .not("uploaded_at", "is", null)
     .order("created_at", { ascending: false })
     .limit(100)
     .returns<DocumentRow[]>();
@@ -64,9 +68,7 @@ export default async function DocumentsPage() {
   const documents = documentRows ?? [];
   const uploadedCount = documents.filter((doc) => doc.status === "uploaded").length;
   const indexedCount = documents.filter((doc) => doc.status === "indexed").length;
-  const pendingCount = documents.filter((doc) =>
-    ["uploading", "queued", "parsing", "structuring", "embedding"].includes(doc.status)
-  ).length;
+  const pendingCount = documents.filter(isPendingVisibleDocument).length;
 
   return (
     <main className="app-shell">
@@ -93,7 +95,7 @@ export default async function DocumentsPage() {
               <div className="stat">
                 <div className="stat-label">Pendientes</div>
                 <div className="stat-value">{pendingCount}</div>
-                <div className="muted">Upload o indexación</div>
+                <div className="muted">Indexación en curso</div>
               </div>
               <div className="stat">
                 <div className="stat-label">Indexados</div>
@@ -105,7 +107,7 @@ export default async function DocumentsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Archivos del tenant</CardTitle>
-                <CardDescription>Últimos 100 documentos visibles para tu sesión.</CardDescription>
+                <CardDescription>Últimos 100 documentos cargados y visibles para tu sesión.</CardDescription>
               </CardHeader>
               <CardContent>
                 {error ? (

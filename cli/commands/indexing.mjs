@@ -95,12 +95,17 @@ const requeueCommand = defineCommand({
   args: {
     documentId: {
       type: "positional",
+      required: false,
       description: "Document ID"
     },
     "all-failed": {
       type: "boolean",
       alias: "a",
       description: "Requeue de todos los documentos failed"
+    },
+    all: {
+      type: "boolean",
+      description: "Requeue de todos los documentos con upload/storage completo"
     },
     "actor-id": {
       type: "string",
@@ -121,14 +126,24 @@ const requeueCommand = defineCommand({
   async run({ args }) {
     loadSdaEnv();
 
-    if (!args.documentId && !args["all-failed"]) {
-      throw new Error("Pasá <document-id> o --all-failed.");
+    if (!args.documentId && !args["all-failed"] && !args.all) {
+      throw new Error("Pasá <document-id>, --all o --all-failed.");
+    }
+
+    if (args.documentId && (args["all-failed"] || args.all)) {
+      throw new Error("Usá <document-id>, --all o --all-failed, pero no combinados.");
+    }
+
+    if (args["all-failed"] && args.all) {
+      throw new Error("Usá --all o --all-failed, pero no ambos.");
     }
 
     const supabase = createAdminClient();
-    const documents = args["all-failed"]
-      ? await failedDocuments(supabase)
-      : await documentsById(supabase, [args.documentId]);
+    const documents = args.all
+      ? await indexableDocuments(supabase)
+      : args["all-failed"]
+        ? await failedDocuments(supabase)
+        : await documentsById(supabase, [args.documentId]);
 
     if (documents.length === 0) {
       console.log("No hay documentos para requeue.");
@@ -281,10 +296,31 @@ const tailCommand = defineCommand({
 async function failedDocuments(supabase) {
   const { data, error } = await supabase
     .from("documents")
-    .select("id, tenant_id, filename, uploaded_at, r2_bucket, r2_key")
+    .select("id, tenant_id, filename, uploaded_at, r2_bucket, r2_key, status")
     .eq("status", "failed")
     .not("uploaded_at", "is", null)
+    .not("r2_bucket", "is", null)
+    .not("r2_key", "is", null)
     .limit(100);
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
+async function indexableDocuments(supabase) {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("id, tenant_id, filename, uploaded_at, r2_bucket, r2_key, status")
+    .not("uploaded_at", "is", null)
+    .not("r2_bucket", "is", null)
+    .not("r2_key", "is", null)
+    .neq("status", "archived")
+    .neq("status", "uploading")
+    .order("created_at", { ascending: true })
+    .limit(500);
 
   if (error) {
     throw error;
@@ -319,7 +355,7 @@ async function resolveTailDocumentId(supabase, documentId) {
 async function documentsById(supabase, ids) {
   const { data, error } = await supabase
     .from("documents")
-    .select("id, tenant_id, filename, uploaded_at, r2_bucket, r2_key")
+    .select("id, tenant_id, filename, uploaded_at, r2_bucket, r2_key, status")
     .in("id", ids);
 
   if (error) {

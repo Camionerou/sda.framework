@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import type { DocumentRow } from "@/lib/documents";
+import { isVisibleDocument, type DocumentRow } from "@/lib/documents";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(
@@ -23,7 +23,7 @@ export async function GET(
     .eq("id", id)
     .maybeSingle<DocumentRow>();
 
-  if (documentError || !document) {
+  if (documentError || !document || !isVisibleDocument(document)) {
     return NextResponse.redirect(new URL("/app/documents?error=document_not_found", request.url));
   }
 

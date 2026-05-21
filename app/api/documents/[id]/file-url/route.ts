@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import type { DocumentRow } from "@/lib/documents";
+import { isVisibleDocument, type DocumentRow } from "@/lib/documents";
 import { createClient } from "@/lib/supabase/server";
 
 const DEFAULT_PDF_VIEWER_SIGNED_URL_TTL_SECONDS = 900;
@@ -58,7 +58,7 @@ export async function GET(
     return NextResponse.json({ error: "document_lookup_failed" }, { status: 500 });
   }
 
-  if (!document) {
+  if (!document || !isVisibleDocument(document)) {
     return NextResponse.json({ error: "document_not_found" }, { status: 404 });
   }
 

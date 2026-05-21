@@ -28,6 +28,7 @@ import {
   type AppClaims,
   type TenantRole
 } from "@/lib/auth/session";
+import { visibleDocumentStatuses } from "@/lib/documents";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -62,9 +63,15 @@ async function countRows(
   supabase: Awaited<ReturnType<typeof createClient>>,
   table: "conversations" | "documents" | "tenant_invites"
 ) {
-  const { count, error } = await supabase
+  let query = supabase
     .from(table)
     .select("id", { count: "exact", head: true });
+
+  if (table === "documents") {
+    query = query.in("status", [...visibleDocumentStatuses]).not("uploaded_at", "is", null);
+  }
+
+  const { count, error } = await query;
 
   return {
     count: count ?? 0,
@@ -160,7 +167,7 @@ export default async function AppPage() {
                   <div className="stat-label">Documentos</div>
                   <div className="stat-value">{documents.count}</div>
                   <div className="muted">
-                    {documents.error ? documents.error : "Visible por tenant"}
+                    {documents.error ? documents.error : "Cargados visibles"}
                   </div>
                 </div>
                 <div className="stat">
