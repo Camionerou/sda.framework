@@ -2,9 +2,14 @@ import { notFound, redirect } from "next/navigation";
 
 import { WorkspaceClient } from "@/components/workspace/workspace-client";
 import type { InspectorTab } from "@/components/workspace/inspector";
-import type { DocumentRow, IndexingEventRow, IndexingRunRow } from "@/lib/documents";
-import type { ComponentVersionRow, TreeRow } from "@/lib/document-detail-cache";
-import { getClaimValue, type AppClaims } from "@/lib/session";
+import {
+  visibleDocumentStatuses,
+  type DocumentRow,
+  type IndexingEventRow,
+  type IndexingRunRow
+} from "@/lib/documents";
+import type { ComponentVersionRow, TreeRow } from "@/lib/documents/detail";
+import { getClaimValue, type AppClaims } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { buildTreeRows, type ChunkRow } from "@/lib/workspace";
 
@@ -34,9 +39,12 @@ export default async function WorkspaceDocumentPage({
   const { data: document, error } = await supabase
     .from("documents")
     .select(
-      "id, title, filename, mime_type, byte_size, r2_bucket, r2_key, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
+      "id, title, filename, mime_type, byte_size, storage_bucket, storage_path, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
     )
     .eq("id", id)
+    .eq("tenant_id", tenantId)
+    .in("status", [...visibleDocumentStatuses])
+    .not("uploaded_at", "is", null)
     .maybeSingle<DocumentRow>();
 
   if (error || !document) {
@@ -48,14 +56,16 @@ export default async function WorkspaceDocumentPage({
       supabase
         .from("doc_tree")
         .select(
-          "summary, model, version, created_at, indexing_pipeline_version, tree_indexer_version, tree_prompt_version"
+          "summary, routing_summary, model, version, created_at, indexing_pipeline_version, tree_indexer_version, tree_prompt_version"
         )
         .eq("document_id", document.id)
+        .eq("tenant_id", tenantId)
         .maybeSingle<TreeRow>(),
       supabase
         .from("chunks")
         .select("node_id, node_path, chunk_index, page_start, page_end, summary")
         .eq("document_id", document.id)
+        .eq("tenant_id", tenantId)
         .order("chunk_index", { ascending: true })
         .limit(4000)
         .returns<ChunkRow[]>(),
@@ -65,6 +75,7 @@ export default async function WorkspaceDocumentPage({
           "id, document_id, status, stage, progress, attempt, created_at, started_at, completed_at, failed_at, error_message, compute_job_id, inngest_run_id, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
         )
         .eq("document_id", document.id)
+        .eq("tenant_id", tenantId)
         .order("created_at", { ascending: false })
         .limit(1)
         .returns<IndexingRunRow[]>(),
@@ -72,6 +83,7 @@ export default async function WorkspaceDocumentPage({
         .from("indexing_events")
         .select("id, run_id, document_id, event_type, stage, severity, message, progress, created_at")
         .eq("document_id", document.id)
+        .eq("tenant_id", tenantId)
         .order("created_at", { ascending: true })
         .limit(120)
         .returns<IndexingEventRow[]>(),

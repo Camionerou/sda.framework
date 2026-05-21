@@ -611,7 +611,17 @@ select {
 }
 
 .nav-signout {
+  width: 100%;
+  border: 0;
+  background: transparent;
   color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.nav-signout-form {
+  margin: 0;
 }
 
 /* ============================================================

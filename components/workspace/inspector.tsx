@@ -21,7 +21,7 @@ import {
   type IndexingRunRow,
   type IndexingStage
 } from "@/lib/documents";
-import { formatDateTime } from "@/lib/session";
+import { formatDateTime } from "@/lib/auth/session";
 import { STAGE_PIPELINE, formatPageRange, type TreeRowView } from "@/lib/workspace";
 
 export type InspectorTab = "structure" | "indexing" | "details";

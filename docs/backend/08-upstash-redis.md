@@ -70,11 +70,10 @@ Con URL/token, hace `PING` al REST endpoint de Upstash y falla si no recibe
 
 ## Archivos
 
-- `lib/redis.ts`: cliente central, keys namespaced, locks, heartbeat.
-- `lib/rate-limit.ts`: rate limit de requests de indexacion.
-- `lib/indexing-redis.ts`: wrappers especificos de indexacion, backpressure y
+- `lib/redis/client.ts`: cliente central, keys namespaced, locks, heartbeat.
+- `lib/redis/rate-limit.ts`: rate limit de requests de indexacion.
+- `lib/indexing/redis.ts`: wrappers especificos de indexacion, backpressure y
   snapshots live.
-- `lib/document-detail-cache.ts`: cache de snapshots terminales de detalle.
-- `scripts/redis-health.mjs`: smoke de conectividad.
-- `scripts/indexing-health.mjs`: incluye Redis configurado, heartbeats,
-  ultimo snapshot live y corridas activas por tenant.
+- `scripts/health/redis-health.mjs`: smoke de conectividad.
+- `scripts/health/indexing-health.mjs`: consume la view SQL de anomalias de
+  indexacion; Redis tiene smoke propio en `redis-health`.

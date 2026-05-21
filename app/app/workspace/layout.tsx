@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { Rail, type WorkspaceDocSummary } from "@/components/workspace/rail";
-import type { DocumentStatus } from "@/lib/documents";
-import { getClaimValue, type AppClaims } from "@/lib/session";
+import { visibleDocumentStatuses, type DocumentStatus } from "@/lib/documents";
+import { getClaimValue, type AppClaims } from "@/lib/auth/session";
 import { libStatus } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 
@@ -57,6 +57,8 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
   const { data: rows } = await supabase
     .from("documents")
     .select("id, title, filename, status, uploaded_at, created_at")
+    .in("status", [...visibleDocumentStatuses])
+    .not("uploaded_at", "is", null)
     .order("created_at", { ascending: false })
     .limit(100)
     .returns<RailDocRow[]>();

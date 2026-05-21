@@ -1,43 +1,10 @@
-export const SYSTEM_COMPONENT_VERSIONS = {
-  app: "0.1.5",
-  chat_agent: "0.0.0",
-  compute_gateway_extraction: "0.1.2",
-  embedding_pipeline: "0.0.0",
-  extraction_pipeline: "0.1.4",
-  indexing_pipeline: "0.1.5",
-  inngest_indexing_workflow: "0.1.4",
-  tree_indexer_python: "0.1.2",
-  tree_indexer_typescript: "0.1.1",
-  tree_prompt: "0.1.1"
-} as const;
+export {
+  INDEXING_VERSION_COLUMNS,
+  INDEXING_VERSION_METADATA,
+  SYSTEM_COMPONENT_VERSION_ROWS,
+  SYSTEM_COMPONENT_VERSIONS,
+  TREE_INDEXER_PYTHON_ID,
+  TREE_INDEXER_PYTHON_VERSION
+} from "@/lib/indexing/versions";
 
-export type SystemComponent = keyof typeof SYSTEM_COMPONENT_VERSIONS;
-
-export const TREE_INDEXER_PYTHON_ID = "sda-pageindex-python-langgraph";
-export const TREE_INDEXER_TYPESCRIPT_ID = "sda-pageindex-langgraph";
-
-export const TREE_INDEXER_PYTHON_VERSION =
-  `${TREE_INDEXER_PYTHON_ID}-v${SYSTEM_COMPONENT_VERSIONS.tree_indexer_python}`;
-
-export const TREE_INDEXER_TYPESCRIPT_VERSION =
-  `${TREE_INDEXER_TYPESCRIPT_ID}-v${SYSTEM_COMPONENT_VERSIONS.tree_indexer_typescript}`;
-
-export const INDEXING_VERSION_COLUMNS = {
-  embedding_pipeline_version: SYSTEM_COMPONENT_VERSIONS.embedding_pipeline,
-  extraction_pipeline_version: SYSTEM_COMPONENT_VERSIONS.extraction_pipeline,
-  indexing_pipeline_version: SYSTEM_COMPONENT_VERSIONS.indexing_pipeline,
-  tree_indexer_version: SYSTEM_COMPONENT_VERSIONS.tree_indexer_python
-} as const;
-
-export const INDEXING_VERSION_METADATA = {
-  versions: {
-    ...INDEXING_VERSION_COLUMNS,
-    app_version: SYSTEM_COMPONENT_VERSIONS.app,
-    compute_gateway_extraction_version:
-      SYSTEM_COMPONENT_VERSIONS.compute_gateway_extraction,
-    inngest_indexing_workflow_version:
-      SYSTEM_COMPONENT_VERSIONS.inngest_indexing_workflow,
-    tree_indexer_runtime_version: TREE_INDEXER_PYTHON_VERSION,
-    tree_prompt_version: SYSTEM_COMPONENT_VERSIONS.tree_prompt
-  }
-} as const;
+export type { SystemComponent } from "@/lib/indexing/versions";

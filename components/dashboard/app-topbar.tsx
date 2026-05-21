@@ -63,10 +63,12 @@ export function AppTopbar({
         <Badge tone={tenantActive ? "success" : "warning"}>
           {tenantActive ? "Tenant conectado" : "Tenant requerido"}
         </Badge>
-        <a aria-label="Cerrar sesión" className="nav-item nav-signout" href="/auth/sign-out">
-          <LogOut aria-hidden="true" size={16} />
-          Salir
-        </a>
+        <form action="/auth/sign-out" className="nav-signout-form" method="POST">
+          <button aria-label="Cerrar sesión" className="nav-item nav-signout" type="submit">
+            <LogOut aria-hidden="true" size={16} />
+            Salir
+          </button>
+        </form>
       </div>
     </aside>
   );

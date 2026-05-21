@@ -3,9 +3,10 @@
 App empresarial multitenant para ingesta, indexacion y consulta de documentos
 mediante agentes de IA.
 
-Este documento describe la arquitectura general vigente. La especificacion de
-indexacion estructural vive en
-[`docs/sda-tree-index-live-architecture.md`](./sda-tree-index-live-architecture.md).
+Este documento describe la arquitectura general vigente. La especificacion
+operativa de indexacion estructural vive en
+[`docs/backend/04-indexacion-inngest.md`](./backend/04-indexacion-inngest.md)
+y [`docs/backend/05-workers-compute-tree-indexer.md`](./backend/05-workers-compute-tree-indexer.md).
 
 ---
 
@@ -282,7 +283,7 @@ normalizan rangos y persisten.
 
 Implementacion inicial:
 
-- TypeScript/Inngest en `lib/tree-indexer` como control-plane integrado a la app.
+- Tree Indexer Python como runtime unico para PageIndex/LLM.
 - Python/FastAPI en `workers/tree-indexer-python` para correr en `srv-ia-01`
   cuando pasemos el trabajo estructural pesado al servidor privado.
 - Ambos mantienen la misma regla: sin LLM configurado, no se crea arbol fake.
@@ -594,10 +595,11 @@ Esto permite auditoria por epoca y reindexacion selectiva cuando una mejora lo
 justifique. Un documento con version anterior sigue siendo usable si tiene
 `doc_tree` y `chunks` validos.
 
-`lib/system-versions.ts` es el registro canonico de latest en el repo.
-`system_component_versions` es el espejo runtime que consume la RPC
-`request_document_indexing`; se actualiza con `npm run versions:sync`, no con
-una migration por cada bump. El reconciliador no puede cerrar corridas usando
+`lib/system-versions.json` es el registro canonico de latest en el repo.
+`lib/system-versions.ts` deriva metadata tipada para la app y los workers
+reciben esas versiones por `_metadata.versions` al crear la corrida. La tabla
+`system_component_versions` queda como auditoria historica opcional, no como
+fuente de verdad del hot path. El reconciliador no puede cerrar corridas usando
 arboles de otro run aunque las versiones coincidan: tambien debe validar `run_id`
 en metadata de `doc_tree` y `chunks`.
 
@@ -643,7 +645,7 @@ Estado ya implementado:
 4. Schema multitenant con RLS.
 5. Upload a Supabase Storage.
 6. Vista de documentos y detalle.
-7. Docs de SDA Tree Index + live architecture.
+7. Docs backend de indexacion y workers.
 8. Primer push a GitHub.
 9. `indexing_runs` e `indexing_events`.
 10. Timeline live en detalle de documento.

@@ -20,7 +20,7 @@ import {
   type IndexingRunRow,
   type IndexingStage
 } from "@/lib/documents";
-import { compactId, formatDateTime } from "@/lib/session";
+import { compactId, formatDateTime } from "@/lib/auth/session";
 import { INDEXING_VERSION_COLUMNS } from "@/lib/system-versions";
 import { createClient } from "@/lib/supabase/client";
 

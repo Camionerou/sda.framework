@@ -1,0 +1,256 @@
+import { defineCommand } from "citty";
+import { existsSync, readFileSync } from "node:fs";
+
+import { loadSdaEnv } from "../shared/env.mjs";
+import { printCheck, printJson, printSummary, printTitle } from "../shared/output.mjs";
+import { run } from "../shared/process.mjs";
+import { redisConfig } from "../shared/redis.mjs";
+
+export const doctorCommand = defineCommand({
+  meta: {
+    name: "doctor",
+    alias: ["d", "ok"],
+    description: "Health check operacional de env, Redis, Inngest, gateway y DB"
+  },
+  args: {
+    deep: {
+      type: "boolean",
+      alias: "D",
+      description: "Agrega indexing health contra Supabase"
+    },
+    json: {
+      type: "boolean",
+      alias: "j",
+      description: "Imprime output JSON"
+    },
+    quick: {
+      type: "boolean",
+      alias: "q",
+      description: "Saltea checks lentos como secret scan"
+    },
+    "no-cache": {
+      type: "boolean",
+      description: "En --deep, recalcula indexing health sin materialized view"
+    },
+    "refresh-cache": {
+      type: "boolean",
+      description: "En --deep, refresca indexing health snapshot antes de leer"
+    }
+  },
+  async run({ args }) {
+    loadSdaEnv();
+
+    const checks = [];
+
+    checks.push(await envDoctor());
+
+    if (!args.quick) {
+      checks.push(await secretScan());
+    }
+
+    checks.push(await redisHealth());
+    checks.push(inngestHealth());
+    checks.push(await computeGatewayHealth());
+    checks.push(versionHealth());
+
+    if (args.deep) {
+      checks.push(await indexingHealth({
+        noCache: args["no-cache"],
+        refreshCache: args["refresh-cache"]
+      }));
+    }
+
+    if (args.json) {
+      printJson({
+        checks,
+        summary: {
+          errors: checks.filter((check) => check.status === "error").length,
+          ok: checks.filter((check) => check.status === "ok").length,
+          warnings: checks.filter((check) => check.status === "warn").length
+        }
+      });
+      return;
+    }
+
+    printTitle("SDA Doctor");
+
+    for (const check of checks) {
+      printCheck(check.label, check.status, check.message);
+    }
+
+    printSummary(checks);
+  }
+});
+
+async function envDoctor() {
+  const result = await run("node", ["scripts/health/env-doctor.mjs", "--json"], {
+    allowFailure: true
+  });
+
+  try {
+    const body = JSON.parse(result.stdout);
+    const summary = body.summary ?? {};
+    const status = summary.errors > 0 ? "error" : summary.warnings > 0 ? "warn" : "ok";
+
+    return {
+      details: body,
+      label: "Env",
+      message: `${summary.ok ?? 0} ok, ${summary.info ?? 0} info, ${summary.warnings ?? 0} warnings, ${summary.errors ?? 0} errors`,
+      status
+    };
+  } catch {
+    return {
+      details: result.stdout || result.stderr,
+      label: "Env",
+      message: "no se pudo parsear env-doctor",
+      status: result.code === 0 ? "warn" : "error"
+    };
+  }
+}
+
+async function secretScan() {
+  const result = await run("node", ["scripts/ci/secret-scan.mjs"], { allowFailure: true });
+
+  return {
+    details: result.stdout || result.stderr,
+    label: "Secrets",
+    message: result.code === 0 ? "sin secretos trackeables" : "secret scan detecto problemas",
+    status: result.code === 0 ? "ok" : "error"
+  };
+}
+
+async function redisHealth() {
+  const config = redisConfig();
+  const result = await run("node", ["scripts/health/redis-health.mjs"], { allowFailure: true });
+
+  try {
+    const body = JSON.parse(result.stdout);
+    const status = body.ok ? "ok" : body.configured ? "error" : "warn";
+    const message = body.ok
+      ? `${body.response} (${body.latency_ms}ms) · prefix=${config?.keyPrefix ?? "sin-config"}`
+      : body.reason ?? body.error ?? "Redis no disponible";
+
+    return {
+      details: body,
+      label: "Redis",
+      message,
+      status
+    };
+  } catch {
+    return {
+      details: result.stdout || result.stderr,
+      label: "Redis",
+      message: "no se pudo parsear redis-health",
+      status: result.code === 0 ? "warn" : "error"
+    };
+  }
+}
+
+function inngestHealth() {
+  const routePath = "app/api/inngest/route.ts";
+  const route = existsSync(routePath) ? readFileSync(routePath, "utf8") : "";
+  const functionsMatch = route.match(/functions:\s*\[([^\]]*)\]/s);
+  const functionCount = functionsMatch
+    ? functionsMatch[1].split(",").map((part) => part.trim()).filter(Boolean).length
+    : 0;
+  const hasEventKey = Boolean(process.env.INNGEST_EVENT_KEY?.trim());
+  const hasSigningKey = Boolean(process.env.INNGEST_SIGNING_KEY?.trim());
+
+  return {
+    details: {
+      app_id: process.env.INNGEST_APP_ID || "sda-framework",
+      event_key_configured: hasEventKey,
+      functions: functionCount,
+      signing_key_configured: hasSigningKey
+    },
+    label: "Inngest",
+    message: `${hasEventKey ? "event-key OK" : "event-key missing"} · ${functionCount} functions declaradas`,
+    status: hasEventKey && hasSigningKey ? "ok" : "warn"
+  };
+}
+
+async function computeGatewayHealth() {
+  const url = process.env.COMPUTE_GATEWAY_URL?.trim();
+  const token = process.env.COMPUTE_GATEWAY_TOKEN?.trim();
+
+  if (!url || !token) {
+    return {
+      details: { configured: false },
+      label: "Gateway",
+      message: "COMPUTE_GATEWAY_URL/TOKEN no configurados en este entorno",
+      status: "warn"
+    };
+  }
+
+  try {
+    const response = await fetch(`${url.replace(/\/+$/, "")}/v1/health`, {
+      headers: {
+        authorization: `Bearer ${token}`
+      }
+    });
+    const body = await response.json();
+
+    return {
+      details: body,
+      label: "Gateway",
+      message: response.ok
+        ? `${body.service ?? "compute"} ${body.compute_gateway_version ?? ""}`.trim()
+        : `HTTP ${response.status}`,
+      status: response.ok && body.ok ? "ok" : "error"
+    };
+  } catch (error) {
+    return {
+      details: { error: error instanceof Error ? error.message : String(error) },
+      label: "Gateway",
+      message: error instanceof Error ? error.message : "gateway error",
+      status: "error"
+    };
+  }
+}
+
+function versionHealth() {
+  const versions = JSON.parse(readFileSync("lib/system-versions.json", "utf8"));
+
+  return {
+    details: versions,
+    label: "Versions",
+    message: `app=${versions.app} · indexing=${versions.indexing_pipeline} · tree=${versions.tree_indexer_python}`,
+    status: "ok"
+  };
+}
+
+async function indexingHealth(options = {}) {
+  const scriptArgs = ["scripts/health/indexing-health.mjs"];
+
+  if (options.noCache) {
+    scriptArgs.push("--no-cache");
+  }
+  if (options.refreshCache) {
+    scriptArgs.push("--refresh-cache");
+  }
+
+  const result = await run("node", scriptArgs, { allowFailure: true });
+
+  try {
+    const body = JSON.parse(result.stdout);
+    const health = body.health ?? {};
+    const summary = health.summary ?? {};
+    const state = health.state ?? "unknown";
+    const drift = body.versions?.indexed_document_reindex_required_count ?? 0;
+    const status = state === "critical" ? "error" : state === "degraded" ? "warn" : "ok";
+
+    return {
+      details: body,
+      label: "Indexing",
+      message: `${state} · ${summary.info ?? 0} info, ${summary.warning ?? 0} warnings, ${summary.critical ?? 0} critical · ${drift} docs requieren reindex`,
+      status: result.code === 0 ? status : "error"
+    };
+  } catch {
+    return {
+      details: result.stdout || result.stderr,
+      label: "Indexing",
+      message: "no se pudo parsear indexing-health",
+      status: result.code === 0 ? "warn" : "error"
+    };
+  }
+}

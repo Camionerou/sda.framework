@@ -1,6 +1,6 @@
 import { eventType, Inngest, staticSchema } from "inngest";
 
-import { SYSTEM_COMPONENT_VERSIONS } from "@/lib/system-versions";
+import { getInngestRuntimeConfig } from "@/lib/platform/server";
 
 export type DocumentIndexRequestedEvent = {
   actor_id: string;
@@ -10,22 +10,35 @@ export type DocumentIndexRequestedEvent = {
   tenant_id: string;
 };
 
+export type TreeGraphNodeEvent = {
+  document_id: string;
+  job_id: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+  node: string;
+  progress: number;
+  run_id: string;
+  stage: string;
+  status: string;
+  tenant_id: string;
+};
+
 export const documentIndexRequested = eventType("document/index.requested", {
   schema: staticSchema<DocumentIndexRequestedEvent>()
 });
 
+export const treeGraphNodeEvent = eventType("indexing/tree.node", {
+  schema: staticSchema<TreeGraphNodeEvent>()
+});
+
+const inngestConfig = getInngestRuntimeConfig();
+
 export const inngest = new Inngest({
-  appVersion:
-    process.env.INNGEST_APP_VERSION ??
-    process.env.VERCEL_GIT_COMMIT_SHA ??
-    process.env.GITHUB_SHA ??
-    SYSTEM_COMPONENT_VERSIONS.app,
-  id: "sda-framework",
-  isDev: process.env.INNGEST_DEV === "1" || (
-    process.env.NODE_ENV !== "production" && !process.env.INNGEST_SIGNING_KEY
-  )
+  appVersion: inngestConfig.appVersion,
+  id: inngestConfig.id,
+  isDev: inngestConfig.isDev
 });
 
 export function canDispatchInngestEvents() {
-  return process.env.INNGEST_DEV === "1" || Boolean(process.env.INNGEST_EVENT_KEY);
+  return inngestConfig.canDispatchEvents;
 }

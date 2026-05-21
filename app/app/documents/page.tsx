@@ -4,8 +4,13 @@ import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/workspace/app-shell";
 import { DocumentUploadForm } from "@/components/documents/document-upload-form";
-import { formatBytes, type DocumentRow } from "@/lib/documents";
-import { formatDateTime, getClaimValue, type AppClaims, type TenantRole } from "@/lib/session";
+import {
+  formatBytes,
+  isPendingVisibleDocument,
+  visibleDocumentStatuses,
+  type DocumentRow
+} from "@/lib/documents";
+import { formatDateTime, getClaimValue, type AppClaims, type TenantRole } from "@/lib/auth/session";
 import { libStatus, libStatusLabel } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 
@@ -31,8 +36,10 @@ export default async function DocumentsPage() {
   const { data: documentRows, error } = await supabase
     .from("documents")
     .select(
-      "id, title, filename, mime_type, byte_size, r2_bucket, r2_key, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
+      "id, title, filename, mime_type, byte_size, storage_bucket, storage_path, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
     )
+    .in("status", [...visibleDocumentStatuses])
+    .not("uploaded_at", "is", null)
     .order("created_at", { ascending: false })
     .limit(100)
     .returns<DocumentRow[]>();
@@ -40,9 +47,7 @@ export default async function DocumentsPage() {
   const documents = documentRows ?? [];
   const uploadedCount = documents.filter((doc) => doc.status === "uploaded").length;
   const indexedCount = documents.filter((doc) => doc.status === "indexed").length;
-  const pendingCount = documents.filter((doc) =>
-    ["uploading", "queued", "parsing", "structuring", "embedding"].includes(doc.status)
-  ).length;
+  const pendingCount = documents.filter(isPendingVisibleDocument).length;
 
   return (
     <AppShell active="documents" tenantLabel={tenantSlug || "SDA"} tenantRole={tenantRole}>

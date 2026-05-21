@@ -1,7 +1,7 @@
 import { cron } from "inngest";
 
 import { documentIndexRequested, inngest } from "@/inngest/client";
-import { reserveIndexingTenantActiveRun } from "@/lib/indexing-redis";
+import { reserveIndexingTenantActiveRun } from "@/lib/indexing/redis";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { INDEXING_VERSION_COLUMNS, INDEXING_VERSION_METADATA } from "@/lib/system-versions";
 
@@ -40,14 +40,16 @@ type DispatchableRun = {
 };
 
 type ReconcilerDocument = UploadedDocument & {
-  r2_bucket: string;
-  r2_key: string;
   status: string;
+  storage_bucket: string;
+  storage_path: string;
 };
 
 type ReconcilerRepairResult = {
   completed_indexed_runs: number;
+  completed_run_ids: string[];
   failed_incomplete_upload_runs: number;
+  failed_run_ids: string[];
 };
 
 function metadataString(metadata: Record<string, unknown> | null | undefined, key: string) {
@@ -136,7 +138,7 @@ async function loadDocumentsForRuns(runs: ActiveRun[]): Promise<Map<string, Reco
   const documentIds = [...new Set(runs.map((run) => run.document_id))];
   const { data, error } = await supabase
     .from("documents")
-    .select("id, tenant_id, created_by, uploaded_at, status, r2_bucket, r2_key")
+    .select("id, tenant_id, created_by, uploaded_at, status, storage_bucket, storage_path")
     .in("id", documentIds)
     .returns<ReconcilerDocument[]>();
 
@@ -147,11 +149,9 @@ async function loadDocumentsForRuns(runs: ActiveRun[]): Promise<Map<string, Reco
   return new Map((data ?? []).map((document) => [`${document.tenant_id}:${document.id}`, document]));
 }
 
-async function completeRunsWithPersistedTree(limit: number): Promise<number> {
-  const runs = await loadActiveRuns(limit);
-
+async function completeRunsWithPersistedTree(runs: ActiveRun[]): Promise<string[]> {
   if (runs.length === 0) {
-    return 0;
+    return [];
   }
 
   const supabase = createAdminClient();
@@ -233,7 +233,7 @@ async function completeRunsWithPersistedTree(limit: number): Promise<number> {
     );
   });
 
-  let completed = 0;
+  const completedRunIds: string[] = [];
 
   for (const run of completableRuns) {
     const now = new Date().toISOString();
@@ -269,7 +269,7 @@ async function completeRunsWithPersistedTree(limit: number): Promise<number> {
             indexing_pipeline_version:
               tree?.indexing_pipeline_version ?? run.indexing_pipeline_version,
             status: "indexed",
-            status_reason: "Tree Index listo; embeddings jerarquicos pendientes",
+            status_reason: "Tree Index y chunks persistidos",
             tree_indexer_version: tree?.tree_indexer_version ?? run.tree_indexer_version
           })
           .eq("id", run.document_id)
@@ -304,22 +304,20 @@ async function completeRunsWithPersistedTree(limit: number): Promise<number> {
       throw eventError;
     }
 
-    completed += 1;
+    completedRunIds.push(run.id);
   }
 
-  return completed;
+  return completedRunIds;
 }
 
-async function failIncompleteUploadRuns(limit: number): Promise<number> {
-  const runs = await loadActiveRuns(limit);
-
+async function failIncompleteUploadRuns(runs: ActiveRun[]): Promise<string[]> {
   if (runs.length === 0) {
-    return 0;
+    return [];
   }
 
   const documents = await loadDocumentsForRuns(runs);
   const supabase = createAdminClient();
-  let failed = 0;
+  const failedRunIds: string[] = [];
 
   for (const run of runs) {
     const document = documents.get(`${run.tenant_id}:${run.document_id}`);
@@ -358,9 +356,9 @@ async function failIncompleteUploadRuns(limit: number): Promise<number> {
           metadata: {
             previous_document_status: document.status,
             previous_run_stage: run.stage,
-            r2_bucket: document.r2_bucket,
-            r2_key: document.r2_key,
-            reason: "uploaded_at_missing"
+            reason: "uploaded_at_missing",
+            storage_bucket: document.storage_bucket,
+            storage_path: document.storage_path
           },
           message,
           progress: 100,
@@ -383,10 +381,10 @@ async function failIncompleteUploadRuns(limit: number): Promise<number> {
       throw eventError;
     }
 
-    failed += 1;
+    failedRunIds.push(run.id);
   }
 
-  return failed;
+  return failedRunIds;
 }
 
 async function loadUploadedDocumentsWithoutActiveRun(limit: number): Promise<UploadedDocument[]> {
@@ -580,26 +578,49 @@ async function loadStaleQueuedRuns(limit: number): Promise<DispatchableRun[]> {
   });
 }
 
-async function loadStaleRunningRuns(limit: number): Promise<DispatchableRun[]> {
+async function loadStaleRunningRuns(input: {
+  activeRuns?: ActiveRun[];
+  excludeRunIds?: Set<string>;
+  limit: number;
+}): Promise<DispatchableRun[]> {
+  const { activeRuns, excludeRunIds = new Set<string>(), limit } = input;
+
   if (limit <= 0) {
     return [];
   }
 
   const supabase = createAdminClient();
-  const { data: runs, error: runsError } = await supabase
-    .from("indexing_runs")
-    .select(activeRunColumns())
-    .eq("status", "running")
-    .lte("updated_at", staleRunningCutoff())
-    .order("updated_at", { ascending: true })
-    .limit(limit)
-    .returns<ActiveRun[]>();
+  const cutoff = staleRunningCutoff();
+  let runs: ActiveRun[];
 
-  if (runsError) {
-    throw runsError;
+  if (activeRuns) {
+    runs = activeRuns
+      .filter(
+        (run) =>
+          run.status === "running" &&
+          run.updated_at <= cutoff &&
+          !excludeRunIds.has(run.id)
+      )
+      .sort((left, right) => left.updated_at.localeCompare(right.updated_at))
+      .slice(0, limit);
+  } else {
+    const { data, error: runsError } = await supabase
+      .from("indexing_runs")
+      .select(activeRunColumns())
+      .eq("status", "running")
+      .lte("updated_at", cutoff)
+      .order("updated_at", { ascending: true })
+      .limit(limit)
+      .returns<ActiveRun[]>();
+
+    if (runsError) {
+      throw runsError;
+    }
+
+    runs = data ?? [];
   }
 
-  if (!runs?.length) {
+  if (runs.length === 0) {
     return [];
   }
 
@@ -687,13 +708,19 @@ export const reconcileDocumentIndexing = inngest.createFunction(
   },
   async ({ step }) => {
     const batchSize = getBatchSize();
+    const activeRuns = await step.run("load-active-runs", async () => loadActiveRuns(batchSize * 3));
     const repairedRuns = await step.run("repair-active-runs", async (): Promise<ReconcilerRepairResult> => {
-      const completedCount = await completeRunsWithPersistedTree(batchSize);
-      const failedCount = await failIncompleteUploadRuns(batchSize);
+      const completedRunIds = await completeRunsWithPersistedTree(activeRuns);
+      const completedRunIdSet = new Set(completedRunIds);
+      const failedRunIds = await failIncompleteUploadRuns(
+        activeRuns.filter((run) => !completedRunIdSet.has(run.id))
+      );
 
       return {
-        completed_indexed_runs: completedCount,
-        failed_incomplete_upload_runs: failedCount
+        completed_indexed_runs: completedRunIds.length,
+        completed_run_ids: completedRunIds,
+        failed_incomplete_upload_runs: failedRunIds.length,
+        failed_run_ids: failedRunIds
       };
     });
 
@@ -715,9 +742,18 @@ export const reconcileDocumentIndexing = inngest.createFunction(
     const staleQueuedRuns = await step.run("load-stale-queued-runs", async () =>
       loadStaleQueuedRuns(Math.max(batchSize - autoQueuedRuns.length, 0))
     );
-    const staleRunningRuns = await step.run("load-stale-running-runs", async () =>
-      loadStaleRunningRuns(Math.max(batchSize - autoQueuedRuns.length - staleQueuedRuns.length, 0))
-    );
+    const staleRunningRuns = await step.run("load-stale-running-runs", async () => {
+      const repairedRunIds = new Set([
+        ...repairedRuns.completed_run_ids,
+        ...repairedRuns.failed_run_ids
+      ]);
+
+      return loadStaleRunningRuns({
+        activeRuns,
+        excludeRunIds: repairedRunIds,
+        limit: Math.max(batchSize - autoQueuedRuns.length - staleQueuedRuns.length, 0)
+      });
+    });
     const candidateRuns = [...autoQueuedRuns, ...staleQueuedRuns, ...staleRunningRuns].slice(
       0,
       batchSize

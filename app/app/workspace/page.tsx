@@ -2,8 +2,8 @@ import { FileText, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import type { DocumentStatus } from "@/lib/documents";
-import { getClaimValue, type AppClaims } from "@/lib/session";
+import { visibleDocumentStatuses, type DocumentStatus } from "@/lib/documents";
+import { getClaimValue, type AppClaims } from "@/lib/auth/session";
 import { libStatus, libStatusLabel } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 
@@ -33,6 +33,8 @@ export default async function WorkspaceHome() {
   const { data: rows } = await supabase
     .from("documents")
     .select("id, title, filename, status")
+    .in("status", [...visibleDocumentStatuses])
+    .not("uploaded_at", "is", null)
     .order("created_at", { ascending: false })
     .limit(8)
     .returns<HomeDocRow[]>();

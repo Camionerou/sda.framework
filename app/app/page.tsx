@@ -10,7 +10,8 @@ import {
   getClaimValue,
   type AppClaims,
   type TenantRole
-} from "@/lib/session";
+} from "@/lib/auth/session";
+import { visibleDocumentStatuses } from "@/lib/documents";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +38,13 @@ async function countRows(
   supabase: Awaited<ReturnType<typeof createClient>>,
   table: "conversations" | "documents" | "tenant_invites"
 ) {
-  const { count } = await supabase.from(table).select("id", { count: "exact", head: true });
+  let query = supabase.from(table).select("id", { count: "exact", head: true });
+
+  if (table === "documents") {
+    query = query.in("status", [...visibleDocumentStatuses]).not("uploaded_at", "is", null);
+  }
+
+  const { count } = await query;
   return count ?? 0;
 }
 

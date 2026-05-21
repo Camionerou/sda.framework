@@ -21,7 +21,6 @@ SDA_TREE_INDEXER_DATA_DIR=/var/lib/sda-tree-indexer
 SDA_TREE_INDEXER_TOKEN=secret
 SDA_TREE_INDEXER_CONCURRENCY=1
 SDA_TREE_INDEXER_MAX_BODY_BYTES=1048576
-SDA_ALLOW_UNAUTHENTICATED_WORKER=0
 
 SUPABASE_URL=https://project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
@@ -41,10 +40,25 @@ SDA_TREE_LLM_TIMEOUT_MS=
 SDA_TREE_LLM_JSON_MODE=
 SDA_TREE_MAX_PROMPT_CHARS=60000
 SDA_TREE_SUMMARY_CONCURRENCY=3
+SDA_TREE_REFINE_MAX_PAGES=10
+SDA_TREE_REFINE_MAX_TOKENS=20000
+SDA_TREE_REFINE_MAX_ITERATIONS=3
+SDA_TREE_CHECKPOINTING=0
+SDA_TREE_CHECKPOINT_DSN=
+SDA_TREE_CHECKPOINT_SETUP=0
+
+SDA_EMBEDDING_PROVIDER=openrouter
+SDA_EMBEDDING_BASE_URL=https://openrouter.ai/api/v1
+SDA_EMBEDDING_API_KEY=
+SDA_EMBEDDING_MODEL=google/gemini-embedding-2-preview
+SDA_EMBEDDING_DIMENSIONS=1536
+SDA_EMBEDDING_BATCH_SIZE=96
+SDA_EMBEDDING_MAX_INPUT_CHARS=8000
+SDA_EMBEDDING_PROVIDER_ORDER=
+SDA_EMBEDDING_TIMEOUT_SECONDS=120
 ```
 
-`SDA_TREE_INDEXER_TOKEN` es obligatorio por defecto. Para desarrollo local sin
-auth hay que optar explicitamente con `SDA_ALLOW_UNAUTHENTICATED_WORKER=1`.
+`SDA_TREE_INDEXER_TOKEN` es obligatorio. Si falta, el proceso no arranca.
 
 ## Desarrollo local
 
@@ -71,10 +85,16 @@ cd workers/tree-indexer-python
 ./deploy.sh
 ```
 
-El script reutiliza `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y el token del
-Compute Gateway remoto si ya existen. Las variables de LLM se conservan desde
+El script reutiliza `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y el token
+propio remoto del Tree Indexer si ya existe. Las variables de LLM se conservan desde
 un `.env` remoto previo o se toman del entorno local si se exportan antes de
-correr el deploy.
+correr el deploy. Los embeddings usan `SDA_EMBEDDING_API_KEY`; si no esta
+definida y `SDA_EMBEDDING_PROVIDER=openrouter`, usan `OPENROUTER_API_KEY`.
+Checkpointing queda apagado por defecto; para activarlo, definir
+`SDA_TREE_CHECKPOINTING=1` y `SDA_TREE_CHECKPOINT_DSN` con un Postgres DSN
+compatible con `langgraph-checkpoint-postgres`. Usar
+`SDA_TREE_CHECKPOINT_SETUP=1` solo para inicializar tablas administradas por la
+libreria.
 
 ## Crear job
 
@@ -93,8 +113,14 @@ curl -X POST http://localhost:8790/v1/tree-index-jobs \
 
 El worker consulta `document_extraction_artifacts` por `extraction_id`, descarga
 el `content_list` desde Supabase Storage, lo convierte a paginas etiquetadas
-`<physical_index_X>`, ejecuta LangGraph y persiste `doc_tree` + `chunks` en
-Supabase cuando termina con exito.
+`<physical_index_X>`, usa `middle_json` para normalizar bbox por `page_size`,
+ejecuta LangGraph y persiste `doc_tree` + `chunks` en Supabase cuando termina
+con exito.
+
+Los highlights para el visor viven en `source_blocks` dentro de
+`doc_tree.tree.nodes` y `chunks.metadata.source_blocks`. Cada bloque usa
+`{ page, bbox, kind }`, con `bbox = [x0, y0, x1, y1]` normalizado `0..1` y origen
+arriba-izquierda (`normalized_page_bbox_top_left_v1`).
 
 ## Filosofia
 

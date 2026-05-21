@@ -10,6 +10,12 @@ class LabeledPage(TypedDict):
     text: str
 
 
+class SourceBlock(TypedDict):
+    bbox: list[float]
+    kind: str
+    page: int
+
+
 class CandidateSection(TypedDict, total=False):
     appear_start: str
     physical_index: int | str | None
@@ -23,6 +29,8 @@ class TreeNode(TypedDict, total=False):
     end_index: int
     node_id: str
     nodes: list["TreeNode"]
+    routing_summary: str
+    source_blocks: list[SourceBlock]
     start_index: int
     summary: str
     text: str
@@ -32,13 +40,22 @@ class TreeNode(TypedDict, total=False):
 class TreeChunk(TypedDict):
     chunk_index: int
     content: str
+    embedding: list[float] | None
+    embedding_model: str | None
     metadata: dict[str, Any]
     node_id: str
     node_path: list[str]
     page_end: int
     page_start: int
+    routing_summary: str | None
     summary: str | None
     token_count: int
+
+
+DocumentType = str
+
+
+SOURCE_BLOCKS_COORDINATE_SYSTEM = "normalized_page_bbox_top_left_v1"
 
 
 def _as_text(value: Any) -> str:
@@ -64,6 +81,61 @@ def _bbox_value(item: dict[str, Any], index: int) -> float:
     return float(value) if isinstance(value, (int, float)) else 0
 
 
+def _as_number(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        return float(value)
+    return None
+
+
+def _page_size(value: Any) -> tuple[float, float] | None:
+    if not isinstance(value, list) or len(value) < 2:
+        return None
+    width = _as_number(value[0])
+    height = _as_number(value[1])
+    if width is None or height is None or width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _normalized_bbox(value: Any, page_size: tuple[float, float]) -> list[float] | None:
+    if not isinstance(value, list) or len(value) < 4:
+        return None
+
+    coordinates = [_as_number(item) for item in value[:4]]
+    if any(item is None for item in coordinates):
+        return None
+
+    x0, y0, x1, y1 = coordinates
+    width, height = page_size
+    left = min(x0, x1) / width
+    top = min(y0, y1) / height
+    right = max(x0, x1) / width
+    bottom = max(y0, y1) / height
+
+    normalized = [
+        round(min(max(left, 0.0), 1.0), 6),
+        round(min(max(top, 0.0), 1.0), 6),
+        round(min(max(right, 0.0), 1.0), 6),
+        round(min(max(bottom, 0.0), 1.0), 6),
+    ]
+    if normalized[2] <= normalized[0] or normalized[3] <= normalized[1]:
+        return None
+    return normalized
+
+
+def _source_block_kind(value: Any) -> str:
+    raw_kind = _as_text(value).casefold().replace("_body", "")
+    if not raw_kind:
+        return "unknown"
+    if "table" in raw_kind:
+        return "table"
+    if "image" in raw_kind or "figure" in raw_kind:
+        return "figure"
+    if raw_kind in {"caption", "footer", "header", "list", "paragraph", "text", "title"}:
+        return "text"
+    return re.sub(r"[^a-z0-9_-]+", "_", raw_kind).strip("_")[:32] or "unknown"
+
+
 def _content_text(item: dict[str, Any]) -> str:
     parts = [
         _as_text(item.get("text")),
@@ -74,6 +146,43 @@ def _content_text(item: dict[str, Any]) -> str:
         *_as_text_list(item.get("table_footnote")),
     ]
     return "\n".join(part for part in parts if part)
+
+
+def source_blocks_from_mineru_middle(middle_json: Any) -> list[SourceBlock]:
+    if not isinstance(middle_json, dict) or not isinstance(middle_json.get("pdf_info"), list):
+        return []
+
+    source_blocks: list[SourceBlock] = []
+    for page in middle_json["pdf_info"]:
+        if not isinstance(page, dict):
+            continue
+
+        page_idx = page.get("page_idx")
+        page_size = _page_size(page.get("page_size"))
+        if not isinstance(page_idx, int) or page_idx < 0 or page_size is None:
+            continue
+
+        raw_blocks = page.get("para_blocks")
+        if not isinstance(raw_blocks, list):
+            raw_blocks = page.get("preproc_blocks")
+        if not isinstance(raw_blocks, list):
+            continue
+
+        for block in raw_blocks:
+            if not isinstance(block, dict):
+                continue
+            bbox = _normalized_bbox(block.get("bbox"), page_size)
+            if not bbox:
+                continue
+            source_blocks.append(
+                {
+                    "bbox": bbox,
+                    "kind": _source_block_kind(block.get("type")),
+                    "page": page_idx + 1,
+                }
+            )
+
+    return sorted(source_blocks, key=lambda block: (block["page"], block["bbox"][1], block["bbox"][0]))
 
 
 def content_list_to_labeled_pages(content_list: Any) -> list[LabeledPage]:
@@ -166,6 +275,33 @@ def normalize_candidate_sections(
     return normalized
 
 
+def _source_blocks_for_range(
+    source_blocks: list[SourceBlock],
+    start: int,
+    end: int,
+) -> list[SourceBlock]:
+    return [block for block in source_blocks if start <= block["page"] <= end]
+
+
+def _attach_source_blocks(nodes: list[TreeNode], source_blocks: list[SourceBlock]) -> None:
+    if not source_blocks:
+        return
+
+    def visit(node: TreeNode) -> None:
+        node_blocks = _source_blocks_for_range(
+            source_blocks,
+            node["start_index"],
+            node["end_index"],
+        )
+        if node_blocks:
+            node["source_blocks"] = node_blocks
+        for child in node.get("nodes", []):
+            visit(child)
+
+    for node in nodes:
+        visit(node)
+
+
 def _add_preface_if_needed(sections: list[CandidateSection]) -> list[CandidateSection]:
     if not sections:
         return sections
@@ -236,6 +372,7 @@ def _last_nonempty_page(pages: list[LabeledPage]) -> int:
 def candidate_sections_to_tree(
     sections: list[CandidateSection],
     pages: list[LabeledPage],
+    source_blocks: list[SourceBlock] | None = None,
 ) -> list[TreeNode]:
     normalized = _add_preface_if_needed(normalize_candidate_sections(sections, len(pages)))
     drafts: list[dict[str, Any]] = []
@@ -298,7 +435,9 @@ def candidate_sections_to_tree(
             node["nodes"] = children
         return node
 
-    return [assign_node_id(root) for root in roots]
+    tree = [assign_node_id(root) for root in roots]
+    _attach_source_blocks(tree, source_blocks or [])
+    return tree
 
 
 def flatten_tree(nodes: list[TreeNode]) -> list[tuple[TreeNode, list[str]]]:
@@ -315,22 +454,36 @@ def flatten_tree(nodes: list[TreeNode]) -> list[tuple[TreeNode, list[str]]]:
     return flattened
 
 
-def build_chunks_from_tree(nodes: list[TreeNode]) -> list[TreeChunk]:
+def build_chunks_from_tree(
+    nodes: list[TreeNode],
+    *,
+    document_type: DocumentType | None = None,
+) -> list[TreeChunk]:
     chunks: list[TreeChunk] = []
     for index, (node, path) in enumerate(flatten_tree(nodes)):
         content = node.get("text", "").strip() or node["title"]
+        metadata = {
+            "page_range": [node["start_index"], node["end_index"]],
+            "source": "pageindex_style_python_tree",
+        }
+        if document_type:
+            metadata["document_type"] = document_type
+        if node.get("source_blocks"):
+            metadata["source_blocks"] = node["source_blocks"]
+            metadata["source_blocks_coordinate_system"] = SOURCE_BLOCKS_COORDINATE_SYSTEM
+
         chunks.append(
             {
                 "chunk_index": index,
                 "content": content,
-                "metadata": {
-                    "page_range": [node["start_index"], node["end_index"]],
-                    "source": "pageindex_style_python_tree",
-                },
+                "embedding": None,
+                "embedding_model": None,
+                "metadata": metadata,
                 "node_id": node["node_id"],
                 "node_path": path,
                 "page_end": node["end_index"],
                 "page_start": node["start_index"],
+                "routing_summary": node.get("routing_summary"),
                 "summary": node.get("summary"),
                 "token_count": estimate_tokens(content),
             }
@@ -349,6 +502,10 @@ def remove_node_text(nodes: list[TreeNode]) -> list[TreeNode]:
         }
         if node.get("summary"):
             clean_node["summary"] = node["summary"]
+        if node.get("routing_summary"):
+            clean_node["routing_summary"] = node["routing_summary"]
+        if node.get("source_blocks"):
+            clean_node["source_blocks"] = node["source_blocks"]
         if node.get("nodes"):
             clean_node["nodes"] = remove_node_text(node["nodes"])
         clean_nodes.append(clean_node)

@@ -5,7 +5,7 @@ import { AppShell } from "@/components/workspace/app-shell";
 import { InviteCreateForm } from "@/components/invites/invite-create-form";
 import { Button } from "@/components/ui/button";
 import { revokeInviteAction } from "@/app/app/invites/actions";
-import { compactId, formatDateTime, getClaimValue, type AppClaims, type TenantRole } from "@/lib/session";
+import { compactId, formatDateTime, getClaimValue, type AppClaims, type TenantRole } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";

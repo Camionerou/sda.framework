@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { getClaimValue, type AppClaims, type TenantRole } from "@/lib/session";
+import { resolveAppOrigin } from "@/lib/platform/server";
+import { getClaimValue, type AppClaims, type TenantRole } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 const INVITE_ROLES = new Set(["admin", "member", "viewer"]);
@@ -24,21 +25,7 @@ function normalizeFormValue(value: FormDataEntryValue | null) {
 
 async function getAppOrigin() {
   const requestHeaders = await headers();
-  const origin = requestHeaders.get("origin");
-
-  if (origin) {
-    return origin;
-  }
-
-  if (process.env.APP_ORIGIN) {
-    return process.env.APP_ORIGIN;
-  }
-
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
-  }
-
-  return "http://localhost:3000";
+  return resolveAppOrigin(requestHeaders.get("origin"));
 }
 
 export async function createInviteAction(

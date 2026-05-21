@@ -73,20 +73,18 @@ components/
 
 inngest/
   client.ts
-  functions/process-document-index.ts
+  functions/process-document-index/
   functions/reconcile-document-indexing.ts
 
 lib/
+  auth/
+  documents/
+  indexing/
+  redis/
   supabase/
-  compute-gateway.ts
-  document-detail-cache.ts
-  documents.ts
-  indexing-redis.ts
-  rate-limit.ts
-  redis.ts
-  session.ts
+  system-versions.json
   system-versions.ts
-  tree-indexer/
+  utils.ts
 
 supabase/
   migrations/
