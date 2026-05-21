@@ -1,7 +1,7 @@
 import { cron } from "inngest";
 
 import { documentIndexRequested, inngest } from "@/inngest/client";
-import { reserveIndexingTenantActiveRun } from "@/lib/indexing-redis";
+import { reserveIndexingTenantActiveRun } from "@/lib/indexing/redis";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { INDEXING_VERSION_COLUMNS, INDEXING_VERSION_METADATA } from "@/lib/system-versions";
 

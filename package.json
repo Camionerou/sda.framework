@@ -1,6 +1,6 @@
 {
   "name": "sda-framework",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,14 +11,14 @@
     "typecheck": "tsc --noEmit",
     "test:db": "supabase test db",
     "test:tree-indexer": "python3 -m pytest workers/tree-indexer-python/tests",
-    "env:doctor": "node scripts/env-doctor.mjs",
-    "indexing:health": "node scripts/indexing-health.mjs",
-    "inngest:sync": "node scripts/inngest-sync.mjs",
-    "redis:health": "node scripts/redis-health.mjs",
-    "secrets:scan": "node scripts/secret-scan.mjs",
-    "versions:check": "node scripts/versions-check.mjs",
-    "versions:sync": "node scripts/versions-sync.mjs",
-    "bootstrap:owner-invite": "node scripts/bootstrap-owner-invite.mjs"
+    "env:doctor": "node scripts/health/env-doctor.mjs",
+    "indexing:health": "node scripts/health/indexing-health.mjs",
+    "inngest:sync": "node scripts/ci/inngest-sync.mjs",
+    "redis:health": "node scripts/health/redis-health.mjs",
+    "secrets:scan": "node scripts/ci/secret-scan.mjs",
+    "versions:check": "node scripts/db/versions-check.mjs",
+    "versions:sync": "node scripts/db/versions-sync.mjs",
+    "bootstrap:owner-invite": "node scripts/db/bootstrap-owner-invite.mjs"
   },
   "overrides": {
     "postcss": "^8.5.10"

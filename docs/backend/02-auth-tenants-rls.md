@@ -34,7 +34,7 @@ Reglas:
 
 ## Claims
 
-`lib/session.ts` define la forma esperada:
+`lib/auth/session.ts` define la forma esperada:
 
 ```text
 sub
@@ -94,4 +94,3 @@ Backend confiable:
 
 Regla practica: si el dato depende del tenant del usuario, preferir Supabase
 con RLS antes que filtros manuales en memoria.
-

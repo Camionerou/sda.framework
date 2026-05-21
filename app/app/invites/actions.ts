@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { resolveAppOrigin } from "@/lib/platform/server";
-import { getClaimValue, type AppClaims, type TenantRole } from "@/lib/session";
+import { getClaimValue, type AppClaims, type TenantRole } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 const INVITE_ROLES = new Set(["admin", "member", "viewer"]);

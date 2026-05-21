@@ -52,4 +52,4 @@ No guardar ahi archivos completos, signed URLs, service-role keys ni permisos.
 - [`docs/backend/07-operacion-env-health.md`](./docs/backend/07-operacion-env-health.md): env, health checks y debugging.
 - [`docs/backend/08-upstash-redis.md`](./docs/backend/08-upstash-redis.md): contrato Redis.
 - [`docs/gotchas.md`](./docs/gotchas.md): decisiones y trampas operativas.
-- [`docs/progreso/README.md`](./docs/progreso/README.md): historial incremental.
+- [`CHANGELOG.md`](./CHANGELOG.md): historial incremental consolidado.

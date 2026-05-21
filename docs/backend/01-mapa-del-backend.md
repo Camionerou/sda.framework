@@ -73,7 +73,7 @@ components/
 
 inngest/
   client.ts
-  functions/process-document-index.ts
+  functions/process-document-index/
   functions/reconcile-document-indexing.ts
 
 lib/

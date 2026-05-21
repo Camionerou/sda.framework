@@ -36,20 +36,20 @@ import {
   type ComponentVersionRow,
   type DocumentDetailSnapshot,
   type TreeRow
-} from "@/lib/document-detail-cache";
+} from "@/lib/redis/document-detail-cache";
 import {
   documentPipelineVersions,
   isPipelineVersionStale,
   latestVersionMap,
   pipelineVersionState
-} from "@/lib/indexing-versions";
+} from "@/lib/indexing/versions";
 import {
   compactId,
   formatDateTime,
   getClaimValue,
   type AppClaims,
   type TenantRole
-} from "@/lib/session";
+} from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";

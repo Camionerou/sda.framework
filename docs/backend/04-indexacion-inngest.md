@@ -63,7 +63,7 @@ canceled
 Archivo:
 
 ```text
-inngest/functions/process-document-index.ts
+inngest/functions/process-document-index/
 ```
 
 Fases:
@@ -90,7 +90,7 @@ job remoto en vez de crear otro MinerU.
 Archivo:
 
 ```text
-lib/indexing-state.ts
+lib/indexing/state.ts
 ```
 
 `recordIndexingTransition` es la ruta canonica para cambios de estado del

@@ -5,16 +5,16 @@ import {
   documentIndexRequested,
   inngest
 } from "@/inngest/client";
-import { invalidateDocumentDetailSnapshotCache } from "@/lib/document-detail-cache";
+import { invalidateDocumentDetailSnapshotCache } from "@/lib/redis/document-detail-cache";
 import {
   acquireIndexingDispatchLock,
   recordIndexingApiHeartbeat,
   releaseIndexingTenantActiveRun,
   reserveIndexingTenantActiveRun,
   releaseIndexingDispatchLock
-} from "@/lib/indexing-redis";
-import { clientIpFromHeaders, limitIndexingRequest } from "@/lib/rate-limit";
-import { getClaimValue, type AppClaims } from "@/lib/session";
+} from "@/lib/indexing/redis";
+import { clientIpFromHeaders, limitIndexingRequest } from "@/lib/redis/rate-limit";
+import { getClaimValue, type AppClaims } from "@/lib/auth/session";
 import { INDEXING_VERSION_METADATA } from "@/lib/system-versions";
 import { createClient } from "@/lib/supabase/server";
 

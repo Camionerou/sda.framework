@@ -1,13 +1,13 @@
 export const SYSTEM_COMPONENT_VERSIONS = {
-  app: "0.1.6",
+  app: "0.1.7",
   chat_agent: "0.0.0",
-  compute_gateway_extraction: "0.1.3",
+  compute_gateway_extraction: "0.1.4",
   embedding_pipeline: "0.0.0",
-  extraction_pipeline: "0.1.6",
-  indexing_pipeline: "0.1.7",
-  inngest_indexing_workflow: "0.1.5",
-  tree_indexer_python: "0.1.3",
-  tree_prompt: "0.1.1"
+  extraction_pipeline: "0.1.7",
+  indexing_pipeline: "0.1.8",
+  inngest_indexing_workflow: "0.1.6",
+  tree_indexer_python: "0.1.4",
+  tree_prompt: "0.1.2"
 } as const;
 
 export type SystemComponent = keyof typeof SYSTEM_COMPONENT_VERSIONS;

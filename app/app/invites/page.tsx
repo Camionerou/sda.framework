@@ -19,7 +19,7 @@ import {
   getClaimValue,
   type AppClaims,
   type TenantRole
-} from "@/lib/session";
+} from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
