@@ -1,39 +1,17 @@
-import {
-  Clock,
-  Database,
-  FileText,
-  HardDriveUpload,
-  Search,
-  UploadCloud
-} from "lucide-react";
+import { Clock, Database, FileText, HardDriveUpload, Search, UploadCloud } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { AppTopbar } from "@/components/dashboard/app-topbar";
+import { AppShell } from "@/components/workspace/app-shell";
 import { DocumentUploadForm } from "@/components/documents/document-upload-form";
-import { Badge } from "@/components/ui/badge";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/card";
-import {
-  documentStatusLabel,
-  documentStatusTone,
   formatBytes,
   isPendingVisibleDocument,
   visibleDocumentStatuses,
   type DocumentRow
 } from "@/lib/documents";
-import {
-  compactId,
-  formatDateTime,
-  getClaimValue,
-  type AppClaims,
-  type TenantRole
-} from "@/lib/auth/session";
+import { formatDateTime, getClaimValue, type AppClaims, type TenantRole } from "@/lib/auth/session";
+import { libStatus, libStatusLabel } from "@/lib/workspace";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +27,7 @@ export default async function DocumentsPage() {
   const claims = claimsData.claims as AppClaims;
   const tenantId = getClaimValue<string>(claims, "tenant_id", "tenant_id");
   const tenantRole = getClaimValue<TenantRole>(claims, "tenant_role", "tenant_role");
+  const tenantSlug = getClaimValue<string>(claims, "tenant_slug", "tenant_slug");
 
   if (!tenantId) {
     redirect("/app");
@@ -71,154 +50,148 @@ export default async function DocumentsPage() {
   const pendingCount = documents.filter(isPendingVisibleDocument).length;
 
   return (
-    <main className="app-shell">
-      <AppTopbar active="documents" tenantActive={Boolean(tenantId)} tenantRole={tenantRole} />
-
-      <section className="page">
-        <div className="page-header">
-          <div className="page-title">
-            <div className="kicker">Biblioteca</div>
-            <h1>Documentos</h1>
-            <p>Carga privada, seguimiento de ingesta y disponibilidad para indexación.</p>
-          </div>
-          <Badge tone="success">Storage privado</Badge>
+    <AppShell active="documents" tenantLabel={tenantSlug || "SDA"} tenantRole={tenantRole}>
+      <div className="page-head">
+        <div>
+          <div className="kicker">Biblioteca</div>
+          <h1>Documentos</h1>
+          <p>Carga privada, seguimiento de ingesta y apertura en el workspace.</p>
         </div>
+      </div>
 
-        <div className="dashboard-grid">
-          <div className="section-grid">
-            <div className="stats-grid">
-              <div className="stat">
-                <div className="stat-label">Subidos</div>
-                <div className="stat-value">{uploadedCount}</div>
-                <div className="muted">Listos para pipeline</div>
-              </div>
-              <div className="stat">
-                <div className="stat-label">Pendientes</div>
-                <div className="stat-value">{pendingCount}</div>
-                <div className="muted">Indexación en curso</div>
-              </div>
-              <div className="stat">
-                <div className="stat-label">Indexados</div>
-                <div className="stat-value">{indexedCount}</div>
-                <div className="muted">Disponibles para chat</div>
-              </div>
+      <div className="grid-2">
+        <div className="section-grid">
+          <div className="stats-grid">
+            <div className="stat">
+              <div className="stat-label">Subidos</div>
+              <div className="stat-value">{uploadedCount}</div>
+              <div className="stat-sub">Listos para pipeline</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">Pendientes</div>
+              <div className="stat-value">{pendingCount}</div>
+              <div className="stat-sub">Upload o indexación</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">Indexados</div>
+              <div className="stat-value">{indexedCount}</div>
+              <div className="stat-sub">Disponibles en el workspace</div>
+            </div>
+          </div>
+
+          <div className="glass-card">
+            <div className="gc-head">
+              <h2 className="gc-title">Archivos del tenant</h2>
+              <p className="gc-desc">Últimos 100 documentos. Hacé click para abrirlos en el workspace.</p>
             </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Archivos del tenant</CardTitle>
-                <CardDescription>Últimos 100 documentos cargados y visibles para tu sesión.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {error ? (
-                  <div className="alert alert-danger" role="alert">
-                    <strong>No se pudieron leer los documentos.</strong>
-                    <span>{error.message}</span>
-                  </div>
-                ) : null}
+            {error ? (
+              <div className="alert alert-danger" role="alert">
+                <strong>No se pudieron leer los documentos.</strong>
+                <span>{error.message}</span>
+              </div>
+            ) : null}
 
-                {documents.length === 0 ? (
-                  <div className="empty-state">
-                    <FileText aria-hidden="true" size={22} />
-                    <div>
-                      <strong>No hay documentos todavía.</strong>
-                      <p>Subí el primer archivo desde el panel lateral.</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="table-wrapper">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Documento</th>
-                          <th>Estado</th>
-                          <th>Tamaño</th>
-                          <th>Subido</th>
-                          <th>Storage</th>
+            {documents.length === 0 ? (
+              <div className="empty">
+                <FileText aria-hidden="true" size={22} />
+                <div>
+                  <strong>No hay documentos todavía.</strong>
+                  <p>Subí el primer archivo desde el panel lateral.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table className="ws-table">
+                  <thead>
+                    <tr>
+                      <th>Documento</th>
+                      <th>Estado</th>
+                      <th>Tamaño</th>
+                      <th>Subido</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {documents.map((document) => {
+                      const bucket = libStatus(document.status);
+                      return (
+                        <tr key={document.id}>
+                          <td>
+                            <div className="t-primary">
+                              <Link href={`/app/workspace/documents/${document.id}`}>
+                                {document.title ?? document.filename}
+                              </Link>
+                            </div>
+                            <div className="t-secondary">{document.filename}</div>
+                          </td>
+                          <td>
+                            <span className={`status status-${bucket}`}>
+                              {libStatusLabel(document.status)}
+                            </span>
+                            {document.status_reason ? (
+                              <div className="t-secondary">{document.status_reason}</div>
+                            ) : null}
+                          </td>
+                          <td>{formatBytes(document.byte_size)}</td>
+                          <td>
+                            <span className="inline-icon">
+                              <Clock aria-hidden="true" size={14} />
+                              {formatDateTime(document.uploaded_at ?? document.created_at)}
+                            </span>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {documents.map((document) => (
-                          <tr key={document.id}>
-                            <td>
-                              <div className="table-primary">
-                                <Link href={`/app/documents/${document.id}`}>
-                                  {document.title ?? document.filename}
-                                </Link>
-                              </div>
-                              <div className="table-secondary">{document.filename}</div>
-                            </td>
-                            <td>
-                              <Badge tone={documentStatusTone(document.status)}>
-                                {documentStatusLabel(document.status)}
-                              </Badge>
-                              {document.status_reason ? (
-                                <div className="table-secondary">{document.status_reason}</div>
-                              ) : null}
-                            </td>
-                            <td>{formatBytes(document.byte_size)}</td>
-                            <td>
-                              <span className="inline-icon">
-                                <Clock aria-hidden="true" size={14} />
-                                {formatDateTime(document.uploaded_at ?? document.created_at)}
-                              </span>
-                            </td>
-                            <td>
-                              <div className="table-primary">{document.storage_bucket}</div>
-                              <div className="table-secondary">{compactId(document.id)}</div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="section-grid">
-            <Card>
-              <CardHeader>
-                <CardTitle>Nueva carga</CardTitle>
-                <CardDescription>
-                  El archivo queda guardado en Storage privado bajo el prefijo del tenant.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <DocumentUploadForm />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Pipeline</CardTitle>
-                <CardDescription>Secuencia operativa conectada a la biblioteca.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="steps">
-                  <li>
-                    <HardDriveUpload aria-hidden="true" size={17} />
-                    Upload directo a Storage con RLS por tenant.
-                  </li>
-                  <li>
-                    <Database aria-hidden="true" size={17} />
-                    Registro `documents` marca `queued` cuando entra al workflow.
-                  </li>
-                  <li>
-                    <Search aria-hidden="true" size={17} />
-                    SDA Tree Index llena `doc_tree` y nodos recuperables.
-                  </li>
-                  <li>
-                    <UploadCloud aria-hidden="true" size={17} />
-                    El backend cloud podrá reemplazar Storage por R2 sin cambiar la UI.
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
-      </section>
-    </main>
+
+        <div className="section-grid">
+          <div className="glass-card">
+            <div className="gc-head">
+              <h2 className="gc-title">Nueva carga</h2>
+              <p className="gc-desc">El archivo queda en Storage privado bajo el prefijo del tenant.</p>
+            </div>
+            <DocumentUploadForm />
+          </div>
+
+          <div className="glass-card">
+            <div className="gc-head">
+              <h2 className="gc-title">Pipeline</h2>
+              <p className="gc-desc">Secuencia operativa conectada a la biblioteca.</p>
+            </div>
+            <ul className="steps">
+              <li>
+                <span className="inline-icon">
+                  <HardDriveUpload aria-hidden="true" size={16} /> Upload directo a Storage con RLS por
+                  tenant.
+                </span>
+              </li>
+              <li>
+                <span className="inline-icon">
+                  <Database aria-hidden="true" size={16} /> El registro marca `queued` al entrar al
+                  workflow.
+                </span>
+              </li>
+              <li>
+                <span className="inline-icon">
+                  <Search aria-hidden="true" size={16} /> El SDA Tree Index llena `doc_tree` y nodos
+                  recuperables.
+                </span>
+              </li>
+              <li>
+                <span className="inline-icon">
+                  <UploadCloud aria-hidden="true" size={16} /> Disponible para lectura y árbol en el
+                  workspace.
+                </span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </AppShell>
   );
 }

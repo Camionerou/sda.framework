@@ -1,25 +1,11 @@
 import { Ban, Clock, UserPlus } from "lucide-react";
 import { redirect } from "next/navigation";
 
-import { AppTopbar } from "@/components/dashboard/app-topbar";
+import { AppShell } from "@/components/workspace/app-shell";
 import { InviteCreateForm } from "@/components/invites/invite-create-form";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { revokeInviteAction } from "@/app/app/invites/actions";
-import {
-  compactId,
-  formatDateTime,
-  getClaimValue,
-  type AppClaims,
-  type TenantRole
-} from "@/lib/auth/session";
+import { compactId, formatDateTime, getClaimValue, type AppClaims, type TenantRole } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -39,28 +25,10 @@ type InviteRow = {
   updated_at: string;
 };
 
-function statusTone(status: InviteRow["status"]) {
-  if (status === "pending") {
-    return "warning" as const;
-  }
-
-  if (status === "accepted") {
-    return "success" as const;
-  }
-
-  return "danger" as const;
-}
-
-function statusLabel(status: InviteRow["status"]) {
-  if (status === "pending") {
-    return "Pendiente";
-  }
-
-  if (status === "accepted") {
-    return "Aceptada";
-  }
-
-  return "Revocada";
+function statusChip(status: InviteRow["status"]) {
+  if (status === "pending") return { tone: "amber", label: "Pendiente" };
+  if (status === "accepted") return { tone: "teal", label: "Aceptada" };
+  return { tone: "danger", label: "Revocada" };
 }
 
 export default async function InvitesPage({
@@ -79,6 +47,7 @@ export default async function InvitesPage({
   const claims = claimsData.claims as AppClaims;
   const tenantId = getClaimValue<string>(claims, "tenant_id", "tenant_id");
   const tenantRole = getClaimValue<TenantRole>(claims, "tenant_role", "tenant_role");
+  const tenantSlug = getClaimValue<string>(claims, "tenant_slug", "tenant_slug");
   const canManageInvites = tenantRole === "owner" || tenantRole === "admin";
 
   if (!tenantId) {
@@ -97,169 +66,154 @@ export default async function InvitesPage({
     : { data: [], error: null };
   const invites = inviteRows ?? [];
 
-  const pendingCount = invites.filter((invite) => invite.status === "pending").length;
-  const acceptedCount = invites.filter((invite) => invite.status === "accepted").length;
-  const revokedCount = invites.filter((invite) => invite.status === "revoked").length;
+  const pendingCount = invites.filter((i) => i.status === "pending").length;
+  const acceptedCount = invites.filter((i) => i.status === "accepted").length;
+  const revokedCount = invites.filter((i) => i.status === "revoked").length;
 
   return (
-    <main className="app-shell">
-      <AppTopbar active="invites" tenantActive={Boolean(tenantId)} tenantRole={tenantRole} />
-
-      <section className="page">
-        <div className="page-header">
-          <div className="page-title">
-            <div className="kicker">Accesos</div>
-            <h1>Invitaciones</h1>
-            <p>Alta controlada de usuarios, roles y links activos del tenant.</p>
-          </div>
-          <Badge tone={canManageInvites ? "success" : "danger"}>
-            {canManageInvites ? "Gestión habilitada" : "Sin permisos"}
-          </Badge>
+    <AppShell active="invites" tenantLabel={tenantSlug || "SDA"} tenantRole={tenantRole}>
+      <div className="page-head">
+        <div>
+          <div className="kicker">Accesos</div>
+          <h1>Invitaciones</h1>
+          <p>Alta controlada de usuarios, roles y links activos del tenant.</p>
         </div>
+      </div>
 
-        {!canManageInvites ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Permisos insuficientes</CardTitle>
-              <CardDescription>
-                Esta sección está disponible para owners y admins del tenant.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        ) : (
-          <div className="dashboard-grid">
-            <div className="section-grid">
-              <div className="stats-grid">
-                <div className="stat">
-                  <div className="stat-label">Pendientes</div>
-                  <div className="stat-value">{pendingCount}</div>
-                  <div className="muted">Links activos sin aceptar</div>
-                </div>
-                <div className="stat">
-                  <div className="stat-label">Aceptadas</div>
-                  <div className="stat-value">{acceptedCount}</div>
-                  <div className="muted">Usuarios ya vinculados</div>
-                </div>
-                <div className="stat">
-                  <div className="stat-label">Revocadas</div>
-                  <div className="stat-value">{revokedCount}</div>
-                  <div className="muted">Invitaciones canceladas</div>
-                </div>
+      {!canManageInvites ? (
+        <div className="glass-card">
+          <div className="gc-head">
+            <h2 className="gc-title">Permisos insuficientes</h2>
+            <p className="gc-desc">Esta sección está disponible para owners y admins del tenant.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="grid-2">
+          <div className="section-grid">
+            <div className="stats-grid">
+              <div className="stat">
+                <div className="stat-label">Pendientes</div>
+                <div className="stat-value">{pendingCount}</div>
+                <div className="stat-sub">Links sin aceptar</div>
+              </div>
+              <div className="stat">
+                <div className="stat-label">Aceptadas</div>
+                <div className="stat-value">{acceptedCount}</div>
+                <div className="stat-sub">Usuarios vinculados</div>
+              </div>
+              <div className="stat">
+                <div className="stat-label">Revocadas</div>
+                <div className="stat-value">{revokedCount}</div>
+                <div className="stat-sub">Canceladas</div>
+              </div>
+            </div>
+
+            <div className="glass-card">
+              <div className="gc-head">
+                <h2 className="gc-title">Historial de accesos</h2>
+                <p className="gc-desc">Últimas 100 invitaciones visibles para tu sesión.</p>
               </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Historial de accesos</CardTitle>
-                  <CardDescription>Últimas 100 invitaciones visibles para tu sesión.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {params.revoked ? (
-                    <div className="alert alert-success">
-                      <strong>Invitación revocada.</strong>
-                      <span>El link ya no puede ser aceptado.</span>
-                    </div>
-                  ) : null}
-                  {params.error ? (
-                    <div className="alert alert-danger" role="alert">
-                      <strong>No se pudo completar la acción.</strong>
-                      <span>{params.error}</span>
-                    </div>
-                  ) : null}
-                  {invitesError ? (
-                    <div className="alert alert-danger" role="alert">
-                      <strong>No se pudieron leer las invitaciones.</strong>
-                      <span>{invitesError.message}</span>
-                    </div>
-                  ) : null}
+              {params.revoked ? (
+                <div className="alert alert-success">
+                  <strong>Invitación revocada.</strong>
+                  <span>El link ya no puede ser aceptado.</span>
+                </div>
+              ) : null}
+              {params.error ? (
+                <div className="alert alert-danger" role="alert">
+                  <strong>No se pudo completar la acción.</strong>
+                  <span>{params.error}</span>
+                </div>
+              ) : null}
+              {invitesError ? (
+                <div className="alert alert-danger" role="alert">
+                  <strong>No se pudieron leer las invitaciones.</strong>
+                  <span>{invitesError.message}</span>
+                </div>
+              ) : null}
 
-                  {invites.length === 0 ? (
-                    <div className="empty-state">
-                      <UserPlus aria-hidden="true" size={22} />
-                      <div>
-                        <strong>No hay invitaciones todavía.</strong>
-                        <p>Creá la primera desde el panel lateral.</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="table-wrapper">
-                      <table className="data-table">
-                        <thead>
-                          <tr>
-                            <th>Email</th>
-                            <th>Rol</th>
-                            <th>Estado</th>
-                            <th>Expira</th>
-                            <th>Creada</th>
-                            <th>Acción</th>
+              {invites.length === 0 ? (
+                <div className="empty">
+                  <UserPlus aria-hidden="true" size={22} />
+                  <div>
+                    <strong>No hay invitaciones todavía.</strong>
+                    <p>Creá la primera desde el panel lateral.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="table-wrap">
+                  <table className="ws-table">
+                    <thead>
+                      <tr>
+                        <th>Email</th>
+                        <th>Rol</th>
+                        <th>Estado</th>
+                        <th>Expira</th>
+                        <th>Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invites.map((invite) => {
+                        const chip = statusChip(invite.status);
+                        return (
+                          <tr key={invite.id}>
+                            <td>
+                              <div className="t-primary">{invite.email}</div>
+                              <div className="t-secondary">{compactId(invite.id)}</div>
+                            </td>
+                            <td>{invite.role}</td>
+                            <td>
+                              <span className={`chip ${chip.tone}`}>{chip.label}</span>
+                            </td>
+                            <td>
+                              <span className="inline-icon">
+                                <Clock aria-hidden="true" size={14} />
+                                {invite.expires_at ? formatDateTime(invite.expires_at) : "Sin expiración"}
+                              </span>
+                            </td>
+                            <td>
+                              {invite.status === "pending" ? (
+                                <form action={revokeInviteAction}>
+                                  <input name="invite_id" type="hidden" value={invite.id} />
+                                  <Button
+                                    leftIcon={<Ban aria-hidden="true" size={15} />}
+                                    type="submit"
+                                    variant="secondary"
+                                  >
+                                    Revocar
+                                  </Button>
+                                </form>
+                              ) : (
+                                <span className="muted">Sin acción</span>
+                              )}
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {invites.map((invite) => (
-                            <tr key={invite.id}>
-                              <td>
-                                <div className="table-primary">{invite.email}</div>
-                                <div className="table-secondary">{compactId(invite.id)}</div>
-                              </td>
-                              <td>{invite.role}</td>
-                              <td>
-                                <Badge tone={statusTone(invite.status)}>
-                                  {statusLabel(invite.status)}
-                                </Badge>
-                              </td>
-                              <td>
-                                <span className="inline-icon">
-                                  <Clock aria-hidden="true" size={14} />
-                                  {invite.expires_at ? formatDateTime(invite.expires_at) : "Sin expiración"}
-                                </span>
-                              </td>
-                              <td>{formatDateTime(invite.created_at)}</td>
-                              <td>
-                                {invite.status === "pending" ? (
-                                  <form action={revokeInviteAction}>
-                                    <input name="invite_id" type="hidden" value={invite.id} />
-                                    <Button
-                                      leftIcon={<Ban aria-hidden="true" size={15} />}
-                                      type="submit"
-                                      variant="secondary"
-                                    >
-                                      Revocar
-                                    </Button>
-                                  </form>
-                                ) : (
-                                  <span className="muted">Sin acción</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="section-grid">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Crear invitación</CardTitle>
-                  <CardDescription>
-                    El link solo funciona para el email indicado.
-                    {tenantRole === "owner"
-                      ? " Owners crean invitaciones sin vencimiento por default."
-                      : " Admins crean invitaciones con vencimiento por default."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <InviteCreateForm
-                    defaultExpiresDays={tenantRole === "owner" ? "never" : "7"}
-                  />
-                </CardContent>
-              </Card>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
-        )}
-      </section>
-    </main>
+
+          <div className="section-grid">
+            <div className="glass-card">
+              <div className="gc-head">
+                <h2 className="gc-title">Crear invitación</h2>
+                <p className="gc-desc">
+                  El link solo funciona para el email indicado.
+                  {tenantRole === "owner"
+                    ? " Owners crean invitaciones sin vencimiento por default."
+                    : " Admins crean invitaciones con vencimiento por default."}
+                </p>
+              </div>
+              <InviteCreateForm defaultExpiresDays={tenantRole === "owner" ? "never" : "7"} />
+            </div>
+          </div>
+        </div>
+      )}
+    </AppShell>
   );
 }
