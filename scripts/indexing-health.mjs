@@ -3,7 +3,7 @@ import { Redis } from "@upstash/redis";
 
 import { loadEnvFiles } from "./env-loader.mjs";
 
-loadEnvFiles();
+loadEnvFiles([".env.local", ".env"], { override: true });
 
 const strict = process.argv.includes("--strict");
 const requireFreshIndexes =

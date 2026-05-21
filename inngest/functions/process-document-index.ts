@@ -13,9 +13,9 @@ import {
   type ComputeGatewayTreeIndexJobStatus
 } from "@/lib/compute-gateway";
 import {
-  recordIndexingRunSnapshot,
-  releaseIndexingTenantActiveRun
-} from "@/lib/indexing-redis";
+  recordIndexingTransition,
+  recordPermanentIndexingFailure
+} from "@/lib/indexing-state";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   INDEXING_VERSION_COLUMNS,
@@ -197,108 +197,6 @@ function isStorageObjectMissingError(error: unknown) {
   return message.includes("object not found") || message.includes("storage object not found");
 }
 
-async function recordPermanentIndexingFailure(input: {
-  documentId: string;
-  eventType: string;
-  message: string;
-  metadata?: Record<string, unknown>;
-  progress?: number;
-  runId: string;
-  tenantId: string;
-}) {
-  const supabase = createAdminClient();
-  const now = new Date().toISOString();
-  const progress = input.progress ?? 100;
-  const [{ error: runError }, { error: documentError }, { error: eventError }] =
-    await Promise.all([
-      supabase
-        .from("indexing_runs")
-        .update({
-          error_message: input.message,
-          failed_at: now,
-          progress,
-          stage: "failed",
-          status: "failed"
-        })
-        .eq("id", input.runId)
-        .eq("tenant_id", input.tenantId),
-      supabase
-        .from("documents")
-        .update({
-          status: "failed",
-          status_reason: input.message
-        })
-        .eq("id", input.documentId)
-        .eq("tenant_id", input.tenantId),
-      supabase.from("indexing_events").insert({
-        document_id: input.documentId,
-        event_type: input.eventType,
-        metadata: input.metadata ?? {},
-        message: input.message,
-        progress,
-        run_id: input.runId,
-        severity: "error",
-        stage: "failed",
-        tenant_id: input.tenantId
-      })
-    ]);
-
-  if (runError) {
-    throw runError;
-  }
-
-  if (documentError) {
-    throw documentError;
-  }
-
-  if (eventError) {
-    throw eventError;
-  }
-
-  await recordTerminalIndexingWorkflowState({
-    documentId: input.documentId,
-    eventType: input.eventType,
-    message: input.message,
-    progress,
-    runId: input.runId,
-    stage: "failed",
-    status: "failed",
-    tenantId: input.tenantId
-  });
-}
-
-async function recordIndexingWorkflowState(input: {
-  documentId: string;
-  eventType?: string;
-  message?: string;
-  progress: number;
-  runId: string;
-  stage: string;
-  status: string;
-  tenantId: string;
-}) {
-  await recordIndexingRunSnapshot(input);
-}
-
-async function recordTerminalIndexingWorkflowState(input: {
-  documentId: string;
-  eventType?: string;
-  message?: string;
-  progress: number;
-  runId: string;
-  stage: string;
-  status: string;
-  tenantId: string;
-}) {
-  await Promise.all([
-    recordIndexingRunSnapshot(input),
-    releaseIndexingTenantActiveRun({
-      runId: input.runId,
-      tenantId: input.tenantId
-    })
-  ]);
-}
-
 export const processDocumentIndex = inngest.createFunction(
   {
     concurrency: {
@@ -371,21 +269,25 @@ export const processDocumentIndex = inngest.createFunction(
       }
 
       if (existing) {
-        await supabase.from("indexing_events").insert({
-          document_id: event.data.document_id,
-          event_type: "indexing.orchestrator.skipped",
-          metadata: {
-            current_inngest_event_id: existing.inngest_run_id,
-            incoming_inngest_event_id: executionRunId,
-            reason: "run_already_claimed_or_terminal",
-            source: event.data.source
+        await recordIndexingTransition({
+          documentId: event.data.document_id,
+          event: {
+            eventType: "indexing.orchestrator.skipped",
+            message: "Evento de indexacion duplicado ignorado",
+            metadata: {
+              current_inngest_event_id: existing.inngest_run_id,
+              incoming_inngest_event_id: executionRunId,
+              reason: "run_already_claimed_or_terminal",
+              source: event.data.source
+            },
+            severity: "debug"
           },
-          message: "Evento de indexacion duplicado ignorado",
           progress: existing.progress,
-          run_id: event.data.run_id,
-          severity: "debug",
+          releaseActiveRun: ["canceled", "completed", "failed"].includes(existing.status),
+          runId: event.data.run_id,
           stage: existing.stage,
-          tenant_id: event.data.tenant_id
+          status: existing.status,
+          tenantId: event.data.tenant_id
         });
       }
 
@@ -400,15 +302,6 @@ export const processDocumentIndex = inngest.createFunction(
     });
 
     if (!claim.shouldProcess) {
-      if (["canceled", "completed", "failed"].includes(claim.status)) {
-        await step.run("release-terminal-duplicate-active-slot", async () =>
-          releaseIndexingTenantActiveRun({
-            runId: event.data.run_id,
-            tenantId: event.data.tenant_id
-          })
-        );
-      }
-
       return {
         document_id: event.data.document_id,
         reason: claim.reason,
@@ -419,33 +312,20 @@ export const processDocumentIndex = inngest.createFunction(
     }
 
     await step.run("record-orchestrator-received", async () => {
-      const supabase = createAdminClient();
-      const { error } = await supabase.from("indexing_events").insert({
-        document_id: event.data.document_id,
-        event_type: "indexing.orchestrator.received",
-        metadata: {
-          ...INDEXING_VERSION_METADATA,
-          actor_id: event.data.actor_id,
-          inngest_event_id: event.id,
-          inngest_run_id: executionRunId,
-          source: event.data.source
-        },
-        message: "Inngest recibio la corrida de indexacion",
-        progress: 0,
-        run_id: event.data.run_id,
-        severity: "info",
-        stage: "queued",
-        tenant_id: event.data.tenant_id
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      await recordIndexingWorkflowState({
+      await recordIndexingTransition({
         documentId: event.data.document_id,
-        eventType: "indexing.orchestrator.received",
-        message: "Inngest recibio la corrida de indexacion",
+        event: {
+          eventType: "indexing.orchestrator.received",
+          message: "Inngest recibio la corrida de indexacion",
+          metadata: {
+            ...INDEXING_VERSION_METADATA,
+            actor_id: event.data.actor_id,
+            inngest_event_id: event.id,
+            inngest_run_id: executionRunId,
+            source: event.data.source
+          },
+          severity: "info"
+        },
         progress: 0,
         runId: event.data.run_id,
         stage: "queued",
@@ -504,69 +384,33 @@ export const processDocumentIndex = inngest.createFunction(
 
     if (!isComputeGatewayConfigured()) {
       await step.run("record-compute-gateway-pending", async () => {
-        const supabase = createAdminClient();
-        const [{ error: runError }, { error: eventError }, { error: documentError }] = await Promise.all([
-          supabase
-            .from("indexing_runs")
-            .update({
-              error_message: "Esperando Compute Gateway",
-              progress: 0,
-              stage: "queued",
-              status: "queued"
-            })
-            .eq("id", event.data.run_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase.from("indexing_events").insert({
-            document_id: event.data.document_id,
-            event_type: "indexing.compute_gateway.pending",
+        await recordIndexingTransition({
+          document: {
+            status_reason: "Esperando Compute Gateway"
+          },
+          documentId: event.data.document_id,
+          event: {
+            eventType: "indexing.compute_gateway.pending",
+            message: "Esperando Compute Gateway para ejecutar MinerU",
             metadata: {
               expected_worker: "mineru",
               host: "srv-ia-01"
             },
-            message: "Esperando Compute Gateway para ejecutar MinerU",
+            severity: "info"
+          },
+          progress: 0,
+          releaseActiveRun: true,
+          run: {
+            error_message: "Esperando Compute Gateway",
             progress: 0,
-            run_id: event.data.run_id,
-            severity: "info",
             stage: "queued",
-            tenant_id: event.data.tenant_id
-          }),
-          supabase
-            .from("documents")
-            .update({
-              status_reason: "Esperando Compute Gateway"
-            })
-            .eq("id", event.data.document_id)
-            .eq("tenant_id", event.data.tenant_id)
-        ]);
-
-        if (runError) {
-          throw runError;
-        }
-
-        if (eventError) {
-          throw eventError;
-        }
-
-        if (documentError) {
-          throw documentError;
-        }
-
-        await Promise.all([
-          recordIndexingWorkflowState({
-            documentId: event.data.document_id,
-            eventType: "indexing.compute_gateway.pending",
-            message: "Esperando Compute Gateway para ejecutar MinerU",
-            progress: 0,
-            runId: event.data.run_id,
-            stage: "queued",
-            status: "queued",
-            tenantId: event.data.tenant_id
-          }),
-          releaseIndexingTenantActiveRun({
-            runId: event.data.run_id,
-            tenantId: event.data.tenant_id
-          })
-        ]);
+            status: "queued"
+          },
+          runId: event.data.run_id,
+          stage: "queued",
+          status: "queued",
+          tenantId: event.data.tenant_id
+        });
       });
 
       return {
@@ -577,62 +421,29 @@ export const processDocumentIndex = inngest.createFunction(
     }
 
     await step.run("record-compute-gateway-dispatching", async () => {
-      const supabase = createAdminClient();
-      const now = new Date().toISOString();
-      const [{ error: runError }, { error: documentError }, { error: eventError }] =
-        await Promise.all([
-          supabase
-            .from("indexing_runs")
-            .update({
-              error_message: null,
-              progress: 5,
-              stage: "extracting",
-              started_at: now,
-              status: "running"
-            })
-            .eq("id", event.data.run_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase
-            .from("documents")
-            .update({
-              status: "parsing",
-              status_reason: "Enviando documento al Compute Gateway"
-            })
-            .eq("id", event.data.document_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase.from("indexing_events").insert({
-            document_id: event.data.document_id,
-            event_type: "indexing.compute_gateway.dispatching",
-            metadata: {
-              expected_worker: "mineru",
-              host: "srv-ia-01"
-            },
-            message: "Enviando documento al Compute Gateway",
-            progress: 5,
-            run_id: event.data.run_id,
-            severity: "info",
-            stage: "extracting",
-            tenant_id: event.data.tenant_id
-          })
-        ]);
-
-      if (runError) {
-        throw runError;
-      }
-
-      if (documentError) {
-        throw documentError;
-      }
-
-      if (eventError) {
-        throw eventError;
-      }
-
-      await recordIndexingWorkflowState({
+      await recordIndexingTransition({
+        document: {
+          status: "parsing",
+          status_reason: "Enviando documento al Compute Gateway"
+        },
         documentId: event.data.document_id,
-        eventType: "indexing.compute_gateway.dispatching",
-        message: "Enviando documento al Compute Gateway",
+        event: {
+          eventType: "indexing.compute_gateway.dispatching",
+          message: "Enviando documento al Compute Gateway",
+          metadata: {
+            expected_worker: "mineru",
+            host: "srv-ia-01"
+          },
+          severity: "info"
+        },
         progress: 5,
+        run: {
+          error_message: null,
+          progress: 5,
+          stage: "extracting",
+          started_at: new Date().toISOString(),
+          status: "running"
+        },
         runId: event.data.run_id,
         stage: "extracting",
         status: "running",
@@ -688,7 +499,6 @@ export const processDocumentIndex = inngest.createFunction(
         const storageObjectMissing = isStorageObjectMissingError(dispatchError);
 
         await step.run("record-compute-gateway-dispatch-failed", async () => {
-          const supabase = createAdminClient();
           if (storageObjectMissing) {
             await recordPermanentIndexingFailure({
               documentId: event.data.document_id,
@@ -706,58 +516,27 @@ export const processDocumentIndex = inngest.createFunction(
             return;
           }
 
-          const [{ error: runError }, { error: documentError }, { error: eventError }] =
-            await Promise.all([
-              supabase
-                .from("indexing_runs")
-                .update({
-                  error_message: message,
-                  progress: 5,
-                  stage: "extracting",
-                  status: "running"
-                })
-                .eq("id", event.data.run_id)
-                .eq("tenant_id", event.data.tenant_id),
-              supabase
-                .from("documents")
-                .update({
-                  status: "parsing",
-                  status_reason: "Compute Gateway no recibio el job; Inngest puede reintentar"
-                })
-                .eq("id", event.data.document_id)
-                .eq("tenant_id", event.data.tenant_id),
-              supabase.from("indexing_events").insert({
-                document_id: event.data.document_id,
-                event_type: "indexing.compute_gateway.dispatch_failed",
-                metadata: {
-                  retry_owner: "inngest"
-                },
-                message,
-                progress: 5,
-                run_id: event.data.run_id,
-                severity: "error",
-                stage: "extracting",
-                tenant_id: event.data.tenant_id
-              })
-            ]);
-
-          if (runError) {
-            throw runError;
-          }
-
-          if (documentError) {
-            throw documentError;
-          }
-
-          if (eventError) {
-            throw eventError;
-          }
-
-          await recordIndexingWorkflowState({
+          await recordIndexingTransition({
+            document: {
+              status: "parsing",
+              status_reason: "Compute Gateway no recibio el job; Inngest puede reintentar"
+            },
             documentId: event.data.document_id,
-            eventType: "indexing.compute_gateway.dispatch_failed",
-            message,
+            event: {
+              eventType: "indexing.compute_gateway.dispatch_failed",
+              message,
+              metadata: {
+                retry_owner: "inngest"
+              },
+              severity: "error"
+            },
             progress: 5,
+            run: {
+              error_message: message,
+              progress: 5,
+              stage: "extracting",
+              status: "running"
+            },
             runId: event.data.run_id,
             stage: "extracting",
             status: "running",
@@ -783,61 +562,29 @@ export const processDocumentIndex = inngest.createFunction(
     }
 
     await step.run("record-compute-gateway-job-created", async () => {
-      const supabase = createAdminClient();
-      const [{ error: runError }, { error: documentError }, { error: eventError }] =
-        await Promise.all([
-          supabase
-            .from("indexing_runs")
-            .update({
-              compute_job_id: gatewayJob.job_id,
-              error_message: null,
-              progress: 8,
-              stage: "extracting",
-              status: "running"
-            })
-            .eq("id", event.data.run_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase
-            .from("documents")
-            .update({
-              status: "parsing",
-              status_reason: "Compute Gateway ejecutando MinerU"
-            })
-            .eq("id", event.data.document_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase.from("indexing_events").insert({
-            document_id: event.data.document_id,
-            event_type: "indexing.compute_gateway.job_created",
-            metadata: {
-              gateway_status: gatewayJob.status,
-              job_id: gatewayJob.job_id
-            },
-            message: "Compute Gateway recibio el job de MinerU",
-            progress: 8,
-            run_id: event.data.run_id,
-            severity: "info",
-            stage: "extracting",
-            tenant_id: event.data.tenant_id
-          })
-        ]);
-
-      if (runError) {
-        throw runError;
-      }
-
-      if (documentError) {
-        throw documentError;
-      }
-
-      if (eventError) {
-        throw eventError;
-      }
-
-      await recordIndexingWorkflowState({
+      await recordIndexingTransition({
+        document: {
+          status: "parsing",
+          status_reason: "Compute Gateway ejecutando MinerU"
+        },
         documentId: event.data.document_id,
-        eventType: "indexing.compute_gateway.job_created",
-        message: "Compute Gateway recibio el job de MinerU",
+        event: {
+          eventType: "indexing.compute_gateway.job_created",
+          message: "Compute Gateway recibio el job de MinerU",
+          metadata: {
+            gateway_status: gatewayJob.status,
+            job_id: gatewayJob.job_id
+          },
+          severity: "info"
+        },
         progress: 8,
+        run: {
+          compute_job_id: gatewayJob.job_id,
+          error_message: null,
+          progress: 8,
+          stage: "extracting",
+          status: "running"
+        },
         runId: event.data.run_id,
         stage: "extracting",
         status: "running",
@@ -860,63 +607,33 @@ export const processDocumentIndex = inngest.createFunction(
 
         if (attempt === 1 || attempt % 4 === 0) {
           await step.run(`record-compute-gateway-progress-${attempt}`, async () => {
-            const supabase = createAdminClient();
             const progress = mapGatewayProgress(currentJob);
             const stage = mapGatewayStage(currentJob);
-            const [{ error: runError }, { error: documentError }, { error: eventError }] =
-              await Promise.all([
-                supabase
-                  .from("indexing_runs")
-                  .update({
-                    progress,
-                    stage,
-                    status: "running"
-                  })
-                  .eq("id", event.data.run_id)
-                  .eq("tenant_id", event.data.tenant_id),
-                supabase
-                  .from("documents")
-                  .update({
-                    status: stage === "persisting" ? "parsing" : "parsing",
-                    status_reason: currentJob.message ?? "Compute Gateway procesando MinerU"
-                  })
-                  .eq("id", event.data.document_id)
-                  .eq("tenant_id", event.data.tenant_id),
-                supabase.from("indexing_events").insert({
-                  document_id: event.data.document_id,
-                  event_type: "indexing.compute_gateway.progress",
-                  metadata: {
-                    gateway_progress: currentJob.progress,
-                    gateway_stage: currentJob.stage,
-                    gateway_status: currentJob.status,
-                    job_id: currentJob.job_id
-                  },
-                  message: currentJob.message ?? "Compute Gateway procesando MinerU",
-                  progress,
-                  run_id: event.data.run_id,
-                  severity: "info",
-                  stage,
-                  tenant_id: event.data.tenant_id
-                })
-              ]);
+            const message = currentJob.message ?? "Compute Gateway procesando MinerU";
 
-            if (runError) {
-              throw runError;
-            }
-
-            if (documentError) {
-              throw documentError;
-            }
-
-            if (eventError) {
-              throw eventError;
-            }
-
-            await recordIndexingWorkflowState({
+            await recordIndexingTransition({
+              document: {
+                status: "parsing",
+                status_reason: message
+              },
               documentId: event.data.document_id,
-              eventType: "indexing.compute_gateway.progress",
-              message: currentJob.message ?? "Compute Gateway procesando MinerU",
+              event: {
+                eventType: "indexing.compute_gateway.progress",
+                message,
+                metadata: {
+                  gateway_progress: currentJob.progress,
+                  gateway_stage: currentJob.stage,
+                  gateway_status: currentJob.status,
+                  job_id: currentJob.job_id
+                },
+                severity: "info"
+              },
               progress,
+              run: {
+                progress,
+                stage,
+                status: "running"
+              },
               runId: event.data.run_id,
               stage,
               status: "running",
@@ -936,92 +653,63 @@ export const processDocumentIndex = inngest.createFunction(
         const supabase = createAdminClient();
         const parserVersion = getParserVersion(terminalGatewayJob);
         const message = terminalGatewayJob.error ?? "MinerU fallo en Compute Gateway.";
-        const [{ error: extractionError }, { error: runError }, { error: documentError }, { error: eventError }] =
-          await Promise.all([
-            supabase.from("document_extractions").upsert(
-              {
-                artifact_bucket: terminalGatewayJob.artifact_bucket ?? document.r2_bucket,
-                artifact_prefix: getArtifactPrefix(terminalGatewayJob, document, parserVersion),
-                document_id: event.data.document_id,
-              error_message: message,
-              extraction_pipeline_version: INDEXING_VERSION_COLUMNS.extraction_pipeline_version,
-              indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
-              failed_at: terminalGatewayJob.failed_at ?? new Date().toISOString(),
-                id: terminalGatewayJob.job_id,
-                input_byte_size: document.byte_size,
-              manifest: terminalGatewayJob.manifest ?? {},
-              metrics: {
-                  gateway_progress: terminalGatewayJob.progress,
-                  gateway_stage: terminalGatewayJob.stage
-                },
-              parser: "mineru",
-                parser_backend: terminalGatewayJob.mineru_backend ?? "pipeline",
-                parser_version: parserVersion,
-                run_id: event.data.run_id,
-                source_checksum_sha256: document.checksum_sha256,
-                source_r2_key: document.r2_key,
-              status: "failed",
-                tenant_id: event.data.tenant_id
-              },
-              { onConflict: "id" }
-            ),
-            supabase
-              .from("indexing_runs")
-              .update({
-                error_message: message,
-                failed_at: new Date().toISOString(),
-                progress: 100,
-                stage: "failed",
-                status: "failed"
-              })
-              .eq("id", event.data.run_id)
-              .eq("tenant_id", event.data.tenant_id),
-            supabase
-              .from("documents")
-              .update({
-                status: "failed",
-                status_reason: message
-              })
-              .eq("id", event.data.document_id)
-              .eq("tenant_id", event.data.tenant_id),
-            supabase.from("indexing_events").insert({
-              document_id: event.data.document_id,
-              event_type: "indexing.extract.failed",
-              metadata: {
-                gateway_stage: terminalGatewayJob.stage,
-                gateway_status: terminalGatewayJob.status,
-                job_id: terminalGatewayJob.job_id
-              },
-              message,
-              progress: 100,
-              run_id: event.data.run_id,
-              severity: "error",
-              stage: "failed",
-              tenant_id: event.data.tenant_id
-            })
-          ]);
+        const { error: extractionError } = await supabase.from("document_extractions").upsert(
+          {
+            artifact_bucket: terminalGatewayJob.artifact_bucket ?? document.r2_bucket,
+            artifact_prefix: getArtifactPrefix(terminalGatewayJob, document, parserVersion),
+            document_id: event.data.document_id,
+            error_message: message,
+            extraction_pipeline_version: INDEXING_VERSION_COLUMNS.extraction_pipeline_version,
+            failed_at: terminalGatewayJob.failed_at ?? new Date().toISOString(),
+            id: terminalGatewayJob.job_id,
+            indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
+            input_byte_size: document.byte_size,
+            manifest: terminalGatewayJob.manifest ?? {},
+            metrics: {
+              gateway_progress: terminalGatewayJob.progress,
+              gateway_stage: terminalGatewayJob.stage
+            },
+            parser: "mineru",
+            parser_backend: terminalGatewayJob.mineru_backend ?? "pipeline",
+            parser_version: parserVersion,
+            run_id: event.data.run_id,
+            source_checksum_sha256: document.checksum_sha256,
+            source_r2_key: document.r2_key,
+            status: "failed",
+            tenant_id: event.data.tenant_id
+          },
+          { onConflict: "id" }
+        );
 
         if (extractionError) {
           throw extractionError;
         }
 
-        if (runError) {
-          throw runError;
-        }
-
-        if (documentError) {
-          throw documentError;
-        }
-
-        if (eventError) {
-          throw eventError;
-        }
-
-        await recordTerminalIndexingWorkflowState({
+        await recordIndexingTransition({
+          document: {
+            status: "failed",
+            status_reason: message
+          },
           documentId: event.data.document_id,
-          eventType: "indexing.extract.failed",
-          message,
+          event: {
+            eventType: "indexing.extract.failed",
+            message,
+            metadata: {
+              gateway_stage: terminalGatewayJob.stage,
+              gateway_status: terminalGatewayJob.status,
+              job_id: terminalGatewayJob.job_id
+            },
+            severity: "error"
+          },
           progress: 100,
+          releaseActiveRun: true,
+          run: {
+            error_message: message,
+            failed_at: new Date().toISOString(),
+            progress: 100,
+            stage: "failed",
+            status: "failed"
+          },
           runId: event.data.run_id,
           stage: "failed",
           status: "failed",
@@ -1039,7 +727,7 @@ export const processDocumentIndex = inngest.createFunction(
 
     await step.run("record-mineru-extraction-succeeded", async () => {
       const supabase = createAdminClient();
-        const parserVersion = getParserVersion(terminalGatewayJob);
+      const parserVersion = getParserVersion(terminalGatewayJob);
       const extractionPipelineVersion = getExtractionPipelineVersion(terminalGatewayJob);
       const indexingPipelineVersion = getIndexingPipelineVersion(terminalGatewayJob);
       const artifacts = terminalGatewayJob.artifacts ?? [];
@@ -1095,64 +783,33 @@ export const processDocumentIndex = inngest.createFunction(
         throw artifactError;
       }
 
-      const [{ error: runError }, { error: documentError }, { error: eventError }] =
-        await Promise.all([
-          supabase
-            .from("indexing_runs")
-            .update({
-              error_message: null,
-              progress: 35,
-              stage: "structuring",
-              status: "running"
-            })
-            .eq("id", event.data.run_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase
-            .from("documents")
-            .update({
-              status: "structuring",
-              status_reason: "Extraccion MinerU lista; Tree Indexer pendiente"
-            })
-            .eq("id", event.data.document_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase.from("indexing_events").insert({
-            document_id: event.data.document_id,
-            event_type: "indexing.extract.completed",
-            metadata: {
-              artifact_count: artifacts.length,
-              artifact_prefix: extractionRecord.artifact_prefix,
-              extraction_pipeline_version: extractionPipelineVersion,
-              extraction_id: terminalGatewayJob.job_id,
-              indexing_pipeline_version: indexingPipelineVersion,
-              job_id: terminalGatewayJob.job_id,
-              parser_version: parserVersion
-            },
-            message: "Extraccion MinerU persistida en Storage",
-            progress: 35,
-            run_id: event.data.run_id,
-            severity: "info",
-            stage: "structuring",
-            tenant_id: event.data.tenant_id
-          })
-        ]);
-
-      if (runError) {
-        throw runError;
-      }
-
-      if (documentError) {
-        throw documentError;
-      }
-
-      if (eventError) {
-        throw eventError;
-      }
-
-      await recordIndexingWorkflowState({
+      await recordIndexingTransition({
+        document: {
+          status: "structuring",
+          status_reason: "Extraccion MinerU lista; Tree Indexer pendiente"
+        },
         documentId: event.data.document_id,
-        eventType: "indexing.extract.completed",
-        message: "Extraccion MinerU persistida en Storage",
+        event: {
+          eventType: "indexing.extract.completed",
+          message: "Extraccion MinerU persistida en Storage",
+          metadata: {
+            artifact_count: artifacts.length,
+            artifact_prefix: extractionRecord.artifact_prefix,
+            extraction_id: terminalGatewayJob.job_id,
+            extraction_pipeline_version: extractionPipelineVersion,
+            indexing_pipeline_version: indexingPipelineVersion,
+            job_id: terminalGatewayJob.job_id,
+            parser_version: parserVersion
+          },
+          severity: "info"
+        },
         progress: 35,
+        run: {
+          error_message: null,
+          progress: 35,
+          stage: "structuring",
+          status: "running"
+        },
         runId: event.data.run_id,
         stage: "structuring",
         status: "running",
@@ -1161,61 +818,29 @@ export const processDocumentIndex = inngest.createFunction(
     });
 
     await step.run("record-tree-indexer-started", async () => {
-      const supabase = createAdminClient();
-      const [{ error: runError }, { error: documentError }, { error: eventError }] =
-        await Promise.all([
-          supabase
-            .from("indexing_runs")
-            .update({
-              error_message: null,
-              progress: 40,
-              stage: "structuring",
-              status: "running"
-            })
-            .eq("id", event.data.run_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase
-            .from("documents")
-            .update({
-              status: "structuring",
-              status_reason: "Tree Indexer construyendo arbol con LLM"
-            })
-            .eq("id", event.data.document_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase.from("indexing_events").insert({
-            document_id: event.data.document_id,
-            event_type: "indexing.tree.started",
-            metadata: {
-              ...INDEXING_VERSION_METADATA,
-              extraction_id: terminalGatewayJob.job_id,
-              indexer: TREE_INDEXER_PYTHON_VERSION
-            },
-            message: "Tree Indexer Python inicio construccion PageIndex-style con LLM",
-            progress: 40,
-            run_id: event.data.run_id,
-            severity: "info",
-            stage: "structuring",
-            tenant_id: event.data.tenant_id
-          })
-        ]);
-
-      if (runError) {
-        throw runError;
-      }
-
-      if (documentError) {
-        throw documentError;
-      }
-
-      if (eventError) {
-        throw eventError;
-      }
-
-      await recordIndexingWorkflowState({
+      await recordIndexingTransition({
+        document: {
+          status: "structuring",
+          status_reason: "Tree Indexer construyendo arbol con LLM"
+        },
         documentId: event.data.document_id,
-        eventType: "indexing.tree.started",
-        message: "Tree Indexer Python inicio construccion PageIndex-style con LLM",
+        event: {
+          eventType: "indexing.tree.started",
+          message: "Tree Indexer Python inicio construccion PageIndex-style con LLM",
+          metadata: {
+            ...INDEXING_VERSION_METADATA,
+            extraction_id: terminalGatewayJob.job_id,
+            indexer: TREE_INDEXER_PYTHON_VERSION
+          },
+          severity: "info"
+        },
         progress: 40,
+        run: {
+          error_message: null,
+          progress: 40,
+          stage: "structuring",
+          status: "running"
+        },
         runId: event.data.run_id,
         stage: "structuring",
         status: "running",
@@ -1239,64 +864,33 @@ export const processDocumentIndex = inngest.createFunction(
         );
       } catch (dispatchError) {
         await step.run("record-tree-indexer-dispatch-failed", async () => {
-          const supabase = createAdminClient();
           const message =
             dispatchError instanceof Error
               ? dispatchError.message
               : "No se pudo crear el job en Tree Indexer.";
-          const [{ error: runError }, { error: documentError }, { error: eventError }] =
-            await Promise.all([
-              supabase
-                .from("indexing_runs")
-                .update({
-                  error_message: message,
-                  progress: 40,
-                  stage: "structuring",
-                  status: "running"
-                })
-                .eq("id", event.data.run_id)
-                .eq("tenant_id", event.data.tenant_id),
-              supabase
-                .from("documents")
-                .update({
-                  status: "structuring",
-                  status_reason: "Tree Indexer no recibio el job; Inngest puede reintentar"
-                })
-                .eq("id", event.data.document_id)
-                .eq("tenant_id", event.data.tenant_id),
-              supabase.from("indexing_events").insert({
-                document_id: event.data.document_id,
-                event_type: "indexing.tree.dispatch_failed",
-                metadata: {
-                  extraction_id: terminalGatewayJob.job_id,
-                  retry_owner: "inngest"
-                },
-                message,
-                progress: 40,
-                run_id: event.data.run_id,
-                severity: "error",
-                stage: "structuring",
-                tenant_id: event.data.tenant_id
-              })
-            ]);
 
-          if (runError) {
-            throw runError;
-          }
-
-          if (documentError) {
-            throw documentError;
-          }
-
-          if (eventError) {
-            throw eventError;
-          }
-
-          await recordIndexingWorkflowState({
+          await recordIndexingTransition({
+            document: {
+              status: "structuring",
+              status_reason: "Tree Indexer no recibio el job; Inngest puede reintentar"
+            },
             documentId: event.data.document_id,
-            eventType: "indexing.tree.dispatch_failed",
-            message,
+            event: {
+              eventType: "indexing.tree.dispatch_failed",
+              message,
+              metadata: {
+                extraction_id: terminalGatewayJob.job_id,
+                retry_owner: "inngest"
+              },
+              severity: "error"
+            },
             progress: 40,
+            run: {
+              error_message: message,
+              progress: 40,
+              stage: "structuring",
+              status: "running"
+            },
             runId: event.data.run_id,
             stage: "structuring",
             status: "running",
@@ -1309,61 +903,29 @@ export const processDocumentIndex = inngest.createFunction(
     })();
 
     await step.run("record-tree-indexer-job-created", async () => {
-      const supabase = createAdminClient();
-      const [{ error: runError }, { error: documentError }, { error: eventError }] =
-        await Promise.all([
-          supabase
-            .from("indexing_runs")
-            .update({
-              error_message: null,
-              progress: 42,
-              stage: "structuring",
-              status: "running"
-            })
-            .eq("id", event.data.run_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase
-            .from("documents")
-            .update({
-              status: "structuring",
-              status_reason: "Tree Indexer Python procesando estructura"
-            })
-            .eq("id", event.data.document_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase.from("indexing_events").insert({
-            document_id: event.data.document_id,
-            event_type: "indexing.tree.job_created",
-            metadata: {
-              extraction_id: terminalGatewayJob.job_id,
-              tree_job_id: treeJob.job_id,
-              tree_status: treeJob.status
-            },
-            message: "Tree Indexer Python recibio el job",
-            progress: 42,
-            run_id: event.data.run_id,
-            severity: "info",
-            stage: "structuring",
-            tenant_id: event.data.tenant_id
-          })
-        ]);
-
-      if (runError) {
-        throw runError;
-      }
-
-      if (documentError) {
-        throw documentError;
-      }
-
-      if (eventError) {
-        throw eventError;
-      }
-
-      await recordIndexingWorkflowState({
+      await recordIndexingTransition({
+        document: {
+          status: "structuring",
+          status_reason: "Tree Indexer Python procesando estructura"
+        },
         documentId: event.data.document_id,
-        eventType: "indexing.tree.job_created",
-        message: "Tree Indexer Python recibio el job",
+        event: {
+          eventType: "indexing.tree.job_created",
+          message: "Tree Indexer Python recibio el job",
+          metadata: {
+            extraction_id: terminalGatewayJob.job_id,
+            tree_job_id: treeJob.job_id,
+            tree_status: treeJob.status
+          },
+          severity: "info"
+        },
         progress: 42,
+        run: {
+          error_message: null,
+          progress: 42,
+          stage: "structuring",
+          status: "running"
+        },
         runId: event.data.run_id,
         stage: "structuring",
         status: "running",
@@ -1386,65 +948,34 @@ export const processDocumentIndex = inngest.createFunction(
 
         if (attempt === 1 || attempt % 4 === 0) {
           await step.run(`record-tree-indexer-progress-${attempt}`, async () => {
-            const supabase = createAdminClient();
             const progress = mapTreeProgress(currentJob);
             const stage = mapTreeStage(currentJob);
             const message = currentJob.message ?? "Tree Indexer Python procesando estructura";
-            const [{ error: runError }, { error: documentError }, { error: eventError }] =
-              await Promise.all([
-                supabase
-                  .from("indexing_runs")
-                  .update({
-                    progress,
-                    stage,
-                    status: "running"
-                  })
-                  .eq("id", event.data.run_id)
-                  .eq("tenant_id", event.data.tenant_id),
-                supabase
-                  .from("documents")
-                  .update({
-                    status: "structuring",
-                    status_reason: message
-                  })
-                  .eq("id", event.data.document_id)
-                  .eq("tenant_id", event.data.tenant_id),
-                supabase.from("indexing_events").insert({
-                  document_id: event.data.document_id,
-                  event_type: "indexing.tree.progress",
-                  metadata: {
-                    extraction_id: terminalGatewayJob.job_id,
-                    tree_job_id: currentJob.job_id,
-                    tree_progress: currentJob.progress,
-                    tree_stage: currentJob.stage,
-                    tree_status: currentJob.status
-                  },
-                  message,
-                  progress,
-                  run_id: event.data.run_id,
-                  severity: "info",
-                  stage,
-                  tenant_id: event.data.tenant_id
-                })
-              ]);
 
-            if (runError) {
-              throw runError;
-            }
-
-            if (documentError) {
-              throw documentError;
-            }
-
-            if (eventError) {
-              throw eventError;
-            }
-
-            await recordIndexingWorkflowState({
+            await recordIndexingTransition({
+              document: {
+                status: "structuring",
+                status_reason: message
+              },
               documentId: event.data.document_id,
-              eventType: "indexing.tree.progress",
-              message,
+              event: {
+                eventType: "indexing.tree.progress",
+                message,
+                metadata: {
+                  extraction_id: terminalGatewayJob.job_id,
+                  tree_job_id: currentJob.job_id,
+                  tree_progress: currentJob.progress,
+                  tree_stage: currentJob.stage,
+                  tree_status: currentJob.status
+                },
+                severity: "info"
+              },
               progress,
+              run: {
+                progress,
+                stage,
+                status: "running"
+              },
               runId: event.data.run_id,
               stage,
               status: "running",
@@ -1461,64 +992,33 @@ export const processDocumentIndex = inngest.createFunction(
 
     if (terminalTreeJob.status === "failed" && terminalTreeJob.stage === "llm_missing") {
       await step.run("record-tree-llm-missing", async () => {
-        const supabase = createAdminClient();
         const message = terminalTreeJob.error ?? "Tree LLM no configurado; extraccion MinerU lista.";
-        const now = new Date().toISOString();
-        const [{ error: runError }, { error: documentError }, { error: eventError }] =
-          await Promise.all([
-            supabase
-              .from("indexing_runs")
-              .update({
-                error_message: message,
-                failed_at: now,
-                progress: 35,
-                stage: "structuring",
-                status: "failed"
-              })
-              .eq("id", event.data.run_id)
-              .eq("tenant_id", event.data.tenant_id),
-            supabase
-              .from("documents")
-              .update({
-                status: "structuring",
-                status_reason: message
-              })
-              .eq("id", event.data.document_id)
-              .eq("tenant_id", event.data.tenant_id),
-            supabase.from("indexing_events").insert({
-              document_id: event.data.document_id,
-              event_type: "indexing.tree.llm_missing",
-              metadata: {
-                extraction_id: terminalGatewayJob.job_id,
-                required_env: ["SDA_TREE_LLM_API_KEY", "SDA_TREE_LLM_MODEL"],
-                tree_job_id: terminalTreeJob.job_id
-              },
-              message,
-              progress: 35,
-              run_id: event.data.run_id,
-              severity: "warning",
-              stage: "structuring",
-              tenant_id: event.data.tenant_id
-            })
-          ]);
 
-        if (runError) {
-          throw runError;
-        }
-
-        if (documentError) {
-          throw documentError;
-        }
-
-        if (eventError) {
-          throw eventError;
-        }
-
-        await recordTerminalIndexingWorkflowState({
+        await recordIndexingTransition({
+          document: {
+            status: "structuring",
+            status_reason: message
+          },
           documentId: event.data.document_id,
-          eventType: "indexing.tree.llm_missing",
-          message,
+          event: {
+            eventType: "indexing.tree.llm_missing",
+            message,
+            metadata: {
+              extraction_id: terminalGatewayJob.job_id,
+              required_env: ["SDA_TREE_LLM_API_KEY", "SDA_TREE_LLM_MODEL"],
+              tree_job_id: terminalTreeJob.job_id
+            },
+            severity: "warning"
+          },
           progress: 35,
+          releaseActiveRun: true,
+          run: {
+            error_message: message,
+            failed_at: new Date().toISOString(),
+            progress: 35,
+            stage: "structuring",
+            status: "failed"
+          },
           runId: event.data.run_id,
           stage: "structuring",
           status: "failed",
@@ -1538,64 +1038,33 @@ export const processDocumentIndex = inngest.createFunction(
 
     if (terminalTreeJob.status === "failed") {
       await step.run("record-tree-indexer-failed", async () => {
-        const supabase = createAdminClient();
         const message = terminalTreeJob.error ?? "Tree Indexer fallo.";
-        const now = new Date().toISOString();
-        const [{ error: runError }, { error: documentError }, { error: eventError }] =
-          await Promise.all([
-            supabase
-              .from("indexing_runs")
-              .update({
-                error_message: message,
-                failed_at: now,
-                progress: 100,
-                stage: "failed",
-                status: "failed"
-              })
-              .eq("id", event.data.run_id)
-              .eq("tenant_id", event.data.tenant_id),
-            supabase
-              .from("documents")
-              .update({
-                status: "failed",
-                status_reason: `Tree Indexer fallo; MinerU disponible. ${message}`
-              })
-              .eq("id", event.data.document_id)
-              .eq("tenant_id", event.data.tenant_id),
-            supabase.from("indexing_events").insert({
-              document_id: event.data.document_id,
-              event_type: "indexing.tree.failed",
-              metadata: {
-                extraction_id: terminalGatewayJob.job_id,
-                tree_job_id: terminalTreeJob.job_id,
-                tree_stage: terminalTreeJob.stage
-              },
-              message,
-              progress: 100,
-              run_id: event.data.run_id,
-              severity: "error",
-              stage: "failed",
-              tenant_id: event.data.tenant_id
-            })
-          ]);
 
-        if (runError) {
-          throw runError;
-        }
-
-        if (documentError) {
-          throw documentError;
-        }
-
-        if (eventError) {
-          throw eventError;
-        }
-
-        await recordTerminalIndexingWorkflowState({
+        await recordIndexingTransition({
+          document: {
+            status: "failed",
+            status_reason: `Tree Indexer fallo; MinerU disponible. ${message}`
+          },
           documentId: event.data.document_id,
-          eventType: "indexing.tree.failed",
-          message,
+          event: {
+            eventType: "indexing.tree.failed",
+            message,
+            metadata: {
+              extraction_id: terminalGatewayJob.job_id,
+              tree_job_id: terminalTreeJob.job_id,
+              tree_stage: terminalTreeJob.stage
+            },
+            severity: "error"
+          },
           progress: 100,
+          releaseActiveRun: true,
+          run: {
+            error_message: message,
+            failed_at: new Date().toISOString(),
+            progress: 100,
+            stage: "failed",
+            status: "failed"
+          },
           runId: event.data.run_id,
           stage: "failed",
           status: "failed",
@@ -1614,78 +1083,48 @@ export const processDocumentIndex = inngest.createFunction(
     }
 
     await step.run("record-tree-indexer-succeeded", async () => {
-      const supabase = createAdminClient();
       const now = new Date().toISOString();
-      const [{ error: runError }, { error: documentError }, { error: eventError }] =
-        await Promise.all([
-          supabase
-            .from("indexing_runs")
-            .update({
-              completed_at: now,
-              error_message: null,
-              progress: 100,
-              stage: "indexed",
-              status: "completed"
-            })
-            .eq("id", event.data.run_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase
-            .from("documents")
-            .update({
-              embedding_pipeline_version: INDEXING_VERSION_COLUMNS.embedding_pipeline_version,
-              extraction_pipeline_version: getExtractionPipelineVersion(terminalGatewayJob),
-              indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
-              indexed_at: now,
-              status: "indexed",
-              status_reason: "Tree Index listo; embeddings jerarquicos pendientes",
-              tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version
-            })
-            .eq("id", event.data.document_id)
-            .eq("tenant_id", event.data.tenant_id),
-          supabase.from("indexing_events").insert({
-            document_id: event.data.document_id,
-            event_type: "indexing.tree.completed",
-            metadata: {
-              ...INDEXING_VERSION_METADATA,
-              chunk_count: terminalTreeJob.chunk_count,
-              content_list_path: terminalTreeJob.content_list_path,
-              extraction_id: terminalGatewayJob.job_id,
-              extraction_pipeline_version: getExtractionPipelineVersion(terminalGatewayJob),
-              indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
-              model: terminalTreeJob.model,
-              page_count: terminalTreeJob.page_count,
-              persisted_at: terminalTreeJob.persisted_at,
-              provider: terminalTreeJob.provider,
-              tree_job_id: terminalTreeJob.job_id,
-              tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version,
-              version: terminalTreeJob.version
-            },
-            message: "Tree Index persistido en doc_tree y chunks recuperables",
-            progress: 100,
-            run_id: event.data.run_id,
-            severity: "info",
-            stage: "indexed",
-            tenant_id: event.data.tenant_id
-          })
-        ]);
 
-      if (runError) {
-        throw runError;
-      }
-
-      if (documentError) {
-        throw documentError;
-      }
-
-      if (eventError) {
-        throw eventError;
-      }
-
-      await recordTerminalIndexingWorkflowState({
+      await recordIndexingTransition({
+        document: {
+          embedding_pipeline_version: INDEXING_VERSION_COLUMNS.embedding_pipeline_version,
+          extraction_pipeline_version: getExtractionPipelineVersion(terminalGatewayJob),
+          indexed_at: now,
+          indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
+          status: "indexed",
+          status_reason: "Tree Index listo; embeddings jerarquicos pendientes",
+          tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version
+        },
         documentId: event.data.document_id,
-        eventType: "indexing.tree.completed",
-        message: "Tree Index persistido en doc_tree y chunks recuperables",
+        event: {
+          eventType: "indexing.tree.completed",
+          message: "Tree Index persistido en doc_tree y chunks recuperables",
+          metadata: {
+            ...INDEXING_VERSION_METADATA,
+            chunk_count: terminalTreeJob.chunk_count,
+            content_list_path: terminalTreeJob.content_list_path,
+            extraction_id: terminalGatewayJob.job_id,
+            extraction_pipeline_version: getExtractionPipelineVersion(terminalGatewayJob),
+            indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
+            model: terminalTreeJob.model,
+            page_count: terminalTreeJob.page_count,
+            persisted_at: terminalTreeJob.persisted_at,
+            provider: terminalTreeJob.provider,
+            tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version,
+            tree_job_id: terminalTreeJob.job_id,
+            version: terminalTreeJob.version
+          },
+          severity: "info"
+        },
         progress: 100,
+        releaseActiveRun: true,
+        run: {
+          completed_at: now,
+          error_message: null,
+          progress: 100,
+          stage: "indexed",
+          status: "completed"
+        },
         runId: event.data.run_id,
         stage: "indexed",
         status: "completed",

@@ -50,3 +50,4 @@ separado, con estado claro y sin secretos.
 43. `2026-05-21-43-upstash-redis-ephemeral-infra.md`
 44. `2026-05-21-44-infra-env-secret-redis-cache.md`
 45. `2026-05-21-45-redis-backpressure-live-indexing.md`
+46. `2026-05-21-46-indexing-state-machine-centralizada.md`

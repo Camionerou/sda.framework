@@ -85,6 +85,34 @@ Si la corrida fue reencolada por el reconciliador y todavia conserva un
 `compute_job_id` compatible con las versiones actuales, el workflow retoma ese
 job remoto en vez de crear otro MinerU.
 
+## Transiciones de estado
+
+Archivo:
+
+```text
+lib/indexing-state.ts
+```
+
+`recordIndexingTransition` es la ruta canonica para cambios de estado del
+workflow de indexacion. Coordina en un solo lugar:
+
+- update opcional de `indexing_runs`;
+- update opcional de `documents`;
+- insert en `indexing_events`;
+- snapshot live en Redis;
+- liberacion del slot Redis de backpressure cuando la transicion es terminal o
+  vuelve a `queued`.
+
+El workflow puede seguir haciendo escrituras de dominio por fuera de este
+helper, por ejemplo `document_extractions` y `document_extraction_artifacts`.
+Lo que no debe duplicarse por fuera es el paquete run/document/event/snapshot:
+si se agrega un nuevo estado operativo, debe pasar por
+`recordIndexingTransition` o por `recordPermanentIndexingFailure`.
+
+El claim inicial de `indexing_runs` sigue siendo directo porque necesita un
+`update ... where status = queued ... select` atomico para evitar doble
+procesamiento.
+
 ## Reconciliador
 
 Archivo:
