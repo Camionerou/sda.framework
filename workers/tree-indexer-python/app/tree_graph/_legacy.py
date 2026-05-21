@@ -71,42 +71,23 @@ def _assert_document_type(value: Any) -> str:
     return document_type if document_type in DOCUMENT_TYPES else "other"
 
 
-def _section_identity(section: CandidateSection) -> tuple[str, str, str]:
-    return (
-        str(section.get("structure", "")).strip(),
-        str(section.get("title", "")).strip().casefold(),
-        str(section.get("physical_index", "")).strip(),
-    )
+from .helpers import (
+    is_large_leaf as _is_large_leaf_impl,
+    node_from_task as _node_from_task,
+    node_task as _node_task,
+    ordered_unique_sections as _ordered_unique_sections,
+    renumber_tree as _renumber_tree,
+    section_identity as _section_identity,
+    section_page as _section_page,
+    shift_tree_pages as _shift_tree_pages,
+    structure_sort_key as _structure_sort_key,
+    sub_pages_for_node as _sub_pages_for_node,
+    visit_tree as _visit_tree,
+)
 
 
-def _section_page(section: CandidateSection) -> int:
-    raw_index = section.get("physical_index")
-    if isinstance(raw_index, int):
-        return raw_index
-    digits = "".join(char for char in str(raw_index) if char.isdigit())
-    return int(digits) if digits else 0
-
-
-def _structure_sort_key(section: CandidateSection) -> tuple[int, ...]:
-    parts = []
-    for raw_part in str(section.get("structure", "")).split("."):
-        try:
-            parts.append(int(raw_part))
-        except ValueError:
-            parts.append(999)
-    return tuple(parts)
-
-
-def _ordered_unique_sections(sections: list[CandidateSection]) -> list[CandidateSection]:
-    seen: set[tuple[str, str, str]] = set()
-    unique: list[CandidateSection] = []
-    for section in sorted(sections, key=lambda item: (_section_page(item), _structure_sort_key(item))):
-        identity = _section_identity(section)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        unique.append(section)
-    return unique
+def _is_large_leaf(node: TreeNode) -> bool:
+    return _is_large_leaf_impl(node, max_pages=_refine_max_pages(), max_tokens=_refine_max_tokens())
 
 
 def _graph_event_base(state: TreeState) -> dict[str, Any] | None:
@@ -159,86 +140,6 @@ def _context_for_send(state: TreeState) -> dict[str, str]:
         "run_id": state.get("run_id", ""),
         "tenant_id": state.get("tenant_id", ""),
     }
-
-
-def _node_task(node: TreeNode, path: list[str]) -> NodeTask:
-    return {
-        "end_index": node["end_index"],
-        "node_id": node["node_id"],
-        "path": path,
-        "start_index": node["start_index"],
-        "summary": node.get("summary", ""),
-        "text": node.get("text", ""),
-        "title": node["title"],
-    }
-
-
-def _node_from_task(target: NodeTask) -> TreeNode:
-    return {
-        "end_index": target["end_index"],
-        "node_id": target["node_id"],
-        "start_index": target["start_index"],
-        "summary": target.get("summary", ""),
-        "text": target.get("text", ""),
-        "title": target["title"],
-    }
-
-
-def _visit_tree(nodes: list[TreeNode]) -> list[TreeNode]:
-    visited: list[TreeNode] = []
-
-    def visit(node: TreeNode) -> None:
-        visited.append(node)
-        for child in node.get("nodes", []):
-            visit(child)
-
-    for node in nodes:
-        visit(node)
-    return visited
-
-
-def _renumber_tree(nodes: list[TreeNode]) -> list[TreeNode]:
-    counter = 0
-
-    def visit(node: TreeNode) -> None:
-        nonlocal counter
-        node["node_id"] = f"{counter:04d}"
-        counter += 1
-        for child in node.get("nodes", []):
-            visit(child)
-
-    for node in nodes:
-        visit(node)
-    return nodes
-
-
-def _sub_pages_for_node(node: TreeNode, pages: list[LabeledPage]) -> list[LabeledPage]:
-    selected = [
-        page
-        for page in pages
-        if node["start_index"] <= page["page"] <= node["end_index"]
-    ]
-    return [
-        {
-            "page": index + 1,
-            "text": page["text"],
-        }
-        for index, page in enumerate(selected)
-    ]
-
-
-def _shift_tree_pages(nodes: list[TreeNode], offset: int) -> list[TreeNode]:
-    for node in _visit_tree(nodes):
-        node["start_index"] += offset
-        node["end_index"] += offset
-    return nodes
-
-
-def _is_large_leaf(node: TreeNode) -> bool:
-    if node.get("nodes"):
-        return False
-    page_count = node["end_index"] - node["start_index"] + 1
-    return page_count > _refine_max_pages() or estimate_tokens(node.get("text", "")) > _refine_max_tokens()
 
 
 async def detect_document_type(state: TreeState) -> dict[str, Any]:
