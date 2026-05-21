@@ -11,6 +11,7 @@ import {
   COMPUTE_GATEWAY_VERSION,
   EXTRACTION_PIPELINE_VERSION,
   INDEXING_PIPELINE_VERSION,
+  MINERU_API_URL,
   MINERU_BACKEND,
   MINERU_BIN,
   MINERU_LANG,
@@ -221,7 +222,7 @@ async function downloadDocument(job, payload) {
 function execMineru(inputFile, outputDir) {
   return spawn(
     MINERU_BIN,
-    ["-p", inputFile, "-o", outputDir, "-b", MINERU_BACKEND, "-l", MINERU_LANG],
+    ["-p", inputFile, "-o", outputDir, "-b", MINERU_BACKEND, "-l", MINERU_LANG, "-u", MINERU_API_URL],
     {
       env: {
         ...process.env,
