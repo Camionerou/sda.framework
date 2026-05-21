@@ -20,6 +20,8 @@ type CreatedUpload = {
   r2_bucket: string;
   r2_key: string;
   status: string;
+  storage_bucket?: string;
+  storage_path?: string;
   tenant_id: string;
   checksum_sha256: string | null;
   deduped: boolean;
@@ -95,7 +97,18 @@ export function DocumentUploadForm() {
       | CreatedUpload
       | undefined;
 
-    if (!upload?.r2_bucket || !upload.r2_key) {
+    if (!upload) {
+      setState({
+        status: "error",
+        error: "La API no devolvió el destino de storage."
+      });
+      return;
+    }
+
+    const storageBucket = upload.storage_bucket ?? upload.r2_bucket;
+    const storagePath = upload.storage_path ?? upload.r2_key;
+
+    if (!storageBucket || !storagePath) {
       setState({
         status: "error",
         error: "La API no devolvió el destino de storage."
@@ -114,8 +127,8 @@ export function DocumentUploadForm() {
     }
 
     const { error: storageError } = await supabase.storage
-      .from(upload.r2_bucket)
-      .upload(upload.r2_key, file, {
+      .from(storageBucket)
+      .upload(storagePath, file, {
         contentType: file.type || "application/octet-stream",
         upsert: false
       });

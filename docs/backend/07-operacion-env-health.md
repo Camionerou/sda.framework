@@ -12,9 +12,14 @@ npm run test:tree-indexer
 npm run test:db
 npm run indexing:health
 npm run indexing:health -- --strict
-npm run inngest:sync
 npm run redis:health
 npm run bootstrap:owner-invite
+```
+
+El sync manual de Inngest vive en GitHub Actions via workflow dispatch:
+
+```bash
+gh workflow run "Sync Inngest"
 ```
 
 `indexing:health` revisa DB con service role y devuelve JSON con:

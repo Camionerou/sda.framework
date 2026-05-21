@@ -305,7 +305,7 @@ async function uploadArtifacts(job, payload, mineruResult) {
       relativePath: logRelativePath
     }
   ];
-  const artifactBucket = payload.document.r2_bucket || "documents";
+  const artifactBucket = payload.document.storage_bucket || payload.document.r2_bucket || "documents";
   const artifactPrefix = [
     payload.tenant_id,
     payload.document_id,

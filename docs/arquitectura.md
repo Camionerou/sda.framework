@@ -3,9 +3,10 @@
 App empresarial multitenant para ingesta, indexacion y consulta de documentos
 mediante agentes de IA.
 
-Este documento describe la arquitectura general vigente. La especificacion de
-indexacion estructural vive en
-[`docs/sda-tree-index-live-architecture.md`](./sda-tree-index-live-architecture.md).
+Este documento describe la arquitectura general vigente. La especificacion
+operativa de indexacion estructural vive en
+[`docs/backend/04-indexacion-inngest.md`](./backend/04-indexacion-inngest.md)
+y [`docs/backend/05-workers-compute-tree-indexer.md`](./backend/05-workers-compute-tree-indexer.md).
 
 ---
 
@@ -644,7 +645,7 @@ Estado ya implementado:
 4. Schema multitenant con RLS.
 5. Upload a Supabase Storage.
 6. Vista de documentos y detalle.
-7. Docs de SDA Tree Index + live architecture.
+7. Docs backend de indexacion y workers.
 8. Primer push a GitHub.
 9. `indexing_runs` e `indexing_events`.
 10. Timeline live en detalle de documento.

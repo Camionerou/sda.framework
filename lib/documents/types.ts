@@ -19,10 +19,10 @@ export type DocumentRow = {
   indexed_at: string | null;
   indexing_pipeline_version: string | null;
   mime_type: string;
-  r2_bucket: string;
-  r2_key: string;
   status: DocumentStatus;
   status_reason: string | null;
+  storage_bucket: string;
+  storage_path: string;
   title: string | null;
   tree_indexer_version: string | null;
   uploaded_at: string | null;

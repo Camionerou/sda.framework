@@ -1748,6 +1748,23 @@ create index chunks_content_trgm_idx
 
 Cosas que estan mal hechas, son legacy, o duplican otra mejor.
 
+### Estado de ejecucion — 2026-05-21
+
+| Punto | Estado | Progreso |
+|---|---|---|
+| 6.1 | implementado fase 1 | Agregados `documents.storage_bucket` y `documents.storage_path` como generated columns sobre `r2_*`; app, download, file-url, Inngest y workers leen/escriben con los nombres canonicos y mantienen fallback legacy donde hay contrato externo. |
+| 6.2 | implementado | Eliminado `scripts/ci/inngest-sync.mjs` y el script `npm run inngest:sync`; la via manual queda en GitHub Actions `workflow_dispatch`. |
+| 6.3 | retirado | Sin accion: `supabase/.temp` sigue ignorado y fuera de git. |
+| 6.4 | implementado | Ya estaba resuelto: `lib/documents/types.ts`, `lib/documents/format.ts` y `lib/documents/index.ts` separan tipos DB de helpers UI. |
+| 6.5 | implementado | `/auth/sign-out` ahora acepta `POST`; el topbar usa form POST, evitando side effects por GET/prefetch. |
+| 6.6 | implementado | Derivados de versiones movidos a `lib/indexing/versions.ts`; `lib/system-versions.ts` queda como re-export compatible y el JSON sigue siendo fuente. |
+| 6.7 | implementado | Route de request indexing reducida a pipeline; rate limit, RPC, dispatch, locks, backpressure y rollback viven en `lib/indexing/request.ts`. |
+| 6.8 | implementado | Reconciliador carga active runs una vez por tick y reutiliza la lista para completar, fallar uploads incompletos y reencolar stale running. |
+| 6.9 | implementado | Redirect `/` -> `/app` movido a `next.config.mjs`; `app/page.tsx` eliminado. |
+| 6.10 | implementado | `next-env.d.ts` eliminado del tracking; ya estaba en `.gitignore` y Next lo regenera. |
+| 6.11 | implementado | Documento duplicado eliminado; `docs/arquitectura.md` apunta a los docs backend vigentes. |
+| 6.12 | retirado | Sin accion: `*.tsbuildinfo` ya esta ignorado y fuera de git. |
+
 ### 6.1 Renombrar `r2_bucket` / `r2_key` (legacy naming)
 
 R2 fue considerado en arquitectura temprana

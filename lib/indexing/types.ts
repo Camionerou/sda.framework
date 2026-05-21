@@ -2,9 +2,9 @@ export type ComputeGatewayDocumentRef = {
   byte_size: number | null;
   filename: string;
   mime_type: string;
-  r2_bucket: string;
-  r2_key: string;
   signed_url: string;
+  storage_bucket: string;
+  storage_path: string;
 };
 
 export type ComputeGatewayIndexJobRequest = {

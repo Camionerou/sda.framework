@@ -179,9 +179,9 @@ export default async function DocumentDetailPage({
               </CardHeader>
               <CardContent>
                 <div className="key-value-list">
-                  <KeyValue label="Bucket">{document.r2_bucket}</KeyValue>
+                  <KeyValue label="Bucket">{document.storage_bucket}</KeyValue>
                   <KeyValue label="Path">
-                    <span className="code">{document.r2_key}</span>
+                    <span className="code">{document.storage_path}</span>
                   </KeyValue>
                   <KeyValue label="Tenant">
                     <span className="code">{compactId(tenantId)}</span>

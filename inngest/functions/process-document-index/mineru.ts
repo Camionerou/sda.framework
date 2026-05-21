@@ -110,8 +110,8 @@ export async function dispatchComputeGatewayJob(input: {
     return await step.run("create-compute-gateway-job", async () => {
       const supabase = createAdminClient();
       const { data: signedUrl, error: signedUrlError } = await supabase.storage
-        .from(document.r2_bucket)
-        .createSignedUrl(document.r2_key, getSignedUrlTtlSeconds());
+        .from(document.storage_bucket)
+        .createSignedUrl(document.storage_path, getSignedUrlTtlSeconds());
 
       if (signedUrlError) {
         throw signedUrlError;
@@ -126,9 +126,9 @@ export async function dispatchComputeGatewayJob(input: {
           byte_size: document.byte_size,
           filename: document.filename,
           mime_type: document.mime_type,
-          r2_bucket: document.r2_bucket,
-          r2_key: document.r2_key,
-          signed_url: signedUrl.signedUrl
+          signed_url: signedUrl.signedUrl,
+          storage_bucket: document.storage_bucket,
+          storage_path: document.storage_path
         },
         document_id: event.data.document_id,
         run_id: event.data.run_id,
@@ -149,9 +149,9 @@ export async function dispatchComputeGatewayJob(input: {
           message: "Upload incompleto: archivo no encontrado en Storage",
           metadata: {
             original_error: message,
-            r2_bucket: document.r2_bucket,
-            r2_key: document.r2_key,
-            reason: "signed_url_failed"
+            reason: "signed_url_failed",
+            storage_bucket: document.storage_bucket,
+            storage_path: document.storage_path
           },
           runId: event.data.run_id,
           tenantId: event.data.tenant_id
@@ -282,7 +282,7 @@ export async function recordMineruExtractionFailed(input: {
     const message = terminalGatewayJob.error ?? "MinerU fallo en Compute Gateway.";
     const { error: extractionError } = await supabase.from("document_extractions").upsert(
       {
-        artifact_bucket: terminalGatewayJob.artifact_bucket ?? document.r2_bucket,
+        artifact_bucket: terminalGatewayJob.artifact_bucket ?? document.storage_bucket,
         artifact_prefix: getArtifactPrefix(terminalGatewayJob, document, parserVersion),
         document_id: event.data.document_id,
         error_message: message,
@@ -301,7 +301,7 @@ export async function recordMineruExtractionFailed(input: {
         parser_version: parserVersion,
         run_id: event.data.run_id,
         source_checksum_sha256: document.checksum_sha256,
-        source_r2_key: document.r2_key,
+        source_r2_key: document.storage_path,
         status: "failed",
         tenant_id: event.data.tenant_id
       },
@@ -352,7 +352,7 @@ export async function recordMineruExtractionSucceeded(input: {
     }
 
     const extractionRecord = {
-      artifact_bucket: terminalGatewayJob.artifact_bucket ?? document.r2_bucket,
+      artifact_bucket: terminalGatewayJob.artifact_bucket ?? document.storage_bucket,
       artifact_prefix: getArtifactPrefix(terminalGatewayJob, document, parserVersion),
       completed_at: terminalGatewayJob.completed_at ?? new Date().toISOString(),
       document_id: event.data.document_id,
@@ -374,7 +374,7 @@ export async function recordMineruExtractionSucceeded(input: {
       parser_version: parserVersion,
       run_id: event.data.run_id,
       source_checksum_sha256: document.checksum_sha256,
-      source_r2_key: document.r2_key,
+      source_r2_key: document.storage_path,
       started_at: terminalGatewayJob.started_at ?? null,
       status: "succeeded",
       tenant_id: event.data.tenant_id

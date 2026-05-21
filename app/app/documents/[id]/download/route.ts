@@ -18,7 +18,7 @@ export async function GET(
   const { data: document, error: documentError } = await supabase
     .from("documents")
     .select(
-      "id, title, filename, mime_type, byte_size, r2_bucket, r2_key, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
+      "id, title, filename, mime_type, byte_size, storage_bucket, storage_path, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
     )
     .eq("id", id)
     .maybeSingle<DocumentRow>();
@@ -28,8 +28,8 @@ export async function GET(
   }
 
   const { data: signedUrl, error: signedUrlError } = await supabase.storage
-    .from(document.r2_bucket)
-    .createSignedUrl(document.r2_key, 60, {
+    .from(document.storage_bucket)
+    .createSignedUrl(document.storage_path, 60, {
       download: document.filename
     });
 

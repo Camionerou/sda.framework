@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(19);
+SELECT plan(20);
 
 insert into public.tenants (id, slug, name)
 values
@@ -195,6 +195,19 @@ SELECT ok(
     from created_document
   ),
   'Document storage key is tenant-scoped and filename-safe'
+);
+
+SELECT is(
+  (
+    select concat_ws(':', d.storage_bucket, d.storage_path)
+    from public.documents d
+    join created_document cd on cd.document_id = d.id
+  ),
+  (
+    select concat_ws(':', r2_bucket, r2_key)
+    from created_document
+  ),
+  'Canonical storage aliases mirror legacy r2 columns'
 );
 
 SELECT throws_ok(

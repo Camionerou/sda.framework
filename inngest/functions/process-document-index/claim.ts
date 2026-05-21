@@ -137,7 +137,7 @@ export async function loadDocumentForIndexing(input: {
     const { data, error } = await supabase
       .from("documents")
       .select(
-        "id, tenant_id, title, filename, mime_type, byte_size, checksum_sha256, r2_bucket, r2_key, status, uploaded_at"
+        "id, tenant_id, title, filename, mime_type, byte_size, checksum_sha256, storage_bucket, storage_path, status, uploaded_at"
       )
       .eq("id", event.data.document_id)
       .eq("tenant_id", event.data.tenant_id)
@@ -170,8 +170,8 @@ export async function recordDocumentUploadIncomplete(input: {
       message,
       metadata: {
         document_status: document.status,
-        r2_bucket: document.r2_bucket,
-        r2_key: document.r2_key,
+        storage_bucket: document.storage_bucket,
+        storage_path: document.storage_path,
         reason: "uploaded_at_missing"
       },
       runId: event.data.run_id,

@@ -6,9 +6,9 @@ export type DocumentForIndexing = {
   filename: string;
   id: string;
   mime_type: string;
-  r2_bucket: string;
-  r2_key: string;
   status: string;
+  storage_bucket: string;
+  storage_path: string;
   tenant_id: string;
   title: string | null;
   uploaded_at: string | null;

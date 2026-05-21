@@ -55,7 +55,7 @@ export default async function DocumentsPage() {
   const { data: documentRows, error } = await supabase
     .from("documents")
     .select(
-      "id, title, filename, mime_type, byte_size, r2_bucket, r2_key, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
+      "id, title, filename, mime_type, byte_size, storage_bucket, storage_path, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
     )
     .order("created_at", { ascending: false })
     .limit(100)
@@ -162,7 +162,7 @@ export default async function DocumentsPage() {
                               </span>
                             </td>
                             <td>
-                              <div className="table-primary">{document.r2_bucket}</div>
+                              <div className="table-primary">{document.storage_bucket}</div>
                               <div className="table-secondary">{compactId(document.id)}</div>
                             </td>
                           </tr>
