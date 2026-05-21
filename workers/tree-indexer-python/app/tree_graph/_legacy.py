@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import operator
 import os
-from typing import Annotated, Any, TypedDict
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
@@ -32,6 +31,7 @@ from ..pageindex_style import (
     flatten_tree,
     remove_node_text,
     split_pages_for_prompt,
+    strip_repeated_headers_footers,
     tagged_pages_text,
 )
 from ..prompts import (
@@ -44,52 +44,10 @@ from ..prompts import (
     summary_prompt,
     verification_prompt,
 )
+from .state import NodeTask, NodeTextResult, RefinedNodeResult, TreeState
 from ..versions import TREE_INDEXER_PYTHON_VERSION
 
 TREE_INDEXER_VERSION = TREE_INDEXER_PYTHON_VERSION
-
-
-class NodeTask(TypedDict):
-    end_index: int
-    node_id: str
-    path: list[str]
-    start_index: int
-    summary: str
-    text: str
-    title: str
-
-
-class NodeTextResult(TypedDict):
-    node_id: str
-    text: str
-
-
-class TreeState(TypedDict):
-    candidate_sections: list[CandidateSection]
-    chunks: list[TreeChunk]
-    doc_summary: str
-    document_id: str
-    document_title: str
-    document_type: str
-    invalid_sections: list[CandidateSection]
-    job_id: str
-    metrics: dict[str, Any]
-    pages: list[LabeledPage]
-    provider: str
-    repair_attempts: int
-    refinement_iteration: int
-    routing_summary: str
-    routing_summary_results: Annotated[list[NodeTextResult], operator.add]
-    routing_target: NodeTask
-    run_id: str
-    source_blocks: list[SourceBlock]
-    summary_results: Annotated[list[NodeTextResult], operator.add]
-    summary_target: NodeTask
-    tenant_id: str
-    tree: list[TreeNode]
-    tree_mode: str
-    verified_sections: list[CandidateSection]
-    version: str
 
 
 def _assert_sections(value: Any) -> list[CandidateSection]:
@@ -294,7 +252,7 @@ async def detect_document_type(state: TreeState) -> dict[str, Any]:
     response = await call_tree_llm_json(
         document_type_prompt(
             state["document_title"],
-            tagged_pages_text(state["pages"][:3]),
+            tagged_pages_text(state["prompt_pages"][:3]),
         ),
         "summary",
     )
@@ -327,7 +285,7 @@ async def build_candidate_tree(state: TreeState) -> dict[str, Any]:
         progress=50,
         status="started",
     )
-    groups = split_pages_for_prompt(state["pages"], _max_prompt_chars())
+    groups = split_pages_for_prompt(state["prompt_pages"], _max_prompt_chars())
     sections: list[CandidateSection] = []
     model: str | None = None
     provider: str | None = None
@@ -387,7 +345,7 @@ async def verify_tree(state: TreeState) -> dict[str, Any]:
         status="started",
     )
     response = await call_tree_llm_json(
-        verification_prompt(state["candidate_sections"], state["pages"]),
+        verification_prompt(state["candidate_sections"], state["prompt_pages"]),
         "structure",
     )
     checked_sections = _assert_sections(response["json"])
@@ -467,7 +425,7 @@ async def repair_sections(state: TreeState) -> dict[str, Any]:
             state["document_type"],
             state["verified_sections"],
             state["invalid_sections"],
-            state["pages"],
+            state["prompt_pages"],
         ),
         "structure",
     )
@@ -539,7 +497,7 @@ async def post_process_tree(state: TreeState) -> dict[str, Any]:
     )
     tree = candidate_sections_to_tree(
         state["verified_sections"],
-        state["pages"],
+        state["raw_pages"],
         state["source_blocks"],
     )
     await emit_tree_node_event(
@@ -556,7 +514,7 @@ async def post_process_tree(state: TreeState) -> dict[str, Any]:
 
 
 async def _refined_subtree_for_node(state: TreeState, node: TreeNode) -> list[TreeNode] | None:
-    sub_pages = _sub_pages_for_node(node, state["pages"])
+    sub_pages = _sub_pages_for_node(node, state["prompt_pages"])
     if len(sub_pages) <= 1:
         return None
 
@@ -928,6 +886,8 @@ async def run_tree_index_graph(
     tenant_id: str = "",
 ) -> dict[str, Any]:
     source_blocks = source_blocks or []
+    raw_pages = pages
+    prompt_pages = strip_repeated_headers_footers(raw_pages)
     initial_state: TreeState = {
         "candidate_sections": [],
         "chunks": [],
@@ -943,19 +903,23 @@ async def run_tree_index_graph(
             "degrade_attempts": 0,
             "llm_model": None,
             "llm_provider": None,
-            "page_count": len(pages),
+            "page_count": len(raw_pages),
             "repair_attempts": 0,
             "source_block_count": len(source_blocks),
             "verified_section_count": 0,
         },
-        "pages": pages,
+        "raw_pages": raw_pages,
+        "prompt_pages": prompt_pages,
         "provider": "",
+        "refined_results": [],
         "refinement_iteration": 0,
         "repair_attempts": 0,
         "routing_summary": "",
         "routing_summary_results": [],
         "run_id": run_id,
         "source_blocks": source_blocks,
+        "summary_cache_hits": 0,
+        "summary_cache_misses": 0,
         "summary_results": [],
         "tenant_id": tenant_id,
         "tree": [],

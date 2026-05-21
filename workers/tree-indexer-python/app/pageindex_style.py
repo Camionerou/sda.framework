@@ -510,3 +510,34 @@ def remove_node_text(nodes: list[TreeNode]) -> list[TreeNode]:
             clean_node["nodes"] = remove_node_text(node["nodes"])
         clean_nodes.append(clean_node)
     return clean_nodes
+
+
+def strip_repeated_headers_footers(
+    pages: list[LabeledPage],
+    head_lines: int = 3,
+    tail_lines: int = 3,
+) -> list[LabeledPage]:
+    if len(pages) < 4:
+        return pages
+    head_counts: dict[str, int] = {}
+    tail_counts: dict[str, int] = {}
+    for page in pages:
+        lines = [line.strip() for line in page["text"].split("\n") if line.strip()]
+        for line in lines[:head_lines]:
+            head_counts[line] = head_counts.get(line, 0) + 1
+        for line in lines[-tail_lines:]:
+            tail_counts[line] = tail_counts.get(line, 0) + 1
+
+    threshold = max(2, len(pages) // 3)
+    repeated_heads = {line for line, count in head_counts.items() if count >= threshold}
+    repeated_tails = {line for line, count in tail_counts.items() if count >= threshold}
+
+    cleaned: list[LabeledPage] = []
+    for page in pages:
+        lines = page["text"].split("\n")
+        while lines and lines[0].strip() in repeated_heads:
+            lines.pop(0)
+        while lines and lines[-1].strip() in repeated_tails:
+            lines.pop()
+        cleaned.append({"page": page["page"], "text": "\n".join(lines)})
+    return cleaned

@@ -7,6 +7,7 @@ from app.pageindex_style import (
     content_list_to_labeled_pages,
     remove_node_text,
     source_blocks_from_mineru_middle,
+    strip_repeated_headers_footers,
     tagged_pages_text,
 )
 
@@ -180,6 +181,23 @@ class PageIndexStyleTests(unittest.TestCase):
             chunks[0]["metadata"]["source_blocks_coordinate_system"],
             SOURCE_BLOCKS_COORDINATE_SYSTEM,
         )
+
+
+    def test_strip_repeated_headers_footers_removes_common_lines(self):
+        pages = [
+            {"page": 1, "text": "ACME Corp\nPagina 1\nContenido real 1\nFooter"},
+            {"page": 2, "text": "ACME Corp\nPagina 2\nContenido real 2\nFooter"},
+            {"page": 3, "text": "ACME Corp\nPagina 3\nContenido real 3\nFooter"},
+            {"page": 4, "text": "ACME Corp\nPagina 4\nContenido real 4\nFooter"},
+        ]
+        result = strip_repeated_headers_footers(pages)
+        assert "ACME Corp" not in result[0]["text"]
+        assert "Footer" not in result[0]["text"]
+        assert "Contenido real 1" in result[0]["text"]
+
+    def test_strip_repeated_headers_footers_passthrough_short_docs(self):
+        pages = [{"page": 1, "text": "single\npage\ndoc"}]
+        assert strip_repeated_headers_footers(pages) == pages
 
 
 if __name__ == "__main__":
