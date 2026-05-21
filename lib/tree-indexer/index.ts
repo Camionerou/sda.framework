@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { INDEXING_VERSION_COLUMNS, INDEXING_VERSION_METADATA } from "@/lib/system-versions";
 import { runTreeIndexGraph, type TreeIndexGraphResult } from "@/lib/tree-indexer/graph";
 import { contentListToLabeledPages } from "@/lib/tree-indexer/pageindex-style";
 
@@ -81,7 +82,9 @@ async function persistTreeIndex(input: {
   const { error: treeError } = await supabase.from("doc_tree").upsert(
     {
       document_id: document.id,
+      indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
       metadata: {
+        ...INDEXING_VERSION_METADATA,
         embedding_status: "pending",
         extraction_id: extractionId,
         indexer: result.version,
@@ -97,6 +100,8 @@ async function persistTreeIndex(input: {
         source: "pageindex_style_llm_tree",
         version: result.version
       },
+      tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version,
+      tree_prompt_version: INDEXING_VERSION_METADATA.versions.tree_prompt_version,
       version: result.version
     },
     { onConflict: "document_id" }
@@ -110,8 +115,11 @@ async function persistTreeIndex(input: {
     chunk_index: chunk.chunk_index,
     content: chunk.content,
     document_id: document.id,
+    embedding_pipeline_version: INDEXING_VERSION_COLUMNS.embedding_pipeline_version,
+    indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
     metadata: {
       ...chunk.metadata,
+      ...INDEXING_VERSION_METADATA,
       extraction_id: extractionId,
       indexer: result.version,
       run_id: runId
@@ -122,6 +130,7 @@ async function persistTreeIndex(input: {
     page_start: chunk.page_start,
     summary: chunk.summary,
     tenant_id: document.tenant_id,
+    tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version,
     token_count: chunk.token_count
   }));
 

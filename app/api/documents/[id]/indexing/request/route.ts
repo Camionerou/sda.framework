@@ -6,6 +6,7 @@ import {
   inngest
 } from "@/inngest/client";
 import { getClaimValue, type AppClaims } from "@/lib/session";
+import { INDEXING_VERSION_METADATA } from "@/lib/system-versions";
 import { createClient } from "@/lib/supabase/server";
 
 type IndexingRequestRow = {
@@ -51,7 +52,7 @@ export async function POST(
 
   const { data, error } = await supabase.rpc("request_document_indexing", {
     _document_id: id,
-    _metadata: { source }
+    _metadata: { ...INDEXING_VERSION_METADATA, source }
   });
 
   if (error) {

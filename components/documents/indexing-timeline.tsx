@@ -20,6 +20,7 @@ import {
   type IndexingRunRow
 } from "@/lib/documents";
 import { compactId, formatDateTime } from "@/lib/session";
+import { INDEXING_VERSION_COLUMNS } from "@/lib/system-versions";
 import { createClient } from "@/lib/supabase/client";
 
 type IndexingTimelineProps = {
@@ -160,14 +161,25 @@ export function IndexingTimeline({
         compute_job_id: currentRun?.compute_job_id ?? null,
         created_at: currentRun?.created_at ?? new Date().toISOString(),
         document_id: runRow.document_id,
+        embedding_pipeline_version:
+          currentRun?.embedding_pipeline_version ??
+          INDEXING_VERSION_COLUMNS.embedding_pipeline_version,
         error_message: null,
+        extraction_pipeline_version:
+          currentRun?.extraction_pipeline_version ??
+          INDEXING_VERSION_COLUMNS.extraction_pipeline_version,
         failed_at: null,
         id: runRow.run_id,
         inngest_run_id: currentRun?.inngest_run_id ?? null,
+        indexing_pipeline_version:
+          currentRun?.indexing_pipeline_version ??
+          INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
         progress: runRow.progress,
         stage: runRow.stage,
         started_at: currentRun?.started_at ?? null,
-        status: runRow.status
+        status: runRow.status,
+        tree_indexer_version:
+          currentRun?.tree_indexer_version ?? INDEXING_VERSION_COLUMNS.tree_indexer_version
       }));
     }
   }

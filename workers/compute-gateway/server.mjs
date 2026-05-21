@@ -10,6 +10,8 @@ import { promisify } from "node:util";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const DATA_DIR = process.env.SDA_COMPUTE_GATEWAY_DATA_DIR ?? "/var/lib/sda-compute-gateway";
+const COMPUTE_GATEWAY_VERSION = process.env.SDA_COMPUTE_GATEWAY_VERSION ?? "0.1.1";
+const EXTRACTION_PIPELINE_VERSION = process.env.SDA_EXTRACTION_PIPELINE_VERSION ?? "0.1.1";
 const MAX_CONCURRENT_JOBS = positiveInteger(process.env.SDA_COMPUTE_GATEWAY_CONCURRENCY, 1);
 const MINERU_BACKEND = process.env.SDA_MINERU_BACKEND ?? "pipeline";
 const MINERU_BIN = process.env.SDA_MINERU_BIN ?? "/home/sistemas/sda-mineru/.venv/bin/mineru";
@@ -533,7 +535,13 @@ async function uploadArtifacts(job, payload, mineruResult) {
   };
 }
 
-async function buildExtractionManifest(mineruResult, artifactUpload) {
+function versionFromPayload(payload, key, fallback) {
+  const value = payload?.versions?.[key];
+
+  return typeof value === "string" && value ? value : fallback;
+}
+
+async function buildExtractionManifest(payload, mineruResult, artifactUpload) {
   const content = await summarizeContentList(mineruResult.outputDir);
 
   return {
@@ -542,10 +550,18 @@ async function buildExtractionManifest(mineruResult, artifactUpload) {
     artifact_prefix: artifactUpload.artifact_prefix,
     artifacts: artifactUpload.artifacts,
     backend: MINERU_BACKEND,
+    compute_gateway_version: COMPUTE_GATEWAY_VERSION,
     content,
+    extraction_pipeline_version: versionFromPayload(
+      payload,
+      "extraction_pipeline_version",
+      EXTRACTION_PIPELINE_VERSION
+    ),
+    indexing_pipeline_version: versionFromPayload(payload, "indexing_pipeline_version", "0.1.1"),
     lang: MINERU_LANG,
     parser: "mineru",
-    parser_version: mineruResult.parserVersion
+    parser_version: mineruResult.parserVersion,
+    versions: payload.versions ?? {}
   };
 }
 
@@ -555,7 +571,7 @@ async function processJob(job, payload) {
     const inputFile = await downloadDocument(job, payload);
     const mineruResult = await runMineru(job, inputFile);
     const artifactUpload = await uploadArtifacts(job, payload, mineruResult);
-    const manifest = await buildExtractionManifest(mineruResult, artifactUpload);
+    const manifest = await buildExtractionManifest(payload, mineruResult, artifactUpload);
 
     await patchJob(job.job_id, {
       artifact_bucket: manifest.artifact_bucket,
@@ -564,6 +580,9 @@ async function processJob(job, payload) {
       artifacts: manifest.artifacts,
       completed_at: new Date().toISOString(),
       manifest,
+      metadata: {
+        versions: payload.versions ?? {}
+      },
       message: "MinerU extraction persisted.",
       mineru_backend: MINERU_BACKEND,
       mineru_lang: MINERU_LANG,
@@ -636,7 +655,8 @@ async function createIndexJob(request, response) {
     stage: "queued",
     status: "queued",
     tenant_id: payload.tenant_id,
-    updated_at: now
+    updated_at: now,
+    versions: payload.versions ?? {}
   };
 
   await writeJob(job);
@@ -710,7 +730,9 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/v1/health") {
       json(response, 200, {
         active_jobs: activeJobs,
+        compute_gateway_version: COMPUTE_GATEWAY_VERSION,
         concurrency: MAX_CONCURRENT_JOBS,
+        extraction_pipeline_version: EXTRACTION_PIPELINE_VERSION,
         mineru_backend: MINERU_BACKEND,
         mineru_lang: MINERU_LANG,
         mineru_storage_configured: Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY),

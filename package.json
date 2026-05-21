@@ -1,6 +1,6 @@
 {
   "name": "sda-framework",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "indexing:health": "node scripts/indexing-health.mjs",
     "inngest:sync": "node scripts/inngest-sync.mjs",
+    "versions:check": "node scripts/versions-check.mjs",
     "bootstrap:owner-invite": "node scripts/bootstrap-owner-invite.mjs"
   },
   "overrides": {

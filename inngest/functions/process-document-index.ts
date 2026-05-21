@@ -13,6 +13,12 @@ import {
   type ComputeGatewayTreeIndexJobStatus
 } from "@/lib/compute-gateway";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  INDEXING_VERSION_COLUMNS,
+  INDEXING_VERSION_METADATA,
+  SYSTEM_COMPONENT_VERSIONS,
+  TREE_INDEXER_PYTHON_VERSION
+} from "@/lib/system-versions";
 
 type DocumentForIndexing = {
   byte_size: number | null;
@@ -110,6 +116,32 @@ function getParserVersion(job: ComputeGatewayIndexJobStatus) {
   }
 
   return "unknown";
+}
+
+function getManifestString(
+  manifest: Record<string, unknown> | undefined,
+  key: string,
+  fallback: string
+) {
+  const value = manifest?.[key];
+
+  return typeof value === "string" && value ? value : fallback;
+}
+
+function getExtractionPipelineVersion(job: ComputeGatewayIndexJobStatus) {
+  return getManifestString(
+    job.manifest,
+    "extraction_pipeline_version",
+    INDEXING_VERSION_COLUMNS.extraction_pipeline_version
+  );
+}
+
+function getIndexingPipelineVersion(job: ComputeGatewayIndexJobStatus) {
+  return getManifestString(
+    job.manifest,
+    "indexing_pipeline_version",
+    INDEXING_VERSION_COLUMNS.indexing_pipeline_version
+  );
 }
 
 function getArtifactPrefix(
@@ -240,6 +272,7 @@ export const processDocumentIndex = inngest.createFunction(
         .from("indexing_runs")
         .update({
           error_message: null,
+          ...INDEXING_VERSION_COLUMNS,
           inngest_run_id: executionRunId,
           progress: 1,
           stage: "queued",
@@ -331,6 +364,7 @@ export const processDocumentIndex = inngest.createFunction(
         document_id: event.data.document_id,
         event_type: "indexing.orchestrator.received",
         metadata: {
+          ...INDEXING_VERSION_METADATA,
           actor_id: event.data.actor_id,
           inngest_event_id: event.id,
           inngest_run_id: executionRunId,
@@ -535,7 +569,8 @@ export const processDocumentIndex = inngest.createFunction(
             document_id: event.data.document_id,
             run_id: event.data.run_id,
             source: event.data.source,
-            tenant_id: event.data.tenant_id
+            tenant_id: event.data.tenant_id,
+            versions: INDEXING_VERSION_METADATA.versions
           });
         });
       } catch (dispatchError) {
@@ -768,22 +803,24 @@ export const processDocumentIndex = inngest.createFunction(
                 artifact_bucket: terminalGatewayJob.artifact_bucket ?? document.r2_bucket,
                 artifact_prefix: getArtifactPrefix(terminalGatewayJob, document, parserVersion),
                 document_id: event.data.document_id,
-                error_message: message,
-                failed_at: terminalGatewayJob.failed_at ?? new Date().toISOString(),
+              error_message: message,
+              extraction_pipeline_version: INDEXING_VERSION_COLUMNS.extraction_pipeline_version,
+              indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
+              failed_at: terminalGatewayJob.failed_at ?? new Date().toISOString(),
                 id: terminalGatewayJob.job_id,
                 input_byte_size: document.byte_size,
-                manifest: terminalGatewayJob.manifest ?? {},
-                metrics: {
+              manifest: terminalGatewayJob.manifest ?? {},
+              metrics: {
                   gateway_progress: terminalGatewayJob.progress,
                   gateway_stage: terminalGatewayJob.stage
                 },
-                parser: "mineru",
+              parser: "mineru",
                 parser_backend: terminalGatewayJob.mineru_backend ?? "pipeline",
                 parser_version: parserVersion,
                 run_id: event.data.run_id,
                 source_checksum_sha256: document.checksum_sha256,
                 source_r2_key: document.r2_key,
-                status: "failed",
+              status: "failed",
                 tenant_id: event.data.tenant_id
               },
               { onConflict: "id" }
@@ -851,7 +888,9 @@ export const processDocumentIndex = inngest.createFunction(
 
     await step.run("record-mineru-extraction-succeeded", async () => {
       const supabase = createAdminClient();
-      const parserVersion = getParserVersion(terminalGatewayJob);
+        const parserVersion = getParserVersion(terminalGatewayJob);
+      const extractionPipelineVersion = getExtractionPipelineVersion(terminalGatewayJob);
+      const indexingPipelineVersion = getIndexingPipelineVersion(terminalGatewayJob);
       const artifacts = terminalGatewayJob.artifacts ?? [];
 
       if (artifacts.length === 0) {
@@ -863,13 +902,17 @@ export const processDocumentIndex = inngest.createFunction(
         artifact_prefix: getArtifactPrefix(terminalGatewayJob, document, parserVersion),
         completed_at: terminalGatewayJob.completed_at ?? new Date().toISOString(),
         document_id: event.data.document_id,
+        extraction_pipeline_version: extractionPipelineVersion,
         id: terminalGatewayJob.job_id,
+        indexing_pipeline_version: indexingPipelineVersion,
         input_byte_size: document.byte_size,
         manifest: terminalGatewayJob.manifest ?? {
           artifacts
         },
         metrics: {
           artifact_count: artifacts.length,
+          compute_gateway_extraction_version:
+            SYSTEM_COMPONENT_VERSIONS.compute_gateway_extraction,
           gateway_progress: terminalGatewayJob.progress,
           gateway_stage: terminalGatewayJob.stage
         },
@@ -927,7 +970,9 @@ export const processDocumentIndex = inngest.createFunction(
             metadata: {
               artifact_count: artifacts.length,
               artifact_prefix: extractionRecord.artifact_prefix,
+              extraction_pipeline_version: extractionPipelineVersion,
               extraction_id: terminalGatewayJob.job_id,
+              indexing_pipeline_version: indexingPipelineVersion,
               job_id: terminalGatewayJob.job_id,
               parser_version: parserVersion
             },
@@ -979,8 +1024,9 @@ export const processDocumentIndex = inngest.createFunction(
             document_id: event.data.document_id,
             event_type: "indexing.tree.started",
             metadata: {
+              ...INDEXING_VERSION_METADATA,
               extraction_id: terminalGatewayJob.job_id,
-              indexer: "sda-pageindex-python-langgraph-v0.1.0"
+              indexer: TREE_INDEXER_PYTHON_VERSION
             },
             message: "Tree Indexer Python inicio construccion PageIndex-style con LLM",
             progress: 40,
@@ -1014,7 +1060,8 @@ export const processDocumentIndex = inngest.createFunction(
             filename: document.filename,
             run_id: event.data.run_id,
             source: event.data.source,
-            tenant_id: event.data.tenant_id
+            tenant_id: event.data.tenant_id,
+            versions: INDEXING_VERSION_METADATA.versions
           })
         );
       } catch (dispatchError) {
@@ -1357,9 +1404,13 @@ export const processDocumentIndex = inngest.createFunction(
           supabase
             .from("documents")
             .update({
+              embedding_pipeline_version: INDEXING_VERSION_COLUMNS.embedding_pipeline_version,
+              extraction_pipeline_version: getExtractionPipelineVersion(terminalGatewayJob),
+              indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
               indexed_at: now,
               status: "indexed",
-              status_reason: "Tree Index listo; embeddings jerarquicos pendientes"
+              status_reason: "Tree Index listo; embeddings jerarquicos pendientes",
+              tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version
             })
             .eq("id", event.data.document_id)
             .eq("tenant_id", event.data.tenant_id),
@@ -1367,14 +1418,18 @@ export const processDocumentIndex = inngest.createFunction(
             document_id: event.data.document_id,
             event_type: "indexing.tree.completed",
             metadata: {
+              ...INDEXING_VERSION_METADATA,
               chunk_count: terminalTreeJob.chunk_count,
               content_list_path: terminalTreeJob.content_list_path,
               extraction_id: terminalGatewayJob.job_id,
+              extraction_pipeline_version: getExtractionPipelineVersion(terminalGatewayJob),
+              indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
               model: terminalTreeJob.model,
               page_count: terminalTreeJob.page_count,
               persisted_at: terminalTreeJob.persisted_at,
               provider: terminalTreeJob.provider,
               tree_job_id: terminalTreeJob.job_id,
+              tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version,
               version: terminalTreeJob.version
             },
             message: "Tree Index persistido en doc_tree y chunks recuperables",

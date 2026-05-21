@@ -13,6 +13,7 @@ import {
   type TreeChunk,
   type TreeNode
 } from "@/lib/tree-indexer/pageindex-style";
+import { TREE_INDEXER_TYPESCRIPT_VERSION } from "@/lib/system-versions";
 
 type CandidateSectionsResponse = {
   sections: CandidateSection[];
@@ -42,7 +43,7 @@ export type TreeIndexGraphResult = {
   version: string;
 };
 
-const TREE_INDEXER_VERSION = "sda-pageindex-langgraph-v0.1.0";
+const TREE_INDEXER_VERSION = TREE_INDEXER_TYPESCRIPT_VERSION;
 
 const TreeState = Annotation.Root({
   candidateSections: Annotation<CandidateSection[]>,

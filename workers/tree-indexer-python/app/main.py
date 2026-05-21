@@ -15,6 +15,7 @@ from .llm import is_tree_llm_configured
 from .pageindex_style import content_list_to_labeled_pages
 from .supabase_io import download_storage_json, list_extraction_artifacts, persist_tree_index
 from .tree_graph import TREE_INDEXER_VERSION, run_tree_index_graph
+from .versions import INDEXING_VERSION_COLUMNS, TREE_PROMPT_VERSION
 
 DATA_DIR = Path(os.getenv("SDA_TREE_INDEXER_DATA_DIR", "/var/lib/sda-tree-indexer"))
 TOKEN = os.getenv("SDA_TREE_INDEXER_TOKEN") or os.getenv("SDA_COMPUTE_GATEWAY_TOKEN")
@@ -42,6 +43,7 @@ class TreeIndexJobRequest(BaseModel):
     run_id: str = Field(min_length=1)
     source: str = "unknown"
     tenant_id: str = Field(min_length=1)
+    versions: dict[str, str] = Field(default_factory=dict)
 
 
 def now_iso() -> str:
@@ -194,11 +196,13 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
                 result=result,
                 run_id=payload.run_id,
                 tenant_id=payload.tenant_id,
+                versions=payload.versions,
             )
             result = {
                 **result,
                 "persistence": persistence,
                 "persisted_at": now_iso(),
+                "versions": payload.versions,
             }
             write_json(job_dir(job_id) / "result.json", result)
 
@@ -217,6 +221,8 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
                     "stage": "tree_indexed",
                     "status": "succeeded",
                     "tree_path": str(job_dir(job_id) / "tree.json"),
+                    "tree_indexer_version": INDEXING_VERSION_COLUMNS["tree_indexer_version"],
+                    "tree_prompt_version": TREE_PROMPT_VERSION,
                     "version": result["version"],
                 },
             )
@@ -264,6 +270,7 @@ async def create_tree_index_job(
         "status": "queued",
         "tenant_id": payload.tenant_id,
         "updated_at": now_iso(),
+        "versions": payload.versions,
         "version": TREE_INDEXER_VERSION,
     }
     write_job(job)

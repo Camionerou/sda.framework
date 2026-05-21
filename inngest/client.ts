@@ -1,5 +1,7 @@
 import { eventType, Inngest, staticSchema } from "inngest";
 
+import { SYSTEM_COMPONENT_VERSIONS } from "@/lib/system-versions";
+
 export type DocumentIndexRequestedEvent = {
   actor_id: string;
   document_id: string;
@@ -16,7 +18,8 @@ export const inngest = new Inngest({
   appVersion:
     process.env.INNGEST_APP_VERSION ??
     process.env.VERCEL_GIT_COMMIT_SHA ??
-    process.env.GITHUB_SHA,
+    process.env.GITHUB_SHA ??
+    SYSTEM_COMPONENT_VERSIONS.app,
   id: "sda-framework",
   isDev: process.env.INNGEST_DEV === "1" || (
     process.env.NODE_ENV !== "production" && !process.env.INNGEST_SIGNING_KEY

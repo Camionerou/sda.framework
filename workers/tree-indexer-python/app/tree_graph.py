@@ -20,8 +20,9 @@ from .pageindex_style import (
     split_pages_for_prompt,
     tagged_pages_text,
 )
+from .versions import TREE_INDEXER_PYTHON_VERSION
 
-TREE_INDEXER_VERSION = "sda-pageindex-python-langgraph-v0.1.0"
+TREE_INDEXER_VERSION = TREE_INDEXER_PYTHON_VERSION
 
 
 class TreeState(TypedDict):

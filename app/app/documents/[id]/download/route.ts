@@ -18,7 +18,7 @@ export async function GET(
   const { data: document, error: documentError } = await supabase
     .from("documents")
     .select(
-      "id, title, filename, mime_type, byte_size, r2_bucket, r2_key, status, status_reason, uploaded_at, indexed_at, created_at"
+      "id, title, filename, mime_type, byte_size, r2_bucket, r2_key, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
     )
     .eq("id", id)
     .maybeSingle<DocumentRow>();

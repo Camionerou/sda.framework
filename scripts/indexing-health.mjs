@@ -73,16 +73,17 @@ const [
   eventsResult,
   extractionsResult,
   treesResult,
-  chunksResult
+  chunksResult,
+  componentVersionsResult
 ] = await Promise.all([
   selectRows(
     "documents",
-    "id,tenant_id,filename,status,status_reason,uploaded_at,indexed_at,created_at,updated_at",
+    "id,tenant_id,filename,status,status_reason,uploaded_at,indexed_at,created_at,updated_at,indexing_pipeline_version,extraction_pipeline_version,tree_indexer_version,embedding_pipeline_version",
     { limit: 1000 }
   ),
   selectRows(
     "indexing_runs",
-    "id,tenant_id,document_id,status,stage,progress,attempt,inngest_run_id,compute_job_id,error_message,created_at,updated_at",
+    "id,tenant_id,document_id,status,stage,progress,attempt,inngest_run_id,compute_job_id,error_message,created_at,updated_at,indexing_pipeline_version,extraction_pipeline_version,tree_indexer_version,embedding_pipeline_version",
     { limit: 1000 }
   ),
   selectRows(
@@ -92,17 +93,26 @@ const [
   ),
   selectRows(
     "document_extractions",
-    "id,tenant_id,document_id,run_id,status,parser,parser_version,error_message,created_at,updated_at",
+    "id,tenant_id,document_id,run_id,status,parser,parser_version,error_message,created_at,updated_at,indexing_pipeline_version,extraction_pipeline_version",
     { limit: 1000 }
   ),
-  selectRows("doc_tree", "tenant_id,document_id,model,version,summary,created_at,updated_at", {
-    limit: 1000,
-    order: "updated_at"
-  }),
+  selectRows(
+    "doc_tree",
+    "tenant_id,document_id,model,version,summary,created_at,updated_at,indexing_pipeline_version,tree_indexer_version,tree_prompt_version",
+    {
+      limit: 1000,
+      order: "updated_at"
+    }
+  ),
   selectRows(
     "chunks",
-    "id,tenant_id,document_id,chunk_index,page_start,page_end,embedding_model,created_at,updated_at",
+    "id,tenant_id,document_id,chunk_index,page_start,page_end,embedding_model,created_at,updated_at,indexing_pipeline_version,tree_indexer_version,embedding_pipeline_version",
     { limit: 5000 }
+  ),
+  selectRows(
+    "system_component_versions",
+    "component,version,description,updated_at",
+    { limit: 100, order: "component" }
   )
 ]);
 
@@ -120,6 +130,9 @@ const events = eventsResult.rows;
 const extractions = extractionsResult.rows;
 const trees = treesResult.rows;
 const chunks = chunksResult.rows;
+const latestVersions = Object.fromEntries(
+  componentVersionsResult.rows.map((row) => [row.component, row.version])
+);
 
 const activeRuns = runs.filter((run) => ["queued", "running"].includes(run.status));
 const activeRunKeys = new Set(activeRuns.map((run) => `${run.tenant_id}:${run.document_id}`));
@@ -139,6 +152,37 @@ function sampleDocuments(rows) {
     updated_age_h: ageHours(document.updated_at),
     has_tree: treeKeys.has(`${document.tenant_id}:${document.id}`),
     chunks: chunksByDocument[`${document.tenant_id}:${document.id}`] ?? 0
+  }));
+}
+
+function versionDrift(document) {
+  if (document.status !== "indexed") {
+    return [];
+  }
+
+  const checks = [
+    ["indexing_pipeline", document.indexing_pipeline_version],
+    ["extraction_pipeline", document.extraction_pipeline_version],
+    ["tree_indexer_python", document.tree_indexer_version],
+    ["embedding_pipeline", document.embedding_pipeline_version]
+  ];
+
+  return checks
+    .map(([component, current]) => ({
+      component,
+      current: current ?? null,
+      latest: latestVersions[component] ?? null
+    }))
+    .filter((check) => check.current && check.latest && check.current !== check.latest);
+}
+
+function sampleVersionDrift(rows) {
+  return rows.slice(0, 10).map((document) => ({
+    drift: versionDrift(document),
+    file: document.filename,
+    id: shortId(document.id),
+    indexed_age_h: ageHours(document.indexed_at),
+    status: document.status
   }));
 }
 
@@ -183,6 +227,7 @@ const anomalies = {
   })
 };
 const recentErrorEvents = events.filter((event) => event.severity === "error");
+const staleIndexedDocuments = documents.filter((document) => versionDrift(document).length > 0);
 
 const output = {
   env: {
@@ -206,6 +251,11 @@ const output = {
     runs_by_stage: groupBy(runs, "stage"),
     runs_by_status: groupBy(runs, "status")
   },
+  versions: {
+    latest: latestVersions,
+    stale_indexed_documents: sampleVersionDrift(staleIndexedDocuments),
+    stale_indexed_documents_count: staleIndexedDocuments.length
+  },
   anomalies: {
     active_run_without_uploaded_at: sampleRuns(anomalies.active_run_without_uploaded_at),
     indexed_without_chunks: sampleDocuments(anomalies.indexed_without_chunks),
@@ -219,6 +269,7 @@ const output = {
       documents: documentsResult.error,
       events: eventsResult.error,
       extractions: extractionsResult.error,
+      versions: componentVersionsResult.error,
       runs: runsResult.error,
       trees: treesResult.error
     }).filter(([, value]) => value)
@@ -231,7 +282,8 @@ const output = {
       run: shortId(event.run_id),
       stage: event.stage,
       type: event.event_type
-    }))
+    })),
+    version_drift_requires_reindex: sampleVersionDrift(staleIndexedDocuments)
   }
 };
 

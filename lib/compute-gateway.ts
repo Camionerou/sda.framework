@@ -13,6 +13,7 @@ export type ComputeGatewayIndexJobRequest = {
   run_id: string;
   source: string;
   tenant_id: string;
+  versions?: Record<string, string>;
 };
 
 export type ComputeGatewayIndexJobResponse = {
@@ -35,6 +36,7 @@ export type ComputeGatewayTreeIndexJobRequest = {
   run_id: string;
   source: string;
   tenant_id: string;
+  versions?: Record<string, string>;
 };
 
 export type ComputeGatewayTreeIndexJobResponse = {
@@ -65,6 +67,7 @@ export type ComputeGatewayIndexJobStatus = {
   failed_at?: string;
   job_id: string;
   manifest?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   message?: string;
   mineru_backend?: string;
   mineru_lang?: string;
@@ -76,6 +79,7 @@ export type ComputeGatewayIndexJobStatus = {
   status: "queued" | "running" | "succeeded" | "failed" | string;
   tenant_id: string;
   updated_at: string;
+  versions?: Record<string, string>;
 };
 
 export type ComputeGatewayTreeIndexJobStatus = {
@@ -104,6 +108,7 @@ export type ComputeGatewayTreeIndexJobStatus = {
   tenant_id: string;
   updated_at: string;
   version?: string;
+  versions?: Record<string, string>;
 };
 
 type ComputeGatewayConfig = {

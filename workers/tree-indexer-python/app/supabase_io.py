@@ -6,6 +6,8 @@ from urllib.parse import quote
 
 import httpx
 
+from .versions import INDEXING_VERSION_COLUMNS, TREE_PROMPT_VERSION, version_value
+
 
 class SupabaseConfigError(RuntimeError):
     pass
@@ -132,11 +134,30 @@ async def persist_tree_index(
     result: dict[str, Any],
     run_id: str,
     tenant_id: str,
+    versions: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    indexing_pipeline_version = version_value(
+        versions,
+        "indexing_pipeline_version",
+        INDEXING_VERSION_COLUMNS["indexing_pipeline_version"],
+    )
+    tree_indexer_version = version_value(
+        versions,
+        "tree_indexer_version",
+        INDEXING_VERSION_COLUMNS["tree_indexer_version"],
+    )
+    embedding_pipeline_version = version_value(
+        versions,
+        "embedding_pipeline_version",
+        INDEXING_VERSION_COLUMNS["embedding_pipeline_version"],
+    )
+    tree_prompt_version = version_value(versions, "tree_prompt_version", TREE_PROMPT_VERSION)
+
     await delete_document_chunks(tenant_id=tenant_id, document_id=document_id)
     await upsert_document_tree(
         {
             "document_id": document_id,
+            "indexing_pipeline_version": indexing_pipeline_version,
             "metadata": {
                 "embedding_status": "pending",
                 "extraction_id": extraction_id,
@@ -144,6 +165,7 @@ async def persist_tree_index(
                 "metrics": result["metrics"],
                 "run_id": run_id,
                 "source": "pageindex_style_python_llm_tree",
+                "versions": versions or {},
             },
             "model": result["model"],
             "summary": result["doc_summary"],
@@ -153,6 +175,8 @@ async def persist_tree_index(
                 "source": "pageindex_style_python_llm_tree",
                 "version": result["version"],
             },
+            "tree_indexer_version": tree_indexer_version,
+            "tree_prompt_version": tree_prompt_version,
             "version": result["version"],
         }
     )
@@ -162,11 +186,14 @@ async def persist_tree_index(
             "chunk_index": chunk["chunk_index"],
             "content": chunk["content"],
             "document_id": document_id,
+            "embedding_pipeline_version": embedding_pipeline_version,
+            "indexing_pipeline_version": indexing_pipeline_version,
             "metadata": {
                 **chunk["metadata"],
                 "extraction_id": extraction_id,
                 "indexer": result["version"],
                 "run_id": run_id,
+                "versions": versions or {},
             },
             "node_id": chunk["node_id"],
             "node_path": chunk["node_path"],
@@ -174,6 +201,7 @@ async def persist_tree_index(
             "page_start": chunk["page_start"],
             "summary": chunk.get("summary"),
             "tenant_id": tenant_id,
+            "tree_indexer_version": tree_indexer_version,
             "token_count": chunk["token_count"],
         }
         for chunk in result["chunks"]
@@ -184,6 +212,8 @@ async def persist_tree_index(
         "chunk_count": len(rows),
         "document_id": document_id,
         "extraction_id": extraction_id,
+        "indexing_pipeline_version": indexing_pipeline_version,
         "run_id": run_id,
         "tenant_id": tenant_id,
+        "tree_indexer_version": tree_indexer_version,
     }
