@@ -93,6 +93,7 @@ from .nodes.degrade_mode import degrade_mode, fail_verification
 from .nodes.detect_document_type import detect_document_type
 from .nodes.post_process_tree import post_process_tree
 from .nodes.repair_sections import repair_sections
+from .nodes.embed_hierarchy import embed_hierarchy
 from .nodes.verify_tree import verify_tree
 from .nodes.routing_summary import collect_routing_summaries, summarize_one_routing
 from .nodes.summarize_node import collect_summaries, prepare_summaries, summarize_one_node
@@ -293,44 +294,6 @@ def fan_out_routing_summaries(state: TreeState) -> list[Send]:
         )
         for node, path in flatten_tree(state["tree"])
     ]
-
-
-async def embed_hierarchy(state: TreeState) -> dict[str, Any]:
-    await emit_tree_node_event(
-        state,
-        message="Generando embeddings jerarquicos.",
-        metadata={"chunk_count": len(state["chunks"])},
-        node="embed_hierarchy",
-        progress=92,
-        status="started",
-    )
-    embedded_chunks, config = await embed_chunks(
-        state["chunks"],
-        document_type=state["document_type"],
-    )
-    await emit_tree_node_event(
-        state,
-        message=f"Embeddings jerarquicos listos: {len(embedded_chunks)} vectores.",
-        metadata={
-            "embedding_count": len(embedded_chunks),
-            "embedding_dimension": config.dimensions,
-            "embedding_model": config.model,
-            "embedding_provider": config.provider,
-        },
-        node="embed_hierarchy",
-        progress=96,
-        status="completed",
-    )
-    return {
-        "chunks": embedded_chunks,
-        "metrics": {
-            **state["metrics"],
-            "embedding_count": len(embedded_chunks),
-            "embedding_dimension": config.dimensions,
-            "embedding_model": config.model,
-            "embedding_provider": config.provider,
-        },
-    }
 
 
 def build_graph(checkpointer: Any | None = None):
