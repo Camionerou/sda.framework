@@ -89,41 +89,7 @@ def _is_large_leaf(node: TreeNode) -> bool:
 
 
 from .events import context_for_send as _context_for_send, emit_tree_node_event
-
-
-async def detect_document_type(state: TreeState) -> dict[str, Any]:
-    await emit_tree_node_event(
-        state,
-        message="Detectando tipo documental.",
-        node="detect_document_type",
-        progress=46,
-        status="started",
-    )
-    response = await call_tree_llm_json(
-        document_type_prompt(
-            state["document_title"],
-            tagged_pages_text(state["prompt_pages"][:3]),
-        ),
-        "summary",
-    )
-    document_type = _assert_document_type(response["json"])
-    await emit_tree_node_event(
-        state,
-        message=f"Tipo documental detectado: {document_type}.",
-        metadata={"document_type": document_type},
-        node="detect_document_type",
-        progress=48,
-        status="completed",
-    )
-    return {
-        "document_type": document_type,
-        "metrics": {
-            **state["metrics"],
-            "document_type": document_type,
-            "document_type_model": response["model"],
-            "document_type_provider": response["provider"],
-        },
-    }
+from .nodes.detect_document_type import detect_document_type
 
 
 async def build_candidate_tree(state: TreeState) -> dict[str, Any]:
