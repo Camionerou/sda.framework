@@ -116,9 +116,10 @@ export default async function AppPage() {
       <section className="page">
         <div className="page-header">
           <div className="page-title">
-            <h1>Consola</h1>
+            <div className="kicker">Vista general</div>
+            <h1>Consola operativa</h1>
             <p>
-              Sesión real de Supabase, claims del hook y datos protegidos por RLS.
+              Sesión, tenant y señales principales del workspace en una sola vista.
             </p>
           </div>
           <Badge tone={tenantRole === "owner" || tenantRole === "admin" ? "success" : "neutral"}>
@@ -178,8 +179,8 @@ export default async function AppPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Tenant</CardTitle>
-                  <CardDescription>Datos leídos con la sesión del usuario actual.</CardDescription>
+                  <CardTitle>Tenant activo</CardTitle>
+                  <CardDescription>Contexto de trabajo resuelto desde la sesión actual.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="key-value-list">
@@ -195,24 +196,24 @@ export default async function AppPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Próximos módulos</CardTitle>
+                  <CardTitle>Flujos del workspace</CardTitle>
                   <CardDescription>
-                    Superficie lista para conectar carga, índice y chat sobre este tenant.
+                    Accesos rápidos a las operaciones que ya están conectadas a este tenant.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ul className="steps">
                     <li>
                       <FileText aria-hidden="true" size={17} />
-                      Carga de documentos con Storage privado y estado de indexación.
+                      Biblioteca documental con Storage privado y estado de indexación.
                     </li>
                     <li>
                       <MessageSquareText aria-hidden="true" size={17} />
-                      Conversaciones por usuario con histórico y checkpoints LangGraph.
+                      Conversaciones preparadas para operar sobre documentos indexados.
                     </li>
                     <li>
                       <Send aria-hidden="true" size={17} />
-                      Invitaciones desde la consola para owners y admins.
+                      Invitaciones controladas para owners y admins.
                     </li>
                   </ul>
                   <div className="card-actions">
@@ -249,8 +250,8 @@ export default async function AppPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Claims</CardTitle>
-                  <CardDescription>Valores emitidos por el hook JWT custom.</CardDescription>
+                  <CardTitle>Claims de sesión</CardTitle>
+                  <CardDescription>Valores que gobiernan permisos y aislamiento.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="key-value-list">
@@ -266,8 +267,8 @@ export default async function AppPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Estado</CardTitle>
-                  <CardDescription>Chequeos rápidos del vertical slice de auth.</CardDescription>
+                  <CardTitle>Salud de acceso</CardTitle>
+                  <CardDescription>Chequeos rápidos de autenticación y contexto.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ul className="steps">

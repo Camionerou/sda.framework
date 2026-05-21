@@ -25,29 +25,43 @@ export function AppTopbar({
           <ShieldCheck aria-hidden="true" size={19} strokeWidth={2.2} />
         </div>
         <div className="sidebar-brand-text">
-          <strong>SDA</strong>
-          <span>Framework</span>
+          <strong>SDA Ops</strong>
+          <span>Document intelligence</span>
         </div>
       </div>
 
-      <div className="sidebar-label">Navegación</div>
-      <nav aria-label="Principal" className="sidebar-nav">
-        {NAV_ITEMS.map(({ key, href, label, icon: Icon }) => (
-          <Link
-            aria-current={active === key ? "page" : undefined}
-            className="nav-item"
-            href={href}
-            key={key}
-          >
-            <Icon aria-hidden="true" size={16} />
-            {label}
-          </Link>
-        ))}
-      </nav>
+      <div className="sidebar-status">
+        <Badge tone={tenantActive ? "success" : "warning"}>
+          {tenantActive ? `Rol · ${tenantRole ?? "sin asignar"}` : "Sin tenant"}
+        </Badge>
+        <strong>{tenantActive ? "Workspace activo" : "Acceso pendiente"}</strong>
+        <p className="muted">
+          {tenantActive
+            ? "Operación privada con datos aislados por tenant."
+            : "Aceptá una invitación para activar el workspace."}
+        </p>
+      </div>
+
+      <div>
+        <div className="sidebar-label">Principal</div>
+        <nav aria-label="Principal" className="sidebar-nav">
+          {NAV_ITEMS.map(({ key, href, label, icon: Icon }) => (
+            <Link
+              aria-current={active === key ? "page" : undefined}
+              className="nav-item"
+              href={href}
+              key={key}
+            >
+              <Icon aria-hidden="true" size={16} />
+              {label}
+            </Link>
+          ))}
+        </nav>
+      </div>
 
       <div className="sidebar-foot">
         <Badge tone={tenantActive ? "success" : "warning"}>
-          {tenantActive ? `Rol · ${tenantRole ?? "sin asignar"}` : "Sin tenant"}
+          {tenantActive ? "Tenant conectado" : "Tenant requerido"}
         </Badge>
         <a aria-label="Cerrar sesión" className="nav-item nav-signout" href="/auth/sign-out">
           <LogOut aria-hidden="true" size={16} />

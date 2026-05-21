@@ -49,17 +49,19 @@ export default async function LoginPage({
             <ShieldCheck aria-hidden="true" size={20} strokeWidth={2.2} />
           </div>
           <div>
-            <div className="kicker">Acceso restringido</div>
-            <h1>SDA Framework</h1>
-            <p>Acceso privado por invitación para operar el tenant y la sesión.</p>
+            <div className="kicker">Workspace privado</div>
+            <h1>SDA Ops</h1>
+            <p>
+              Entrada segura para operar documentos, invitaciones y sesiones aisladas por tenant.
+            </p>
           </div>
         </div>
 
-        <Card>
+        <Card className="auth-card">
           <CardHeader>
-            <CardTitle>Ingresar</CardTitle>
+            <CardTitle>Acceso al workspace</CardTitle>
             <CardDescription>
-              Usá la cuenta de Google asociada a la invitación del tenant.
+              Usá la cuenta de Google asociada a tu invitación.
             </CardDescription>
           </CardHeader>
           <CardContent>
