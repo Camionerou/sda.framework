@@ -18,7 +18,7 @@ jobs:
         env:
           INNGEST_API_KEY: ${{ secrets.INNGEST_API_KEY }}
           INNGEST_APP_ID: sda-framework
-          INNGEST_APP_URL: https://sda-framework.vercel.app/api/inngest
+          INNGEST_APP_URL: https://sdaframework.com/api/inngest
         run: |
           test -n "$INNGEST_API_KEY"
           curl --fail-with-body \

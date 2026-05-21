@@ -62,7 +62,8 @@ export async function POST(
   const runResult = await requestIndexingRun({
     documentId: id,
     source,
-    supabase
+    supabase,
+    tenantId
   });
 
   if (isIndexingRouteResult(runResult)) {

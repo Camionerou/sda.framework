@@ -23,6 +23,7 @@
     "env:doctor": "node scripts/health/env-doctor.mjs",
     "indexing:health": "node scripts/health/indexing-health.mjs",
     "redis:health": "node scripts/health/redis-health.mjs",
+    "supabase:auth:health": "node scripts/health/supabase-auth-health.mjs",
     "secrets:scan": "node scripts/ci/secret-scan.mjs",
     "secrets:scan:history": "node scripts/ci/secret-scan.mjs --history",
     "bootstrap:owner-invite": "node scripts/db/bootstrap-owner-invite.mjs"

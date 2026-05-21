@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 
-import { loadEnvFiles } from "../shared/env-loader.mjs";
+import { cleanEnvValue, loadEnvFiles } from "../shared/env-loader.mjs";
 
 loadEnvFiles([".env.local", ".env"], { override: false });
 
@@ -16,10 +16,12 @@ const transientStaleHours = positiveNumber(
   process.env.INDEXING_HEALTH_TRANSIENT_STALE_HOURS,
   2
 );
-const publicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const adminUrl = process.env.SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY;
-const url = publicUrl ?? adminUrl;
+const publicUrl = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const adminUrl = cleanEnvValue(process.env.SUPABASE_URL);
+const serviceRoleKey =
+  cleanEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY) ||
+  cleanEnvValue(process.env.SUPABASE_SECRET_KEY);
+const url = publicUrl || adminUrl;
 const visibleDocumentStatuses = new Set([
   "uploaded",
   "queued",

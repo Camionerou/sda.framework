@@ -1,4 +1,4 @@
-import { loadEnvFiles } from "../shared/env-loader.mjs";
+import { cleanEnvValue, loadEnvFiles } from "../shared/env-loader.mjs";
 
 loadEnvFiles([".env.local", ".env"], { override: false });
 
@@ -7,9 +7,27 @@ const strict = process.argv.includes("--strict") || process.env.CI === "true";
 const checks = [];
 
 function value(name) {
-  const raw = process.env[name];
+  return cleanEnvValue(process.env[name]);
+}
 
-  return typeof raw === "string" && raw.trim() ? raw.trim() : "";
+function rawValue(name) {
+  return process.env[name];
+}
+
+function hasSuspiciousOuterQuotes(name) {
+  const raw = rawValue(name);
+
+  if (typeof raw !== "string") {
+    return false;
+  }
+
+  const trimmed = raw.trim();
+
+  return (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  );
 }
 
 function add(status, id, message, metadata = {}) {
@@ -28,6 +46,47 @@ function host(name) {
   } catch {
     add("error", `${name.toLowerCase()}.url`, `${name} no es una URL valida.`);
     return null;
+  }
+}
+
+function origin(name) {
+  const raw = value(name);
+
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = raw.startsWith("http://") || raw.startsWith("https://")
+    ? raw
+    : `https://${raw}`;
+
+  try {
+    return new URL(normalized).origin;
+  } catch {
+    add("error", `${name.toLowerCase()}.url`, `${name} no es una URL/origin valido.`);
+    return null;
+  }
+}
+
+function expectedInngestAppUrl(appOrigin) {
+  return appOrigin ? `${appOrigin}/api/inngest` : null;
+}
+
+for (const key of [
+  "APP_ORIGIN",
+  "NEXT_PUBLIC_APP_URL",
+  "INNGEST_APP_URL",
+  "SUPABASE_URL",
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "UPSTASH_REDIS_REST_URL",
+  "UPSTASH_REDIS_KEY_PREFIX"
+]) {
+  if (hasSuspiciousOuterQuotes(key)) {
+    add(
+      strict ? "error" : "warning",
+      `${key.toLowerCase()}.quoted`,
+      `${key} parece incluir comillas como parte del valor. Guardar el valor sin comillas en Vercel/env.`
+    );
   }
 }
 
@@ -63,6 +122,44 @@ for (const publicKey of publicKeys) {
 
 if (!checks.some((check) => check.id === "supabase.public_service_key_reuse")) {
   add("ok", "supabase.key_separation", "Supabase public/service keys no estan reutilizadas.");
+}
+
+const appOrigin = origin("APP_ORIGIN") || origin("NEXT_PUBLIC_APP_URL");
+const vercelProductionOrigin = origin("VERCEL_PROJECT_PRODUCTION_URL");
+const canonicalOrigin = appOrigin || vercelProductionOrigin;
+const inngestAppUrl = value("INNGEST_APP_URL");
+
+if (canonicalOrigin) {
+  add("ok", "app.canonical_origin", `Origen canonico detectado: ${canonicalOrigin}.`);
+} else {
+  add(
+    value("VERCEL_ENV") === "production" ? "warning" : "info",
+    "app.canonical_origin",
+    "APP_ORIGIN o NEXT_PUBLIC_APP_URL no estan configurados; se usara el host de request/Vercel."
+  );
+}
+
+if (inngestAppUrl && canonicalOrigin) {
+  const expected = expectedInngestAppUrl(canonicalOrigin);
+  if (inngestAppUrl === expected) {
+    add("ok", "inngest.app_url", "INNGEST_APP_URL usa el origen canonico.");
+  } else {
+    add(
+      strict ? "error" : "warning",
+      "inngest.app_url",
+      `INNGEST_APP_URL deberia ser ${expected} para el origen canonico actual.`
+    );
+  }
+} else if (value("INNGEST_EVENT_KEY") || value("INNGEST_SIGNING_KEY")) {
+  add(
+    strict ? "error" : "warning",
+    "inngest.app_url",
+    "INNGEST_APP_URL falta aunque Inngest esta configurado."
+  );
+}
+
+if (value("UPSTASH_REDIS_REST_URL")) {
+  host("UPSTASH_REDIS_REST_URL");
 }
 
 if (value("VERCEL_ENV") === "production" && value("UPSTASH_REDIS_KEY_PREFIX") === "sda:local") {

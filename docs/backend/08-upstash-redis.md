@@ -18,8 +18,8 @@ seguir permitiendo upload, lectura de documentos e indexacion.
 - Heartbeat corto de la API de indexacion y del workflow.
 - Snapshot live de corrida por run/documento y ultimo snapshot global para
   health/debugging.
-- Cache server-side de snapshots operativos de detalle documental cuando el
-  documento y su corrida estan en estado terminal.
+- Cache server-side de snapshots operativos de detalle documental en Upstash
+  cuando el documento esta `indexed` y la ultima corrida esta `completed`.
 - Health check local/CI con `npm run redis:health`.
 
 ## Env
@@ -42,6 +42,10 @@ DOCUMENT_DETAIL_CACHE_TTL_SECONDS=60
 
 `UPSTASH_REDIS_KEY_PREFIX` debe diferenciar ambientes, por ejemplo
 `sda:local`, `sda:preview` o `sda:production`.
+
+El cliente normaliza valores con comillas accidentales para degradar mejor ante
+env vars mal pegadas, pero `env:doctor --strict` debe quedar limpio antes de un
+deploy.
 
 ## Comandos
 
@@ -72,6 +76,7 @@ Con URL/token, hace `PING` al REST endpoint de Upstash y falla si no recibe
 
 - `lib/redis/client.ts`: cliente central, keys namespaced, locks, heartbeat.
 - `lib/redis/rate-limit.ts`: rate limit de requests de indexacion.
+- `lib/documents/detail-cache.ts`: cache Redis TTL para snapshots de detalle.
 - `lib/indexing/redis.ts`: wrappers especificos de indexacion, backpressure y
   snapshots live.
 - `scripts/health/redis-health.mjs`: smoke de conectividad.

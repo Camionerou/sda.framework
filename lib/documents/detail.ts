@@ -1,5 +1,10 @@
 import { revalidateTag, unstable_cache } from "next/cache";
 
+import {
+  documentDetailCacheTtlSeconds,
+  readDocumentDetailSnapshotCache,
+  writeDocumentDetailSnapshotCache
+} from "@/lib/documents/detail-cache";
 import type { DocumentRow, IndexingEventRow, IndexingRunRow } from "@/lib/documents/types";
 import { visibleDocumentStatuses } from "@/lib/documents/visibility";
 import { SYSTEM_COMPONENT_VERSION_ROWS } from "@/lib/system-versions";
@@ -35,6 +40,12 @@ export type DocumentDetailSnapshot = {
 
 const DOCUMENT_DETAIL_TAG = "document-detail";
 
+function isCacheableDocumentDetailSnapshot(
+  snapshot: DocumentDetailSnapshot | null
+): snapshot is DocumentDetailSnapshot {
+  return snapshot?.document.status === "indexed" && snapshot.latestRun?.status === "completed";
+}
+
 async function countRows(documentId: string, tenantId: string) {
   const supabase = createAdminClient();
   const { count, error } = await supabase
@@ -49,7 +60,7 @@ async function countRows(documentId: string, tenantId: string) {
   };
 }
 
-async function fetchDocumentDetailSnapshot(
+async function fetchDocumentDetailSnapshotFromSupabase(
   documentId: string,
   tenantId: string
 ): Promise<DocumentDetailSnapshot | null> {
@@ -118,11 +129,30 @@ async function fetchDocumentDetailSnapshot(
   };
 }
 
+async function fetchDocumentDetailSnapshot(
+  documentId: string,
+  tenantId: string
+): Promise<DocumentDetailSnapshot | null> {
+  const cached = await readDocumentDetailSnapshotCache({ documentId, tenantId });
+
+  if (cached.hit && cached.value) {
+    return cached.value;
+  }
+
+  const snapshot = await fetchDocumentDetailSnapshotFromSupabase(documentId, tenantId);
+
+  if (isCacheableDocumentDetailSnapshot(snapshot)) {
+    await writeDocumentDetailSnapshotCache({ documentId, snapshot, tenantId });
+  }
+
+  return snapshot;
+}
+
 const getCachedDocumentDetailSnapshot = unstable_cache(
   fetchDocumentDetailSnapshot,
   [DOCUMENT_DETAIL_TAG],
   {
-    revalidate: 60,
+    revalidate: documentDetailCacheTtlSeconds(),
     tags: [DOCUMENT_DETAIL_TAG]
   }
 );

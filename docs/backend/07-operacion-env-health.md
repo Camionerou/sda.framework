@@ -13,6 +13,7 @@ npm run test:db
 npm run indexing:health
 npm run indexing:health -- --strict
 npm run redis:health
+npm run supabase:auth:health
 npm run bootstrap:owner-invite
 ```
 
@@ -54,19 +55,32 @@ ese JSON durante deploy y la RPC recibe las versiones por `_metadata.versions`;
 
 `env:doctor` valida configuracion sin imprimir secretos. Reporta mismatch de
 Supabase admin/public URL, reuse accidental de service key como public key y
-prefijos Redis peligrosos en produccion. En modo default, el mismatch de
-Supabase se informa como warning local; con `--strict` o CI pasa a error.
+prefijos Redis peligrosos en produccion. Tambien detecta valores guardados con
+comillas como parte del secreto/env, `APP_ORIGIN`/`NEXT_PUBLIC_APP_URL` como
+origen canonico e `INNGEST_APP_URL` desalineado con ese origen. En modo default,
+el mismatch de Supabase se informa como warning local; con `--strict` o CI pasa
+a error.
 
 `secrets:scan` revisa archivos trackeables por Git y falla si encuentra tokens
 con forma de secreto. No escanea `.env.local` porque esta ignorado, pero evita
 commits accidentales de Redis URLs con password, tokens Upstash, private keys y
 service-role-like keys.
 
+`supabase:auth:health` lee Supabase Management API con `SUPABASE_ACCESS_TOKEN`
+y compara Auth remoto contra `supabase/config.toml`: `auth.site_url`,
+`auth.additional_redirect_urls` y estado de Google OAuth. No imprime secretos.
+Para aplicar solo `site_url`/redirects sin tocar OAuth client/secret:
+
+```bash
+npm run supabase:auth:health -- --apply
+```
+
 ## Env por grupo
 
 Supabase publico:
 
 ```text
+NEXT_PUBLIC_APP_URL
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -100,6 +114,9 @@ INNGEST_EVENT_KEY
 INNGEST_SIGNING_KEY
 INNGEST_APP_VERSION
 ```
+
+En produccion, el origen canonico debe ser `https://sdaframework.com` y
+`INNGEST_APP_URL` debe ser `https://sdaframework.com/api/inngest`.
 
 Compute:
 
@@ -249,6 +266,8 @@ Documento figura `indexed` pero con version vieja:
 ## Secretos
 
 - Nunca hardcodear keys en codigo.
+- En Vercel, guardar valores sin comillas. `KEY=https://...`, no
+  `KEY="https://..."` como valor pegado en el dashboard.
 - No poner service role en browser.
 - No commitear tokens de Upstash. Usar solo `UPSTASH_REDIS_REST_URL` y
   `UPSTASH_REDIS_REST_TOKEN` por env.

@@ -12,7 +12,7 @@
 - `supabase config push` resolves `env(...)` values from the shell that runs the command. If the Google client ID/secret were exported in another terminal, the push will not see them.
 - Never commit the Google client secret. Keep it in environment variables or the eventual secrets manager.
 - Before running `supabase config push`, make sure `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` and `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET` are available in that same shell. Otherwise the remote Google provider can receive the literal `env(...)` placeholder.
-- Production OAuth needs Supabase Auth URL Configuration to use `https://sda-framework.vercel.app` as Site URL and `https://sda-framework.vercel.app/auth/callback` in Redirect URLs. Google Cloud still points to the Supabase callback URL.
+- Production OAuth needs Supabase Auth URL Configuration to use `https://sdaframework.com` as Site URL and `https://sdaframework.com/auth/callback` in Redirect URLs. Keep the Vercel fallback URL allow-listed while old sessions/previews still use it. Google Cloud still points to the Supabase callback URL.
 
 ## Invite-Only Onboarding
 

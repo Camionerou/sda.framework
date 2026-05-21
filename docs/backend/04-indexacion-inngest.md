@@ -19,7 +19,7 @@ Hace:
 7. Toma un lock efimero por tenant/documento/run antes de despachar.
 8. Reserva un slot Redis de backpressure por tenant.
 9. Envia `document/index.requested` a Inngest si hay `INNGEST_DEV=1` o
-   `INNGEST_EVENT_KEY`.
+   `INNGEST_EVENT_KEY`, con event id estable `document-index:<run_id>`.
 
 Si Inngest no esta configurado, la ruta responde con `eventQueued: false` y una
 advertencia, pero conserva la corrida en DB.
@@ -142,6 +142,8 @@ workflow murio a mitad de camino.
 
 - Una corrida activa por documento.
 - Inngest debe reclamar antes de crear jobs externos.
+- El evento `document/index.requested` usa `run_id` como idempotency key de
+  productor y la funcion principal usa `idempotency: event.data.run_id`.
 - El lock Redis de dispatch es una barrera efimera contra doble click o
   redispatch inmediato; no reemplaza la unicidad durable en Postgres.
 - El backpressure Redis limita corridas activas por tenant y se libera cuando

@@ -1,4 +1,9 @@
 import { SYSTEM_COMPONENT_VERSIONS } from "@/lib/system-versions";
+import {
+  envValue,
+  optionalOriginEnv,
+  optionalUrlEnv
+} from "@/lib/platform/env";
 
 export type SupabaseAdminConfig = {
   serviceRoleKey: string;
@@ -23,16 +28,16 @@ export function cleanProviderKeyPart(value: string) {
 }
 
 export function positiveIntegerEnv(name: string, fallback: number) {
-  const value = Number(process.env[name]);
+  const value = Number(envValue(name));
 
   return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
 export function getVercelRuntime() {
   return {
-    env: process.env.VERCEL_ENV || process.env.NODE_ENV || "local",
-    gitCommitSha: process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || null,
-    projectProductionUrl: process.env.VERCEL_PROJECT_PRODUCTION_URL || null
+    env: envValue("VERCEL_ENV") || envValue("NODE_ENV") || "local",
+    gitCommitSha: envValue("VERCEL_GIT_COMMIT_SHA") || envValue("GITHUB_SHA") || null,
+    projectProductionUrl: envValue("VERCEL_PROJECT_PRODUCTION_URL") || null
   };
 }
 
@@ -40,28 +45,50 @@ export function defaultUpstashRedisKeyPrefix() {
   return `sda:${cleanProviderKeyPart(getVercelRuntime().env)}`;
 }
 
+function safeOptionalOriginEnv(name: string) {
+  try {
+    return optionalOriginEnv(name);
+  } catch {
+    return "";
+  }
+}
+
+function safeOptionalUrlEnv(name: string) {
+  try {
+    return optionalUrlEnv(name);
+  } catch {
+    return "";
+  }
+}
+
 export function resolveAppOrigin(requestOrigin?: string | null) {
   const vercel = getVercelRuntime();
 
   if (requestOrigin) {
-    return requestOrigin;
+    return new URL(requestOrigin).origin;
   }
 
-  if (process.env.APP_ORIGIN) {
-    return process.env.APP_ORIGIN;
+  const appOrigin = safeOptionalOriginEnv("APP_ORIGIN") || safeOptionalOriginEnv("NEXT_PUBLIC_APP_URL");
+
+  if (appOrigin) {
+    return appOrigin;
   }
 
   if (vercel.projectProductionUrl) {
-    return `https://${vercel.projectProductionUrl}`;
+    const productionOrigin = safeOptionalOriginEnv("VERCEL_PROJECT_PRODUCTION_URL");
+
+    if (productionOrigin) {
+      return productionOrigin;
+    }
   }
 
   return "http://localhost:3000";
 }
 
 export function getSupabaseAdminConfig(): SupabaseAdminConfig {
-  const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = optionalUrlEnv("SUPABASE_URL") || optionalUrlEnv("NEXT_PUBLIC_SUPABASE_URL");
   const serviceRoleKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY;
+    envValue("SUPABASE_SERVICE_ROLE_KEY") || envValue("SUPABASE_SECRET_KEY");
 
   if (!url || !serviceRoleKey) {
     throw new Error("Faltan SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.");
@@ -71,8 +98,8 @@ export function getSupabaseAdminConfig(): SupabaseAdminConfig {
 }
 
 export function getUpstashRedisConfig(): UpstashRedisConfig | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  const url = safeOptionalUrlEnv("UPSTASH_REDIS_REST_URL");
+  const token = envValue("UPSTASH_REDIS_REST_TOKEN");
 
   if (!url || !token) {
     return null;
@@ -80,7 +107,7 @@ export function getUpstashRedisConfig(): UpstashRedisConfig | null {
 
   return {
     keyPrefix:
-      process.env.UPSTASH_REDIS_KEY_PREFIX?.trim() ||
+      envValue("UPSTASH_REDIS_KEY_PREFIX") ||
       defaultUpstashRedisKeyPrefix(),
     token,
     url
@@ -90,13 +117,13 @@ export function getUpstashRedisConfig(): UpstashRedisConfig | null {
 export function getInngestRuntimeConfig(): InngestRuntimeConfig {
   return {
     appVersion:
-      process.env.INNGEST_APP_VERSION ??
-      getVercelRuntime().gitCommitSha ??
+      envValue("INNGEST_APP_VERSION") ||
+      getVercelRuntime().gitCommitSha ||
       SYSTEM_COMPONENT_VERSIONS.app,
-    canDispatchEvents: process.env.INNGEST_DEV === "1" || Boolean(process.env.INNGEST_EVENT_KEY),
-    id: process.env.INNGEST_APP_ID?.trim() || "sda-framework",
+    canDispatchEvents: envValue("INNGEST_DEV") === "1" || Boolean(envValue("INNGEST_EVENT_KEY")),
+    id: envValue("INNGEST_APP_ID") || "sda-framework",
     isDev:
-      process.env.INNGEST_DEV === "1" ||
-      (process.env.NODE_ENV !== "production" && !process.env.INNGEST_SIGNING_KEY)
+      envValue("INNGEST_DEV") === "1" ||
+      (envValue("NODE_ENV") !== "production" && !envValue("INNGEST_SIGNING_KEY"))
   };
 }

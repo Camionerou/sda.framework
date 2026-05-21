@@ -5,6 +5,7 @@ import {
   documentIndexRequested,
   inngest
 } from "@/inngest/client";
+import { deleteDocumentDetailSnapshotCache } from "@/lib/documents/detail-cache";
 import { revalidateDocumentDetailSnapshotCache } from "@/lib/documents/detail";
 import {
   acquireIndexingDispatchLock,
@@ -82,6 +83,7 @@ export async function requestIndexingRun(input: {
   documentId: string;
   source: string;
   supabase: SupabaseClient<Database>;
+  tenantId: string;
 }): Promise<IndexingRouteResult | { run: IndexingRequestRun }> {
   const { data, error } = await input.supabase.rpc("request_document_indexing", {
     _document_id: input.documentId,
@@ -105,6 +107,10 @@ export async function requestIndexingRun(input: {
   }
 
   revalidateDocumentDetailSnapshotCache();
+  await deleteDocumentDetailSnapshotCache({
+    documentId: run.document_id,
+    tenantId: input.tenantId
+  });
 
   return { run };
 }
@@ -171,14 +177,23 @@ export async function dispatchIndexingRun(input: {
   }
 
   try {
+    await deleteDocumentDetailSnapshotCache({
+      documentId: run.document_id,
+      tenantId: actor.tenantId
+    });
     await inngest.send(
-      documentIndexRequested.create({
-        actor_id: actor.actorId,
-        document_id: run.document_id,
-        run_id: run.run_id,
-        source,
-        tenant_id: actor.tenantId
-      })
+      documentIndexRequested.create(
+        {
+          actor_id: actor.actorId,
+          document_id: run.document_id,
+          run_id: run.run_id,
+          source,
+          tenant_id: actor.tenantId
+        },
+        {
+          id: `document-index:${run.run_id}`
+        }
+      )
     );
     await recordIndexingApiHeartbeat({
       active_count: tenantActiveSlot.active_count,

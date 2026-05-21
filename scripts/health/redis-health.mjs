@@ -1,11 +1,11 @@
 import { Redis } from "@upstash/redis";
 
-import { loadEnvFiles } from "../shared/env-loader.mjs";
+import { cleanEnvValue, loadEnvFiles } from "../shared/env-loader.mjs";
 
 loadEnvFiles();
 
-const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+const url = cleanEnvValue(process.env.UPSTASH_REDIS_REST_URL);
+const token = cleanEnvValue(process.env.UPSTASH_REDIS_REST_TOKEN);
 
 if (!url || !token) {
   console.log(
@@ -22,6 +22,24 @@ if (!url || !token) {
   process.exit(0);
 }
 
+let urlHost;
+try {
+  urlHost = new URL(url).host;
+} catch {
+  console.log(
+    JSON.stringify(
+      {
+        configured: true,
+        ok: false,
+        reason: "invalid_upstash_redis_rest_url"
+      },
+      null,
+      2
+    )
+  );
+  process.exit(1);
+}
+
 const redis = new Redis({ token, url });
 const startedAt = Date.now();
 
@@ -35,7 +53,7 @@ try {
         latency_ms: Date.now() - startedAt,
         ok: response === "PONG",
         response,
-        url_host: new URL(url).host
+        url_host: urlHost
       },
       null,
       2
@@ -53,7 +71,7 @@ try {
         error: error instanceof Error ? error.message : "unknown redis ping error",
         latency_ms: Date.now() - startedAt,
         ok: false,
-        url_host: new URL(url).host
+        url_host: urlHost
       },
       null,
       2

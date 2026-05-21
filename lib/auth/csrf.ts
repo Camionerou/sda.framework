@@ -1,3 +1,5 @@
+import { cleanEnvValue, optionalOriginEnv } from "@/lib/platform/env";
+
 type SameOriginResult =
   | { ok: true }
   | {
@@ -7,16 +9,16 @@ type SameOriginResult =
     };
 
 function originFromValue(value: string | undefined) {
-  if (!value) {
+  const cleaned = cleanEnvValue(value);
+
+  if (!cleaned) {
     return null;
   }
 
-  const normalized = value.startsWith("http://") || value.startsWith("https://")
-    ? value
-    : `https://${value}`;
-
   try {
-    return new URL(normalized).origin;
+    return new URL(
+      cleaned.startsWith("http://") || cleaned.startsWith("https://") ? cleaned : `https://${cleaned}`
+    ).origin;
   } catch {
     return null;
   }
@@ -25,13 +27,19 @@ function originFromValue(value: string | undefined) {
 function allowedOrigins(request: Request) {
   const requestOrigin = originFromValue(request.url);
   const configuredOrigins = [
-    process.env.APP_ORIGIN,
-    process.env.NEXT_PUBLIC_APP_URL,
-    process.env.VERCEL_PROJECT_PRODUCTION_URL,
-    process.env.VERCEL_BRANCH_URL,
-    process.env.VERCEL_URL
+    "APP_ORIGIN",
+    "NEXT_PUBLIC_APP_URL",
+    "VERCEL_PROJECT_PRODUCTION_URL",
+    "VERCEL_BRANCH_URL",
+    "VERCEL_URL"
   ]
-    .map(originFromValue)
+    .map((name) => {
+      try {
+        return optionalOriginEnv(name);
+      } catch {
+        return null;
+      }
+    })
     .filter((origin): origin is string => Boolean(origin));
 
   return new Set([requestOrigin, ...configuredOrigins].filter(Boolean));

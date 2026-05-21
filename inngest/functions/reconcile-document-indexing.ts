@@ -780,13 +780,18 @@ export const reconcileDocumentIndexing = inngest.createFunction(
       await step.sendEvent(
         "dispatch-document-index-requested-events",
         runsToDispatch.map((run) =>
-          documentIndexRequested.create({
-            actor_id: run.actor_id,
-            document_id: run.document_id,
-            run_id: run.run_id,
-            source: run.source,
-            tenant_id: run.tenant_id
-          })
+          documentIndexRequested.create(
+            {
+              actor_id: run.actor_id,
+              document_id: run.document_id,
+              run_id: run.run_id,
+              source: run.source,
+              tenant_id: run.tenant_id
+            },
+            {
+              id: `document-index:${run.run_id}`
+            }
+          )
         )
       );
     }

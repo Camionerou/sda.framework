@@ -9,10 +9,16 @@ Create a Web application OAuth client and configure:
 - Authorized JavaScript origins:
   - `http://localhost:3000`
   - `http://127.0.0.1:3000`
-  - Production app origin when known
+  - `https://sdaframework.com`
 - Authorized redirect URIs:
   - `http://127.0.0.1:54321/auth/v1/callback`
   - `https://anfawvxfepowsudlffnl.supabase.co/auth/v1/callback`
+
+Supabase Auth must also allow the app redirects configured in `supabase/config.toml`,
+including:
+
+- `https://sdaframework.com`
+- `https://sdaframework.com/auth/callback`
 
 ## Local Environment
 

@@ -2,6 +2,7 @@ import {
   recordIndexingRunSnapshot,
   releaseIndexingTenantActiveRun
 } from "@/lib/indexing/redis";
+import { deleteDocumentDetailSnapshotCache } from "@/lib/documents/detail-cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type IndexingEventSeverity = "debug" | "error" | "info" | "warning";
@@ -86,10 +87,15 @@ export async function recordIndexingTransition(input: IndexingTransitionInput) {
     status: input.status,
     tenantId: input.tenantId
   });
+  const cacheInvalidation = deleteDocumentDetailSnapshotCache({
+    documentId: input.documentId,
+    tenantId: input.tenantId
+  });
 
   if (input.releaseActiveRun) {
     await Promise.all([
       snapshot,
+      cacheInvalidation,
       releaseIndexingTenantActiveRun({
         runId: input.runId,
         tenantId: input.tenantId
@@ -98,7 +104,7 @@ export async function recordIndexingTransition(input: IndexingTransitionInput) {
     return;
   }
 
-  await snapshot;
+  await Promise.all([snapshot, cacheInvalidation]);
 }
 
 export async function documentFailurePatchForRun(input: {

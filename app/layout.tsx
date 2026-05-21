@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import { resolveAppOrigin } from "@/lib/platform/server";
 import "@fontsource-variable/bricolage-grotesque/index.css";
 import "@fontsource-variable/hanken-grotesk/index.css";
 import "@fontsource-variable/jetbrains-mono/index.css";
@@ -8,8 +9,9 @@ import "./globals.css";
 import "./workspace.css";
 
 export const metadata: Metadata = {
-  title: "SDA Ops",
-  description: "Workspace privado para documentos, tenants e indexación SDA."
+  description: "Workspace privado para documentos, tenants e indexación SDA.",
+  metadataBase: new URL(resolveAppOrigin()),
+  title: "SDA Ops"
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

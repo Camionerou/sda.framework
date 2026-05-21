@@ -36,6 +36,7 @@ export const processDocumentIndex = inngest.createFunction(
       scope: "env"
     },
     id: "process-document-index",
+    idempotency: "event.data.run_id",
     name: "Process Document Index",
     retries: 3,
     triggers: [documentIndexRequested]

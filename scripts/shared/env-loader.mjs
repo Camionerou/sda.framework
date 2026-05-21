@@ -1,5 +1,23 @@
 import { existsSync, readFileSync } from "node:fs";
 
+export function cleanEnvValue(value) {
+  let normalized = String(value ?? "").trim();
+
+  for (let index = 0; index < 2; index += 1) {
+    if (
+      (normalized.startsWith('"') && normalized.endsWith('"')) ||
+      (normalized.startsWith("'") && normalized.endsWith("'"))
+    ) {
+      normalized = normalized.slice(1, -1).trim();
+      continue;
+    }
+
+    break;
+  }
+
+  return normalized;
+}
+
 export function loadEnvFiles(paths = [".env.local", ".env"], options = {}) {
   const override = options.override === true;
 
@@ -22,14 +40,7 @@ export function loadEnvFiles(paths = [".env.local", ".env"], options = {}) {
       }
 
       const [, key, rawValue] = match;
-      let value = rawValue.trim();
-
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
+      const value = cleanEnvValue(rawValue);
 
       if (override || process.env[key] === undefined) {
         process.env[key] = value;

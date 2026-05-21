@@ -1,13 +1,16 @@
+import { cleanEnvValue } from "@/lib/platform/env";
+
 export type SupabasePublicConfig = {
   key: string;
   url: string;
 };
 
 export function getSupabasePublicConfig(): SupabasePublicConfig {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const rawUrl = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const url = rawUrl ? new URL(rawUrl).origin : "";
   const key =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) ||
+    cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
   if (!url || !key) {
     throw new Error(
