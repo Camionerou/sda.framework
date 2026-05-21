@@ -6,7 +6,9 @@ const packageJson = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8")
 );
 const invokedName = basename(process.argv[1] ?? "sda").replace(/\.mjs$/, "");
-const commandName = invokedName === "sda" || invokedName === "sdaframework" ? invokedName : "sda";
+const commandName = ["sda", "sdaframework", "sf", "sdf"].includes(invokedName)
+  ? invokedName
+  : "sda";
 
 export const mainCommand = defineCommand({
   meta: {
@@ -19,6 +21,7 @@ export const mainCommand = defineCommand({
     deploy: () => import("./commands/deploy.mjs").then((module) => module.deployCommand),
     dev: () => import("./commands/dev.mjs").then((module) => module.devCommand),
     doctor: () => import("./commands/doctor.mjs").then((module) => module.doctorCommand),
+    help: () => import("./commands/help.mjs").then((module) => module.helpCommand),
     indexing: () => import("./commands/indexing.mjs").then((module) => module.indexingCommand),
     init: () => import("./commands/init.mjs").then((module) => module.initCommand),
     invite: () => import("./commands/invite.mjs").then((module) => module.inviteCommand),

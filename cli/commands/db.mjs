@@ -7,11 +7,13 @@ import { run, runInherited } from "../shared/process.mjs";
 const pushCommand = defineCommand({
   meta: {
     name: "push",
+    alias: "p",
     description: "Preview y aplica migraciones remotas"
   },
   args: {
     yes: {
       type: "boolean",
+      alias: "y",
       description: "No pedir confirmacion interactiva"
     }
   },
@@ -38,11 +40,13 @@ const pushCommand = defineCommand({
 const resetCommand = defineCommand({
   meta: {
     name: "reset",
+    alias: "r",
     description: "Reset de DB local con confirmacion fuerte"
   },
   args: {
     confirm: {
       type: "boolean",
+      alias: "c",
       description: "Confirma reset local"
     }
   },
@@ -58,6 +62,7 @@ const resetCommand = defineCommand({
 const migrateCommand = defineCommand({
   meta: {
     name: "migrate",
+    alias: "m",
     description: "Crea una migracion timestampada"
   },
   args: {
@@ -129,6 +134,7 @@ function passthroughCommand(name, commandArgs) {
 export const dbCommand = defineCommand({
   meta: {
     name: "db",
+    alias: "sql",
     description: "Wrappers seguros sobre Supabase CLI"
   },
   subCommands: {

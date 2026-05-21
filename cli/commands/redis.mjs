@@ -5,6 +5,7 @@ import { createRedis, prefixedRedisKey } from "../shared/redis.mjs";
 const pingCommand = defineCommand({
   meta: {
     name: "ping",
+    alias: "p",
     description: "Ping a Upstash Redis"
   },
   async run() {
@@ -31,6 +32,7 @@ const pingCommand = defineCommand({
 const listCommand = defineCommand({
   meta: {
     name: "ls",
+    alias: ["l", "list"],
     description: "Lista keys dentro del namespace"
   },
   args: {
@@ -41,6 +43,7 @@ const listCommand = defineCommand({
     },
     limit: {
       type: "string",
+      alias: "n",
       description: "Maximo de keys a mostrar",
       default: "100"
     }
@@ -70,6 +73,7 @@ const listCommand = defineCommand({
 const getCommand = defineCommand({
   meta: {
     name: "get",
+    alias: "g",
     description: "Imprime un valor Redis"
   },
   args: {
@@ -91,6 +95,7 @@ const getCommand = defineCommand({
 const deleteCommand = defineCommand({
   meta: {
     name: "del",
+    alias: ["d", "rm"],
     description: "Borra una key Redis"
   },
   args: {
@@ -112,6 +117,7 @@ const deleteCommand = defineCommand({
 const flushCommand = defineCommand({
   meta: {
     name: "flush",
+    alias: "f",
     description: "Borra todas las keys del namespace"
   },
   args: {
@@ -150,6 +156,7 @@ const flushCommand = defineCommand({
 const snapshotCommand = defineCommand({
   meta: {
     name: "snapshot",
+    alias: "s",
     description: "Imprime el ultimo snapshot de indexing"
   },
   async run() {
@@ -170,6 +177,7 @@ function positiveInt(value, fallback) {
 export const redisCommand = defineCommand({
   meta: {
     name: "redis",
+    alias: "r",
     description: "Operaciones sobre Upstash Redis"
   },
   subCommands: {

@@ -10,6 +10,7 @@ import { runInherited } from "../shared/process.mjs";
 const healthCommand = defineCommand({
   meta: {
     name: "health",
+    alias: "h",
     description: "Alias de indexing health"
   },
   async run() {
@@ -20,15 +21,18 @@ const healthCommand = defineCommand({
 const listCommand = defineCommand({
   meta: {
     name: "list",
+    alias: ["ls", "l"],
     description: "Lista ultimas corridas"
   },
   args: {
     failed: {
       type: "boolean",
+      alias: "f",
       description: "Solo corridas fallidas"
     },
     limit: {
       type: "string",
+      alias: "n",
       description: "Cantidad de corridas",
       default: "20"
     }
@@ -59,6 +63,7 @@ const listCommand = defineCommand({
 const requeueCommand = defineCommand({
   meta: {
     name: "requeue",
+    alias: ["rq", "q"],
     description: "Crea nuevas corridas y las despacha a Inngest"
   },
   args: {
@@ -68,6 +73,7 @@ const requeueCommand = defineCommand({
     },
     "all-failed": {
       type: "boolean",
+      alias: "a",
       description: "Requeue de todos los documentos failed"
     },
     "actor-id": {
@@ -82,6 +88,7 @@ const requeueCommand = defineCommand({
     },
     yes: {
       type: "boolean",
+      alias: "y",
       description: "No pedir confirmacion"
     }
   },
@@ -131,6 +138,7 @@ const requeueCommand = defineCommand({
 const cancelCommand = defineCommand({
   meta: {
     name: "cancel",
+    alias: "c",
     description: "Cancela una corrida activa"
   },
   args: {
@@ -192,6 +200,7 @@ const cancelCommand = defineCommand({
 const tailCommand = defineCommand({
   meta: {
     name: "tail",
+    alias: "t",
     description: "Sigue eventos de un documento"
   },
   args: {
@@ -449,6 +458,7 @@ function positiveInt(value, fallback) {
 export const indexingCommand = defineCommand({
   meta: {
     name: "indexing",
+    alias: ["i", "idx"],
     description: "Operaciones sobre corridas de indexacion"
   },
   subCommands: {

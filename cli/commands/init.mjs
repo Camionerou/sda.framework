@@ -7,11 +7,13 @@ import { run, runInherited } from "../shared/process.mjs";
 export const initCommand = defineCommand({
   meta: {
     name: "init",
+    alias: "setup",
     description: "Bootstrap local del proyecto"
   },
   args: {
     yes: {
       type: "boolean",
+      alias: "y",
       description: "Usa defaults y no pregunta por pasos opcionales"
     }
   },

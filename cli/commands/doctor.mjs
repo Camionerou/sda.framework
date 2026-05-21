@@ -9,19 +9,23 @@ import { redisConfig } from "../shared/redis.mjs";
 export const doctorCommand = defineCommand({
   meta: {
     name: "doctor",
+    alias: ["d", "ok"],
     description: "Health check operacional de env, Redis, Inngest, gateway y DB"
   },
   args: {
     deep: {
       type: "boolean",
+      alias: "D",
       description: "Agrega indexing health contra Supabase"
     },
     json: {
       type: "boolean",
+      alias: "j",
       description: "Imprime output JSON"
     },
     quick: {
       type: "boolean",
+      alias: "q",
       description: "Saltea checks lentos como secret scan"
     }
   },

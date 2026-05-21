@@ -8,6 +8,7 @@ import { formatAge, truncate } from "../shared/output.mjs";
 const ownerCommand = defineCommand({
   meta: {
     name: "owner",
+    alias: "o",
     description: "Crea una invitacion owner sin expiracion por defecto"
   },
   args: {
@@ -29,11 +30,13 @@ const ownerCommand = defineCommand({
 const listCommand = defineCommand({
   meta: {
     name: "list",
+    alias: ["ls", "l"],
     description: "Lista invitaciones"
   },
   args: {
     status: {
       type: "enum",
+      alias: "s",
       options: ["pending", "accepted", "revoked", "all"],
       default: "pending",
       description: "Estado"
@@ -77,6 +80,7 @@ const listCommand = defineCommand({
 const revokeCommand = defineCommand({
   meta: {
     name: "revoke",
+    alias: ["rm", "del"],
     description: "Revoca una invitacion por id o email"
   },
   args: {
@@ -87,6 +91,7 @@ const revokeCommand = defineCommand({
     },
     yes: {
       type: "boolean",
+      alias: "y",
       description: "No pedir confirmacion"
     }
   },
@@ -126,6 +131,7 @@ const revokeCommand = defineCommand({
 const resendCommand = defineCommand({
   meta: {
     name: "resend",
+    alias: "rs",
     description: "Revoca una invitacion pendiente y crea una nueva"
   },
   args: {
@@ -136,6 +142,7 @@ const resendCommand = defineCommand({
     },
     yes: {
       type: "boolean",
+      alias: "y",
       description: "No pedir confirmacion"
     }
   },
@@ -255,6 +262,7 @@ function inviteExpiration(rawValue, role) {
 const createCommand = defineCommand({
   meta: {
     name: "create",
+    alias: ["c", "add"],
     description: "Crea una invitacion"
   },
   args: {
@@ -265,12 +273,14 @@ const createCommand = defineCommand({
     },
     role: {
       type: "enum",
+      alias: "r",
       options: ["owner", "admin", "member", "viewer"],
       default: "member",
       description: "Rol"
     },
     "expires-days": {
       type: "string",
+      alias: "e",
       description: "Dias hasta expiracion; usa never para sin expiracion",
       default: "7"
     }
@@ -287,6 +297,7 @@ const createCommand = defineCommand({
 export const inviteCommand = defineCommand({
   meta: {
     name: "invite",
+    alias: ["v", "inv"],
     description: "Gestion de invitaciones desde shell"
   },
   subCommands: {

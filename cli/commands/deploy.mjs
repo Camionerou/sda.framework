@@ -32,6 +32,7 @@ const TARGETS = {
 export const deployCommand = defineCommand({
   meta: {
     name: "deploy",
+    alias: ["dp", "dep"],
     description: "Deploy seguro de workers a srv-ia-01"
   },
   args: {
@@ -42,14 +43,17 @@ export const deployCommand = defineCommand({
     },
     diff: {
       type: "boolean",
+      alias: "d",
       description: "Muestra rsync dry-run sin deployar"
     },
     version: {
       type: "boolean",
+      alias: "v",
       description: "Imprime versiones local/remota"
     },
     yes: {
       type: "boolean",
+      alias: "y",
       description: "No pedir confirmacion si la version es igual"
     }
   },
@@ -78,8 +82,16 @@ function resolveTargets(rawTarget) {
     return [TARGETS.gateway, TARGETS.tree];
   }
 
+  if (target === "g") {
+    return [TARGETS.gateway];
+  }
+
   if (target === "compute" || target === "compute-gateway") {
     return [TARGETS.gateway];
+  }
+
+  if (target === "t") {
+    return [TARGETS.tree];
   }
 
   if (target === "tree-indexer" || target === "tree-indexer-python") {

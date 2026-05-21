@@ -5,6 +5,8 @@
   "type": "module",
   "bin": {
     "sda": "./bin/sda.mjs",
+    "sdf": "./bin/sda.mjs",
+    "sf": "./bin/sda.mjs",
     "sdaframework": "./bin/sda.mjs"
   },
   "scripts": {

@@ -4,15 +4,18 @@ import { spawn } from "node:child_process";
 export const devCommand = defineCommand({
   meta: {
     name: "dev",
+    alias: "run",
     description: "Arranca Next, Inngest dev y opcionalmente tunnel/log tail"
   },
   args: {
     "tail-logs": {
       type: "boolean",
+      alias: "l",
       description: "Agrega tail de indexing events"
     },
     tunnel: {
       type: "boolean",
+      alias: "t",
       description: "Agrega cloudflared tunnel publico"
     }
   },

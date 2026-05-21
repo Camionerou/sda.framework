@@ -7,11 +7,13 @@ import { run, runInherited } from "../shared/process.mjs";
 export const shipCommand = defineCommand({
   meta: {
     name: "ship",
+    alias: "sh",
     description: "Corre checks, commitea y pushea la branch actual"
   },
   args: {
     all: {
       type: "boolean",
+      alias: "a",
       description: "Stagea todos los cambios antes de commitear"
     },
     message: {
@@ -21,10 +23,12 @@ export const shipCommand = defineCommand({
     },
     "no-push": {
       type: "boolean",
+      alias: "p",
       description: "No hacer git push"
     },
     "skip-checks": {
       type: "boolean",
+      alias: "S",
       description: "Saltea lint/typecheck/build"
     }
   },

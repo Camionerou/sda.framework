@@ -1070,21 +1070,25 @@ completos en supercomandos con UX bonita.
 ### Estado de ejecucion — 2026-05-21
 
 - [x] 4.1 Stack y filosofia: implementado con `citty`, `@clack/prompts`,
-  `picocolors`, entrypoint `bin/sda.mjs` y `package.json#bin.sda`.
+  `picocolors`, entrypoint `bin/sda.mjs` y bins `sf`, `sdf`, `sda`,
+  `sdaframework`.
 - [x] 4.2 `sda doctor`: implementado; unifica env doctor, secret scan,
-  Upstash, Inngest, Compute Gateway, versiones y `--deep` para indexing.
+  Upstash, Inngest, Compute Gateway, versiones y `--deep` para indexing. Atajo:
+  `sf d`.
 - [x] 4.3 `sda ship`: implementado; corre lint/typecheck/build, stage
   interactivo, commit y push con `--no-push` / `--skip-checks`.
 - [x] 4.4 `sda deploy`: implementado para `gateway`, `tree` y `all`, con
   comparacion local/remota de versiones, `--diff`, `--version` y healthcheck.
+  Atajo seguro: `sf dp` muestra versiones.
 - [x] 4.5 `sda indexing`: implementado con `list`, `health`, `tail`,
-  `cancel` y `requeue` con despacho Inngest.
+  `cancel` y `requeue` con despacho Inngest. Atajos: `sf i`, `sf i t`, `sf i rq`.
 - [x] 4.6 `sda invite`: implementado con create directo (`sda invite
-  email@dominio.com`), `owner`, `list`, `revoke` y `resend`.
+  email@dominio.com`), `owner`, `list`, `revoke` y `resend`. Atajo:
+  `sf v email@dominio.com`.
 - [x] 4.7 `sda db`: implementado con `diff`, `push`, `test`, `reset` y
   `migrate`.
 - [x] 4.8 `sda redis`: implementado con `ping`, `ls`, `get`, `del`,
-  `flush --namespace` y `snapshot`.
+  `flush --namespace` y `snapshot`. Atajo: `sf r`.
 - [x] 4.9 `sda dev`: implementado; arranca Next + Inngest dev, con opciones
   `--tunnel` y `--tail-logs`.
 - [x] 4.10 `sda init`: implementado; verifica deps, escribe `.env.local`,
