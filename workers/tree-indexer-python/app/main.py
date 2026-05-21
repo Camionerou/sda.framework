@@ -14,7 +14,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .llm import is_tree_llm_configured
-from .pageindex_style import content_list_to_labeled_pages
+from .pageindex_style import content_list_to_labeled_pages, source_blocks_from_mineru_middle
 from .supabase_io import download_storage_json, list_extraction_artifacts, persist_tree_index
 from .tree_graph import TREE_INDEXER_VERSION, run_tree_index_graph
 from .versions import INDEXING_VERSION_COLUMNS, TREE_PROMPT_VERSION
@@ -154,10 +154,17 @@ async def require_auth(authorization: str | None = Header(default=None)) -> None
 
 
 def pick_content_list_artifact(artifacts: list[dict[str, Any]]) -> dict[str, Any]:
-    for artifact in artifacts:
-        if artifact.get("artifact_type") == "content_list":
-            return artifact
+    artifact = pick_artifact(artifacts, "content_list")
+    if artifact:
+        return artifact
     raise RuntimeError("No se encontro content_list de MinerU para construir el arbol.")
+
+
+def pick_artifact(artifacts: list[dict[str, Any]], artifact_type: str) -> dict[str, Any] | None:
+    for artifact in artifacts:
+        if artifact.get("artifact_type") == artifact_type:
+            return artifact
+    return None
 
 
 async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
@@ -185,6 +192,16 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
                 content_list_artifact["storage_path"],
             )
             pages = content_list_to_labeled_pages(content_list)
+            middle_json_artifact = pick_artifact(artifacts, "middle_json")
+            middle_json = (
+                await download_storage_json(
+                    middle_json_artifact["storage_bucket"],
+                    middle_json_artifact["storage_path"],
+                )
+                if middle_json_artifact
+                else None
+            )
+            source_blocks = source_blocks_from_mineru_middle(middle_json)
 
             if not pages:
                 raise RuntimeError("MinerU content_list no contiene paginas utilizables.")
@@ -196,8 +213,10 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
                     "artifact_count": len(artifacts),
                     "content_list_path": content_list_artifact["storage_path"],
                     "message": "MinerU pages prepared for PageIndex-style tree builder.",
+                    "middle_json_path": middle_json_artifact.get("storage_path") if middle_json_artifact else None,
                     "page_count": len(pages),
                     "progress": 35,
+                    "source_block_count": len(source_blocks),
                     "stage": "pages_prepared",
                     "status": "running",
                 },
@@ -230,12 +249,15 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
             result = await run_tree_index_graph(
                 payload.document_title or payload.filename or payload.document_id,
                 pages,
+                source_blocks,
             )
             result = {
                 **result,
                 "artifact_count": len(artifacts),
                 "content_list_path": content_list_artifact["storage_path"],
+                "middle_json_path": middle_json_artifact.get("storage_path") if middle_json_artifact else None,
                 "page_count": len(pages),
+                "source_block_count": len(source_blocks),
             }
             write_json(job_dir(job_id) / "tree.json", result["tree_for_storage"])
             write_json(job_dir(job_id) / "chunks.json", result["chunks"])

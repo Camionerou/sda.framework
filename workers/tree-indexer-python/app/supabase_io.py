@@ -173,6 +173,7 @@ async def persist_tree_index(
             "tree": {
                 "nodes": result["tree_for_storage"],
                 "source": "pageindex_style_python_llm_tree",
+                "source_blocks_coordinate_system": result.get("source_blocks_coordinate_system"),
                 "version": result["version"],
             },
             "tree_indexer_version": tree_indexer_version,

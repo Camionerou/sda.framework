@@ -10,6 +10,8 @@ from .llm import call_tree_llm_json, call_tree_llm_text
 from .pageindex_style import (
     CandidateSection,
     LabeledPage,
+    SOURCE_BLOCKS_COORDINATE_SYSTEM,
+    SourceBlock,
     TreeChunk,
     TreeNode,
     build_chunks_from_tree,
@@ -33,6 +35,7 @@ class TreeState(TypedDict):
     metrics: dict[str, Any]
     pages: list[LabeledPage]
     provider: str
+    source_blocks: list[SourceBlock]
     tree: list[TreeNode]
     verified_sections: list[CandidateSection]
     version: str
@@ -131,7 +134,13 @@ async def verify_tree(state: TreeState) -> dict[str, Any]:
 
 
 def post_process_tree(state: TreeState) -> dict[str, Any]:
-    return {"tree": candidate_sections_to_tree(state["verified_sections"], state["pages"])}
+    return {
+        "tree": candidate_sections_to_tree(
+            state["verified_sections"],
+            state["pages"],
+            state["source_blocks"],
+        )
+    }
 
 
 async def summarize_tree(state: TreeState) -> dict[str, Any]:
@@ -172,7 +181,12 @@ def build_graph():
 TREE_GRAPH = build_graph()
 
 
-async def run_tree_index_graph(document_title: str, pages: list[LabeledPage]) -> dict[str, Any]:
+async def run_tree_index_graph(
+    document_title: str,
+    pages: list[LabeledPage],
+    source_blocks: list[SourceBlock] | None = None,
+) -> dict[str, Any]:
+    source_blocks = source_blocks or []
     result = await TREE_GRAPH.ainvoke(
         {
             "candidate_sections": [],
@@ -185,10 +199,12 @@ async def run_tree_index_graph(document_title: str, pages: list[LabeledPage]) ->
                 "llm_model": None,
                 "llm_provider": None,
                 "page_count": len(pages),
+                "source_block_count": len(source_blocks),
                 "verified_section_count": 0,
             },
             "pages": pages,
             "provider": "",
+            "source_blocks": source_blocks,
             "tree": [],
             "verified_sections": [],
             "version": TREE_INDEXER_VERSION,
@@ -200,6 +216,9 @@ async def run_tree_index_graph(document_title: str, pages: list[LabeledPage]) ->
         "metrics": result["metrics"],
         "model": result["metrics"].get("llm_model") or "unknown",
         "provider": result["metrics"].get("llm_provider") or result["provider"],
+        "source_blocks_coordinate_system": (
+            SOURCE_BLOCKS_COORDINATE_SYSTEM if source_blocks else None
+        ),
         "tree": result["tree"],
         "tree_for_storage": remove_node_text(result["tree"]),
         "version": result["version"],

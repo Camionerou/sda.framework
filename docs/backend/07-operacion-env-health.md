@@ -73,6 +73,15 @@ SUPABASE_SERVICE_ROLE_KEY
 SUPABASE_SECRET_KEY
 ```
 
+Visor PDF:
+
+```text
+PDF_VIEWER_SIGNED_URL_TTL
+```
+
+Default: `900` segundos. Controla el TTL de `GET /api/documents/:id/file-url`;
+la URL se firma inline y el cliente debe refrescarla antes de `expiresAt`.
+
 Inngest:
 
 ```text

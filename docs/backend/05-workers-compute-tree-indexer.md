@@ -92,14 +92,21 @@ Fases:
 
 1. Lee artefactos MinerU desde `document_extraction_artifacts`.
 2. Descarga el `content_list` desde Storage.
-3. Convierte bloques a paginas etiquetadas `<physical_index_X>`.
-4. Si falta LLM, falla con `stage = llm_missing`.
-5. Genera arbol candidato con LLM.
-6. Verifica secciones contra evidencia.
-7. Calcula rangos de paginas.
-8. Resume nodos.
-9. Persiste `doc_tree`.
-10. Borra e inserta `chunks` derivados del arbol.
+3. Descarga `middle_json` cuando existe para tomar `page_size` y bbox.
+4. Convierte bloques a paginas etiquetadas `<physical_index_X>`.
+5. Normaliza `source_blocks` como `[x0, y0, x1, y1]` en `0..1` con origen
+   arriba-izquierda.
+6. Si falta LLM, falla con `stage = llm_missing`.
+7. Genera arbol candidato con LLM.
+8. Verifica secciones contra evidencia.
+9. Calcula rangos de paginas.
+10. Resume nodos.
+11. Persiste `doc_tree`.
+12. Borra e inserta `chunks` derivados del arbol.
+
+`source_blocks` se persiste en cada nodo de `doc_tree.tree.nodes` y en
+`chunks.metadata.source_blocks`. El sistema de coordenadas queda indicado como
+`normalized_page_bbox_top_left_v1`.
 
 El Tree Indexer tambien falla cerrado sin token salvo
 `SDA_ALLOW_UNAUTHENTICATED_WORKER=1`, y limita bodies con

@@ -1,10 +1,12 @@
 import unittest
 
 from app.pageindex_style import (
+    SOURCE_BLOCKS_COORDINATE_SYSTEM,
     build_chunks_from_tree,
     candidate_sections_to_tree,
     content_list_to_labeled_pages,
     remove_node_text,
+    source_blocks_from_mineru_middle,
     tagged_pages_text,
 )
 
@@ -103,6 +105,70 @@ class PageIndexStyleTests(unittest.TestCase):
         self.assertEqual(tree[0]["end_index"], 1)
         self.assertEqual(tree[1]["start_index"], 2)
         self.assertEqual(tree[1]["end_index"], 2)
+
+    def test_source_blocks_from_middle_normalizes_page_bboxes(self) -> None:
+        source_blocks = source_blocks_from_mineru_middle(
+            {
+                "pdf_info": [
+                    {
+                        "page_idx": 0,
+                        "page_size": [200, 400],
+                        "para_blocks": [
+                            {"bbox": [20, 40, 120, 240], "type": "title"},
+                            {"bbox": [150, 20, 150, 60], "type": "text"},
+                        ],
+                    },
+                    {
+                        "page_idx": 1,
+                        "page_size": [100, 100],
+                        "para_blocks": [
+                            {"bbox": [10, 10, 90, 90], "type": "table"},
+                            {"bbox": [-5, -5, 50, 50], "type": "image"},
+                        ],
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(
+            source_blocks,
+            [
+                {"bbox": [0.1, 0.1, 0.6, 0.6], "kind": "text", "page": 1},
+                {"bbox": [0.0, 0.0, 0.5, 0.5], "kind": "figure", "page": 2},
+                {"bbox": [0.1, 0.1, 0.9, 0.9], "kind": "table", "page": 2},
+            ],
+        )
+
+    def test_source_blocks_are_persisted_on_nodes_and_chunks(self) -> None:
+        pages = [
+            {"page": 1, "text": "Intro"},
+            {"page": 2, "text": "Body"},
+        ]
+        source_blocks = [
+            {"bbox": [0.1, 0.1, 0.2, 0.2], "kind": "text", "page": 1},
+            {"bbox": [0.3, 0.3, 0.4, 0.4], "kind": "table", "page": 2},
+        ]
+        tree = candidate_sections_to_tree(
+            [
+                {
+                    "appear_start": "yes",
+                    "physical_index": "<physical_index_1>",
+                    "structure": "1",
+                    "title": "Intro",
+                }
+            ],
+            pages,
+            source_blocks,
+        )
+        chunks = build_chunks_from_tree(tree)
+
+        self.assertEqual(tree[0]["source_blocks"], source_blocks)
+        self.assertEqual(remove_node_text(tree)[0]["source_blocks"], source_blocks)
+        self.assertEqual(chunks[0]["metadata"]["source_blocks"], source_blocks)
+        self.assertEqual(
+            chunks[0]["metadata"]["source_blocks_coordinate_system"],
+            SOURCE_BLOCKS_COORDINATE_SYSTEM,
+        )
 
 
 if __name__ == "__main__":

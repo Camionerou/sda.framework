@@ -93,8 +93,14 @@ curl -X POST http://localhost:8790/v1/tree-index-jobs \
 
 El worker consulta `document_extraction_artifacts` por `extraction_id`, descarga
 el `content_list` desde Supabase Storage, lo convierte a paginas etiquetadas
-`<physical_index_X>`, ejecuta LangGraph y persiste `doc_tree` + `chunks` en
-Supabase cuando termina con exito.
+`<physical_index_X>`, usa `middle_json` para normalizar bbox por `page_size`,
+ejecuta LangGraph y persiste `doc_tree` + `chunks` en Supabase cuando termina
+con exito.
+
+Los highlights para el visor viven en `source_blocks` dentro de
+`doc_tree.tree.nodes` y `chunks.metadata.source_blocks`. Cada bloque usa
+`{ page, bbox, kind }`, con `bbox = [x0, y0, x1, y1]` normalizado `0..1` y origen
+arriba-izquierda (`normalized_page_bbox_top_left_v1`).
 
 ## Filosofia
 
