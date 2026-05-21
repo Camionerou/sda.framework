@@ -5,6 +5,7 @@ import { loadEnvFiles } from "./env-loader.mjs";
 
 const VERSION_FILE = "lib/system-versions.ts";
 const dryRun = process.argv.includes("--dry-run");
+const RETIRED_COMPONENTS = ["tree_indexer_typescript"];
 
 const DESCRIPTIONS = {
   app: "Next.js application shell, API routes, and CI scripts.",
@@ -106,11 +107,23 @@ if (error) {
   throw error;
 }
 
+const { data: retiredRemoved, error: retiredError } = await supabase
+  .from("system_component_versions")
+  .delete()
+  .in("component", RETIRED_COMPONENTS)
+  .select("component,version,updated_at")
+  .order("component");
+
+if (retiredError) {
+  throw retiredError;
+}
+
 console.log(
   JSON.stringify(
     {
       dry_run: false,
       supabase_host: new URL(url).host,
+      retired_removed: retiredRemoved ?? [],
       synced: data ?? []
     },
     null,
