@@ -27,6 +27,14 @@ export const doctorCommand = defineCommand({
       type: "boolean",
       alias: "q",
       description: "Saltea checks lentos como secret scan"
+    },
+    "no-cache": {
+      type: "boolean",
+      description: "En --deep, recalcula indexing health sin materialized view"
+    },
+    "refresh-cache": {
+      type: "boolean",
+      description: "En --deep, refresca indexing health snapshot antes de leer"
     }
   },
   async run({ args }) {
@@ -46,7 +54,10 @@ export const doctorCommand = defineCommand({
     checks.push(versionHealth());
 
     if (args.deep) {
-      checks.push(await indexingHealth());
+      checks.push(await indexingHealth({
+        noCache: args["no-cache"],
+        refreshCache: args["refresh-cache"]
+      }));
     }
 
     if (args.json) {
@@ -208,8 +219,17 @@ function versionHealth() {
   };
 }
 
-async function indexingHealth() {
-  const result = await run("node", ["scripts/health/indexing-health.mjs"], { allowFailure: true });
+async function indexingHealth(options = {}) {
+  const scriptArgs = ["scripts/health/indexing-health.mjs"];
+
+  if (options.noCache) {
+    scriptArgs.push("--no-cache");
+  }
+  if (options.refreshCache) {
+    scriptArgs.push("--refresh-cache");
+  }
+
+  const result = await run("node", scriptArgs, { allowFailure: true });
 
   try {
     const body = JSON.parse(result.stdout);

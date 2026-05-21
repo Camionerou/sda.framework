@@ -1397,6 +1397,21 @@ Estimacion rough: una sesion tipica de operacion baja de ~15 comandos a 3-4
 Trabajamos sobre Supabase Postgres 17 (`supabase/.temp/postgres-version`).
 Hay margen para mejor modelado, indices que faltan, y caching mas barato.
 
+### Estado de ejecucion — 2026-05-21
+
+| Punto | Estado | Progreso |
+|---|---|---|
+| 5.1 | implementado | `doc_tree_nodes` agregado con `ltree`, RLS, backfill desde `doc_tree`, indices de path/vector/metadata/routing summary y persistencia desde el worker Python. Se mantiene `chunks` como contrato compatible. |
+| 5.2 | diferido | Particionado mensual de `indexing_events` queda fuera de esta tanda por ser una migracion costosa con Realtime/RLS/publication; se implementan indices y cleanup TTL como mitigacion segura. |
+| 5.3 | implementado | `cleanup_operational_data()` borra invites revocadas, eventos viejos y audit log viejo; `pg_cron` se programa best-effort si la extension esta disponible, sin romper Free plan. |
+| 5.4 | implementado | Agregados indices faltantes para `documents`, `indexing_events.metadata`, `chunks.node_path`, `chunks.content` trigram y `chunks.metadata->document_type`. |
+| 5.5 | no aplica | La seccion 2.1 ya elimino el hot path DB de versiones; no queda cachear `system_component_versions`. |
+| 5.6 | implementado | `indexing_health_snapshot` materialized view + RPC de refresh; `indexing-health` y `sda doctor --deep` usan cache por default con `--no-cache` / `--refresh-cache`. |
+| 5.7 | verificado parcial | RLS y grants de `indexing_runs`/`indexing_events` siguen filtrando por tenant; falta confirmacion manual del toggle de Realtime Authorization en el dashboard de Supabase. |
+| 5.8 | implementado | Ya cubierto por 2.6: `lib/documents/detail.ts` usa `unstable_cache` + `revalidateTag` con query admin filtrada por `tenantId`. |
+| 5.9 | diferido | No se activa Edge runtime todavia: requiere preview deploy validando `@supabase/ssr` 0.10.3 en Edge antes de produccion. |
+| 5.10 | implementado | Preparacion retrieval agregada sobre `doc_tree_nodes` y `chunks` con indices por tipo, metadata, trigram y vector. |
+
 ### 5.1 Normalizar `doc_tree` a tabla relacional `doc_tree_nodes`
 
 Hoy `doc_tree.tree` es un campo `jsonb`

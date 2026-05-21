@@ -13,8 +13,34 @@ const healthCommand = defineCommand({
     alias: "h",
     description: "Alias de indexing health"
   },
-  async run() {
-    await runInherited("node", ["scripts/health/indexing-health.mjs"]);
+  args: {
+    "no-cache": {
+      type: "boolean",
+      description: "Recalcula health en vivo sin materialized view"
+    },
+    "refresh-cache": {
+      type: "boolean",
+      description: "Refresca indexing_health_snapshot antes de leer"
+    },
+    strict: {
+      type: "boolean",
+      description: "Falla si hay condiciones estrictas incumplidas"
+    }
+  },
+  async run({ args }) {
+    const scriptArgs = ["scripts/health/indexing-health.mjs"];
+
+    if (args["no-cache"]) {
+      scriptArgs.push("--no-cache");
+    }
+    if (args["refresh-cache"]) {
+      scriptArgs.push("--refresh-cache");
+    }
+    if (args.strict) {
+      scriptArgs.push("--strict");
+    }
+
+    await runInherited("node", scriptArgs);
   }
 });
 

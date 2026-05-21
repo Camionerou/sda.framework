@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import os
+import re
+import uuid
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 
 from .versions import INDEXING_VERSION_COLUMNS, TREE_PROMPT_VERSION, version_value
+from .pageindex_style import SOURCE_BLOCKS_COORDINATE_SYSTEM
 
 
 class SupabaseConfigError(RuntimeError):
@@ -36,6 +40,130 @@ def _json_headers(key: str, prefer: str | None = None) -> dict[str, str]:
     if prefer:
         headers["prefer"] = prefer
     return headers
+
+
+def _stable_node_uuid(*, tenant_id: str, document_id: str, node_id: str) -> str:
+    digest = hashlib.md5(f"{tenant_id}:{document_id}:{node_id}".encode("utf-8")).hexdigest()
+    return str(uuid.UUID(digest))
+
+
+def _ltree_label(value: Any) -> str:
+    label = re.sub(r"[^a-z0-9_]+", "_", str(value).lower()) or "node"
+    return f"n{label}"[:240]
+
+
+def _node_page(value: Any, field: str) -> int:
+    if isinstance(value, int):
+        page = value
+    elif isinstance(value, str) and value.isdigit():
+        page = int(value)
+    else:
+        raise RuntimeError(f"Tree node invalido: {field} debe ser entero.")
+
+    if page < 1:
+        raise RuntimeError(f"Tree node invalido: {field} debe ser mayor a 0.")
+    return page
+
+
+def _doc_tree_node_rows(
+    *,
+    chunks: list[dict[str, Any]],
+    document_id: str,
+    document_type: str,
+    embedding_pipeline_version: str,
+    indexing_pipeline_version: str,
+    nodes: list[dict[str, Any]],
+    tenant_id: str,
+    tree_indexer_version: str,
+    tree_prompt_version: str,
+) -> list[dict[str, Any]]:
+    chunks_by_node_id = {
+        str(chunk["node_id"]): chunk
+        for chunk in chunks
+        if chunk.get("node_id") is not None
+    }
+    rows: list[dict[str, Any]] = []
+
+    def visit(
+        node: dict[str, Any],
+        *,
+        depth: int,
+        ordinal_path: list[int],
+        parent_id: str | None,
+        parent_path: list[str],
+    ) -> None:
+        node_id = str(node.get("node_id") or ".".join(str(part) for part in ordinal_path))
+        children = node.get("nodes") if isinstance(node.get("nodes"), list) else []
+        chunk = chunks_by_node_id.get(node_id, {})
+        page_start = _node_page(node.get("start_index"), "start_index")
+        page_end = _node_page(node.get("end_index"), "end_index")
+
+        if page_end < page_start:
+            raise RuntimeError("Tree node invalido: end_index debe ser mayor o igual a start_index.")
+
+        metadata = dict(chunk.get("metadata") or {})
+        metadata.update(
+            {
+                "document_type": document_type,
+                "page_range": [page_start, page_end],
+                "source": "pageindex_style_python_tree",
+            }
+        )
+        if node.get("source_blocks"):
+            metadata["source_blocks"] = node["source_blocks"]
+            metadata["source_blocks_coordinate_system"] = SOURCE_BLOCKS_COORDINATE_SYSTEM
+
+        row_id = _stable_node_uuid(
+            tenant_id=tenant_id,
+            document_id=document_id,
+            node_id=node_id,
+        )
+        node_path = [*parent_path, _ltree_label(node_id)]
+
+        rows.append(
+            {
+                "document_id": document_id,
+                "embedding": chunk.get("embedding"),
+                "embedding_model": chunk.get("embedding_model"),
+                "embedding_pipeline_version": embedding_pipeline_version,
+                "id": row_id,
+                "indexing_pipeline_version": indexing_pipeline_version,
+                "metadata": metadata,
+                "node_id": node_id,
+                "node_path": ".".join(node_path),
+                "node_type": "root" if depth == 0 else "section" if children else "leaf",
+                "page_end": page_end,
+                "page_start": page_start,
+                "parent_id": parent_id,
+                "routing_summary": node.get("routing_summary"),
+                "summary": node.get("summary"),
+                "tenant_id": tenant_id,
+                "title": str(node.get("title") or "Untitled section"),
+                "tree_indexer_version": tree_indexer_version,
+                "tree_prompt_version": tree_prompt_version,
+            }
+        )
+
+        for index, child in enumerate(children):
+            if isinstance(child, dict):
+                visit(
+                    child,
+                    depth=depth + 1,
+                    ordinal_path=[*ordinal_path, index],
+                    parent_id=row_id,
+                    parent_path=node_path,
+                )
+
+    for index, node in enumerate(nodes):
+        visit(
+            node,
+            depth=0,
+            ordinal_path=[index],
+            parent_id=None,
+            parent_path=[],
+        )
+
+    return rows
 
 
 async def list_extraction_artifacts(
@@ -93,6 +221,22 @@ async def delete_document_chunks(*, tenant_id: str, document_id: str) -> None:
         )
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase chunks delete fallo {response.status_code}: {response.text}")
+
+
+async def delete_document_tree_nodes(*, tenant_id: str, document_id: str) -> None:
+    url, key = _supabase_config()
+    params = {
+        "document_id": f"eq.{document_id}",
+        "tenant_id": f"eq.{tenant_id}",
+    }
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.delete(
+            f"{url}/rest/v1/doc_tree_nodes",
+            headers=_json_headers(key, "return=minimal"),
+            params=params,
+        )
+    if response.status_code >= 400:
+        raise RuntimeError(f"Supabase doc_tree_nodes delete fallo {response.status_code}: {response.text}")
 
 
 async def upsert_document_tree(row: dict[str, Any]) -> None:
@@ -171,6 +315,25 @@ async def insert_chunks(rows: list[dict[str, Any]], batch_size: int = 500) -> No
                 )
 
 
+async def insert_document_tree_nodes(rows: list[dict[str, Any]], batch_size: int = 500) -> None:
+    if not rows:
+        raise RuntimeError("Tree Indexer no genero doc_tree_nodes recuperables.")
+
+    url, key = _supabase_config()
+    async with httpx.AsyncClient(timeout=120) as client:
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start : start + batch_size]
+            response = await client.post(
+                f"{url}/rest/v1/doc_tree_nodes",
+                headers=_json_headers(key, "return=minimal"),
+                json=batch,
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(
+                    f"Supabase doc_tree_nodes insert fallo {response.status_code}: {response.text}"
+                )
+
+
 async def persist_tree_index(
     *,
     document_id: str,
@@ -202,6 +365,7 @@ async def persist_tree_index(
     embedding_status = "completed" if embedding_count > 0 else "pending"
 
     await delete_document_chunks(tenant_id=tenant_id, document_id=document_id)
+    await delete_document_tree_nodes(tenant_id=tenant_id, document_id=document_id)
     current_metadata = await document_metadata(tenant_id=tenant_id, document_id=document_id)
     await update_document_metadata(
         document_id=document_id,
@@ -276,13 +440,26 @@ async def persist_tree_index(
         }
         for chunk in result["chunks"]
     ]
+    node_rows = _doc_tree_node_rows(
+        chunks=rows,
+        document_id=document_id,
+        document_type=document_type,
+        embedding_pipeline_version=embedding_pipeline_version,
+        indexing_pipeline_version=indexing_pipeline_version,
+        nodes=result["tree_for_storage"],
+        tenant_id=tenant_id,
+        tree_indexer_version=tree_indexer_version,
+        tree_prompt_version=tree_prompt_version,
+    )
     await insert_chunks(rows)
+    await insert_document_tree_nodes(node_rows)
 
     return {
         "chunk_count": len(rows),
         "document_id": document_id,
         "extraction_id": extraction_id,
         "indexing_pipeline_version": indexing_pipeline_version,
+        "node_count": len(node_rows),
         "run_id": run_id,
         "tenant_id": tenant_id,
         "tree_indexer_version": tree_indexer_version,

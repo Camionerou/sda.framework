@@ -5,9 +5,12 @@ import { loadEnvFiles } from "../shared/env-loader.mjs";
 
 loadEnvFiles([".env.local", ".env"], { override: false });
 
-const strict = process.argv.includes("--strict");
+const argv = process.argv.slice(2);
+const strict = argv.includes("--strict");
+const noCache = argv.includes("--no-cache");
+const refreshCache = argv.includes("--refresh-cache");
 const requireFreshIndexes =
-  process.argv.includes("--require-fresh-indexes") ||
+  argv.includes("--require-fresh-indexes") ||
   process.env.INDEXING_HEALTH_REQUIRE_FRESH_INDEXES === "1";
 const publicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const adminUrl = process.env.SUPABASE_URL;
@@ -49,6 +52,68 @@ async function countRows(table, column) {
   return error ? { error: error.message } : count;
 }
 
+function normalizeSnapshotRpcResponse(data) {
+  if (Array.isArray(data)) {
+    return data[0] ?? null;
+  }
+  return data ?? null;
+}
+
+async function readHealthSnapshot() {
+  if (noCache) {
+    return {
+      fallback_reason: "disabled",
+      refresh_requested: refreshCache,
+      used: false
+    };
+  }
+
+  if (refreshCache) {
+    const { data, error } = await supabase.rpc("refresh_indexing_health_snapshot");
+    const row = normalizeSnapshotRpcResponse(data);
+
+    if (!error && row?.data) {
+      return {
+        data: row.data,
+        fallback_reason: null,
+        refreshed_at: row.refreshed_at ?? null,
+        refresh_requested: true,
+        used: true
+      };
+    }
+
+    return {
+      error: error?.message ?? "refresh_indexing_health_snapshot no devolvio datos",
+      fallback_reason: "refresh_failed",
+      refresh_requested: true,
+      used: false
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("indexing_health_snapshot")
+    .select("refreshed_at,data")
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data?.data) {
+    return {
+      error: error?.message ?? "indexing_health_snapshot no tiene filas",
+      fallback_reason: error ? "read_failed" : "empty",
+      refresh_requested: false,
+      used: false
+    };
+  }
+
+  return {
+    data: data.data,
+    fallback_reason: null,
+    refreshed_at: data.refreshed_at ?? null,
+    refresh_requested: false,
+    used: true
+  };
+}
+
 function versionDrift(document) {
   if (document.status !== "indexed") {
     return [];
@@ -76,20 +141,41 @@ function versionDrift(document) {
     .filter((check) => check.current && check.latest && check.current !== check.latest);
 }
 
-const [
-  anomaliesResult,
-  documentsResult,
-  documentCount,
-  runCount,
-  eventCount,
-  treeCount,
-  chunkCount
-] = await Promise.all([
-  supabase
-    .from("indexing_health_anomalies")
-    .select("*")
-    .order("updated_at", { ascending: false })
-    .limit(1000),
+const snapshot = await readHealthSnapshot();
+const liveAnomaliesQuery = snapshot.used
+  ? Promise.resolve({ data: snapshot.data.anomalies ?? [], error: null })
+  : supabase
+      .from("indexing_health_anomalies")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(1000);
+const liveCountQueries = snapshot.used
+  ? Promise.resolve({
+      chunks: snapshot.data.counts?.chunks ?? null,
+      doc_tree: snapshot.data.counts?.doc_tree ?? null,
+      doc_tree_nodes: snapshot.data.counts?.doc_tree_nodes ?? null,
+      documents: snapshot.data.counts?.documents ?? null,
+      indexing_events: snapshot.data.counts?.indexing_events ?? null,
+      indexing_runs: snapshot.data.counts?.indexing_runs ?? null
+    })
+  : Promise.all([
+      countRows("documents", "id"),
+      countRows("indexing_runs", "id"),
+      countRows("indexing_events", "id"),
+      countRows("doc_tree", "document_id"),
+      countRows("doc_tree_nodes", "id"),
+      countRows("chunks", "id")
+    ]).then(([documents, indexingRuns, indexingEvents, docTree, docTreeNodes, chunks]) => ({
+      chunks,
+      doc_tree: docTree,
+      doc_tree_nodes: docTreeNodes,
+      documents,
+      indexing_events: indexingEvents,
+      indexing_runs: indexingRuns
+    }));
+
+const [anomaliesResult, documentsResult, counts] = await Promise.all([
+  liveAnomaliesQuery,
   supabase
     .from("documents")
     .select(
@@ -97,11 +183,7 @@ const [
     )
     .eq("status", "indexed")
     .limit(1000),
-  countRows("documents", "id"),
-  countRows("indexing_runs", "id"),
-  countRows("indexing_events", "id"),
-  countRows("doc_tree", "document_id"),
-  countRows("chunks", "id")
+  liveCountQueries
 ]);
 
 const anomalies = anomaliesResult.data ?? [];
@@ -115,17 +197,19 @@ const strictFailures = [
 ].filter(Boolean);
 
 const output = {
+  cache: {
+    fallback_reason: snapshot.fallback_reason,
+    refresh_requested: snapshot.refresh_requested,
+    refreshed_at: snapshot.refreshed_at ?? null,
+    snapshot_error: snapshot.error ?? null,
+    source: snapshot.used ? "indexing_health_snapshot" : "live",
+    used: snapshot.used
+  },
   env: {
     admin_public_url_mismatch: Boolean(adminUrl && publicUrl && adminUrl !== publicUrl),
     supabase_host: new URL(url).host
   },
-  counts: {
-    chunks: chunkCount,
-    doc_tree: treeCount,
-    documents: documentCount,
-    indexing_events: eventCount,
-    indexing_runs: runCount
-  },
+  counts,
   anomalies: anomalies.slice(0, 50).map((row) => ({
     anomaly: row.anomaly,
     doc: shortId(row.document_id),
