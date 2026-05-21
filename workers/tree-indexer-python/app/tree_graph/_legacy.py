@@ -91,6 +91,7 @@ def _is_large_leaf(node: TreeNode) -> bool:
 from .events import context_for_send as _context_for_send, emit_tree_node_event
 from .nodes.degrade_mode import degrade_mode, fail_verification
 from .nodes.detect_document_type import detect_document_type
+from .nodes.post_process_tree import post_process_tree
 from .nodes.routing_summary import collect_routing_summaries, summarize_one_routing
 from .nodes.summarize_node import collect_summaries, prepare_summaries, summarize_one_node
 
@@ -271,32 +272,6 @@ async def repair_sections(state: TreeState) -> dict[str, Any]:
         },
         "repair_attempts": state.get("repair_attempts", 0) + 1,
         "verified_sections": [],
-    }
-
-
-async def post_process_tree(state: TreeState) -> dict[str, Any]:
-    await emit_tree_node_event(
-        state,
-        message="Normalizando arbol verificado.",
-        node="post_process_tree",
-        progress=70,
-        status="started",
-    )
-    tree = candidate_sections_to_tree(
-        state["verified_sections"],
-        state["raw_pages"],
-        state["source_blocks"],
-    )
-    await emit_tree_node_event(
-        state,
-        message=f"Arbol normalizado con {len(flatten_tree(tree))} nodos.",
-        metadata={"tree_node_count": len(flatten_tree(tree))},
-        node="post_process_tree",
-        progress=72,
-        status="completed",
-    )
-    return {
-        "tree": tree
     }
 
 
