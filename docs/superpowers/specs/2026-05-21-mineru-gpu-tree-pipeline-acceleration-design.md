@@ -35,8 +35,9 @@ MinerU instalado: version 3.1.15, con `torch 2.12.0+cu130` y CUDA disponible.
 1. Extraccion MinerU `< 60s` para PDFs de 50-100 paginas (baseline actual estimada
    3-8 min con cold-load CPU).
 2. Eliminar cold-load por job de modelos MinerU (Layout + OCR + Formula + VLM).
-3. `build_candidate_tree` y `refine_large_nodes` corren en paralelo via Send API
-   en lugar de for-loops secuenciales.
+3. `refine_large_nodes` corre en paralelo via Send API (cada nodo grande es
+   independiente). `build_candidate_tree` permanece secuencial porque
+   depende de contexto acumulado entre grupos.
 4. Pool httpx unico + `RetryPolicy` de LangGraph en nodos que tocan LLM/red.
 5. `tree_graph.py` (1031 LOC) descompuesto en `app/tree_graph/` con archivos
    <= 200 LOC, cumpliendo `AGENT.md` ("nunca hacer archivos monoliticos").
@@ -174,18 +175,17 @@ tree_graph/
 +-- nodes/
 |   +-- __init__.py
 |   +-- detect_document_type.py
-|   +-- detect_toc.py              # nuevo: heuristico ToC
-|   +-- build_candidate_tree.py    # con fan-out Send paralelo grupos
-|   +-- collect_candidate_groups.py
-|   +-- verify_tree.py
+|   +-- detect_toc.py              # nuevo: heuristico ToC con resolucion logico->fisico
+|   +-- build_candidate_tree.py    # secuencial (acumula contexto), no fan-out
+|   +-- verify_tree.py             # tolerancia adaptativa segun tree_mode
 |   +-- repair_sections.py
 |   +-- degrade_mode.py
 |   +-- post_process_tree.py
 |   +-- coverage_check.py          # nuevo: garantiza cobertura paginas
-|   +-- refine_large_nodes.py      # con fan-out Send paralelo nodos
-|   +-- collect_refined_results.py
-|   +-- summarize_node.py
-|   +-- routing_summary.py
+|   +-- refine_one_node.py         # fan-out Send paralelo por nodo grande
+|   +-- collect_refined_results.py # aplica subtrees al arbol, renumera
+|   +-- summarize_node.py          # consulta cache Upstash antes del LLM
+|   +-- routing_summary.py         # sin cache en v1
 |   +-- embed_hierarchy.py
 +-- routing.py             # route_after_verify, route_after_refine, fan_out_*, route_after_detect_toc
 +-- checkpoint.py          # _checkpoint_dsn, _checkpointing_enabled, _run_graph_with_optional_checkpoint
@@ -205,112 +205,33 @@ TREE_INDEXER_VERSION, is_checkpointing_configured`. Importadores en `main.py` y
 
 ### Paralelizacion LangGraph
 
-#### `build_candidate_tree` -> fan-out via Send
+#### `build_candidate_tree` permanece secuencial (revision post-review)
 
-`state.py` agrega:
+El codigo actual (`tree_graph.py:384`) acumula `sections` entre grupos y pasa
+el resultado parcial como contexto al grupo siguiente
+(`candidate_prompt(..., sections if sections else None, ...)`). Esa
+acumulacion garantiza numeracion consistente (`structure: "1"`, `"1.1"`,
+`"2"`) y evita estructuras locales repetidas por chunk.
 
-```python
-class CandidateGroupResult(TypedDict):
-    index: int
-    sections: list[CandidateSection]
-    model: str
-    provider: str
-    provider_order: list[str]
-    service_tier: str | None
+Paralelizarlo con `Send` rompe el contrato: cada rama veria `None` como
+contexto y emitiria su propia jerarquia local 1.x, 2.x, generando duplicados
+y numeracion incoherente al merge.
 
-class TreeState(TypedDict):
-    # ... existentes
-    candidate_group_index: int | None
-    candidate_group_pages: list[LabeledPage] | None
-    candidate_group_results: Annotated[list[CandidateGroupResult], operator.add]
-```
+**Decision**: dejar `build_candidate_tree` exactamente como esta, sin
+descomponer en sub-nodos. La unica mejora aplicable es seguir cargando el
+contexto incrementalmente, sin Send.
 
-`routing.py`:
+La ganancia de paralelismo se concentra en los nodos que SI son independientes
+por construccion:
 
-```python
-def fan_out_candidate_groups(state: TreeState) -> list[Send]:
-    groups = split_pages_for_prompt(state["pages"], _max_prompt_chars())
-    context = _context_for_send(state)
-    return [
-        Send(
-            "candidate_group",
-            {
-                **context,
-                "candidate_group_index": index,
-                "candidate_group_pages": group,
-                "candidate_group_results": [],  # reducer mandatory init
-            },
-        )
-        for index, group in enumerate(groups)
-    ]
-```
+- `refine_large_nodes` -> Send fan-out (ver siguiente seccion).
+- `summarize_one_node` -> ya esta en fan-out.
+- `summarize_one_routing` -> ya esta en fan-out.
 
-`nodes/build_candidate_tree.py`:
-
-```python
-async def candidate_group(state: TreeState) -> dict[str, Any]:
-    response = await call_tree_llm_json(
-        candidate_prompt(
-            state["document_title"],
-            state["document_type"],
-            tagged_pages_text(state["candidate_group_pages"]),
-            None,
-            state.get("tree_mode", "toc"),
-        ),
-        "structure",
-    )
-    return {
-        "candidate_group_results": [{
-            "index": state["candidate_group_index"],
-            "sections": _assert_sections(response["json"]),
-            "model": response["model"],
-            "provider": response["provider"],
-            "provider_order": response.get("provider_order") or [],
-            "service_tier": response.get("service_tier"),
-        }],
-    }
-```
-
-`nodes/collect_candidate_groups.py`:
-
-```python
-async def collect_candidate_groups(state: TreeState) -> dict[str, Any]:
-    results = sorted(state["candidate_group_results"], key=lambda r: r["index"])
-    sections = [s for r in results for s in r["sections"]]
-    if not sections:
-        raise RuntimeError("Tree LLM no encontro secciones.")
-
-    last = results[-1]
-    return {
-        "candidate_sections": sections,
-        "metrics": {
-            **state["metrics"],
-            "candidate_section_count": len(sections),
-            "candidate_group_count": len(results),
-            "llm_model": last["model"],
-            "llm_provider": last["provider"],
-            "llm_provider_order": last["provider_order"],
-            "llm_service_tier": last["service_tier"],
-        },
-        "provider": last["provider"],
-        "version": TREE_INDEXER_VERSION,
-    }
-```
-
-Edges en `graph.py`:
-
-```python
-graph.add_conditional_edges(
-    "detect_toc",
-    route_after_detect_toc,
-    {
-        "build_candidate_groups": "candidate_group",  # via Send fan-out
-        "verify_tree_from_toc": "verify_tree",
-    },
-)
-graph.add_edge("candidate_group", "collect_candidate_groups")
-graph.add_edge("collect_candidate_groups", "verify_tree")
-```
+Para un PDF medio de 50-100 paginas, `build_candidate_tree` corre 1-3 grupos
+secuenciales (~15-45s). La ganancia real esta en evitar 8 LLM calls
+secuenciales en `refine_large_nodes` cuando un doc largo tiene 5-8 nodos
+grandes.
 
 #### `refine_large_nodes` -> fan-out via Send
 
@@ -343,19 +264,65 @@ existe.
 `nodes/collect_refined_results.py` aplica cada subtree al arbol vivo,
 renumera, decide si itera otra vuelta (preserva `route_after_refine`).
 
+#### Excepciones tipadas en `llm.py` (prerequisito de RetryPolicy)
+
+El codigo actual (`llm.py:194-196`) convierte cualquier HTTP `>= 400` en un
+`RuntimeError` generico. `RetryPolicy(retry_on=(httpx.TimeoutException, ...))`
+no atrapa eso, asi que no se reintenta 429 ni 5xx. Antes de agregar
+RetryPolicy hace falta tipar las excepciones.
+
+Nuevas clases en `llm.py`:
+
+```python
+class TreeLlmTransientError(RuntimeError):
+    """HTTP transient: 408, 425, 429, 500, 502, 503, 504. Reintentable."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class TreeLlmPermanentError(RuntimeError):
+    """HTTP permanente: 400, 401, 403, 404, 422. NO reintentar."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+TRANSIENT_STATUS = {408, 425, 429, 500, 502, 503, 504}
+```
+
+Cambio en `call_tree_llm`:
+
+```python
+if response.status_code >= 400:
+    message = (
+        data.get("error", {}).get("message")
+        if isinstance(data, dict)
+        else None
+    ) or f"Tree LLM fallo con HTTP {response.status_code}."
+    if response.status_code in TRANSIENT_STATUS:
+        raise TreeLlmTransientError(response.status_code, message)
+    raise TreeLlmPermanentError(response.status_code, message)
+```
+
 #### `RetryPolicy` por nodo
 
-`graph.py` agrega un import y aplica retry a todos los nodos que tocan red:
+`graph.py` agrega imports y aplica retry tipado:
 
 ```python
 import httpx
 from langgraph.types import RetryPolicy
+
+from .llm import TreeLlmTransientError
 
 LLM_RETRY = RetryPolicy(
     max_attempts=3,
     initial_interval=2.0,
     backoff_factor=2.0,
     retry_on=(
+        TreeLlmTransientError,
         httpx.TimeoutException,
         httpx.ReadError,
         httpx.RemoteProtocolError,
@@ -363,7 +330,6 @@ LLM_RETRY = RetryPolicy(
     ),
 )
 
-graph.add_node("candidate_group", candidate_group, retry=LLM_RETRY)
 graph.add_node("verify_tree", verify_tree, retry=LLM_RETRY)
 graph.add_node("repair_sections", repair_sections, retry=LLM_RETRY)
 graph.add_node("refine_one_node", refine_one_node, retry=LLM_RETRY)
@@ -371,7 +337,20 @@ graph.add_node("summarize_one_node", summarize_one_node, retry=LLM_RETRY)
 graph.add_node("summarize_one_routing", summarize_one_routing, retry=LLM_RETRY)
 graph.add_node("embed_hierarchy", embed_hierarchy, retry=LLM_RETRY)
 graph.add_node("detect_document_type", detect_document_type, retry=LLM_RETRY)
+graph.add_node("build_candidate_tree", build_candidate_tree, retry=LLM_RETRY)
 ```
+
+`build_candidate_tree` lleva retry porque internamente puede pegarse 1-3 LLM
+calls secuenciales y cualquiera puede fallar transient. El nodo entero se
+reintentaria si falla en el medio, lo cual es lo correcto cuando NO hay
+checkpoint: state interno se reconstruye desde cero. Cuando se prenda
+checkpointing, evaluar si conviene cortarlo en sub-nodos para granularidad
+mas fina.
+
+Para `embed_hierarchy` la transient suele venir del provider de embeddings
+(no de Tree LLM); igual aplica el mismo decorator porque
+`embeddings.py` tambien debe levantar `TreeLlmTransientError` para 429/5xx
+del provider de embeddings (misma migracion paralela en `embeddings.py`).
 
 ### Pool httpx unico + semaforo LLM
 
@@ -454,55 +433,132 @@ async def _on_shutdown() -> None:
 
 #### Detectar ToC determinista antes del LLM
 
+**Gotcha de paginacion logica vs fisica**: el numero impreso en el ToC
+(`"Capitulo 1 ........ 17"`) NO equivale a la pagina fisica 1-based que usa
+`pageindex_style.py:264`. Un PDF con portada + romanos + ToC puede tener la
+pagina logica "17" como pagina fisica 25. Si pasamos el numero impreso como
+`physical_index` crudo, `normalize_candidate_sections` lo descarta o
+desplaza todo el arbol.
+
+**Estrategia**: el detector ToC heuristico se trata como *hint*, no como
+candidato definitivo. Genera candidatos con flag `from_toc_heuristic=True`,
+y SIEMPRE pasa por `verify_tree` con tolerancia mas alta. Si verify acepta
+>= 70%, se confirma como atajo y se ahorra `build_candidate_tree`. Si no,
+se cae a `build_candidate_tree` con LLM.
+
 `nodes/detect_toc.py`:
 
 ```python
 import re
 
 TOC_LINE = re.compile(r"^(?P<title>.+?)\s*\.{3,}\s*(?P<page>\d+)\s*$")
+TOC_DETECTION_RANGE = 0.15  # primeras 15% paginas
+
+def _resolve_logical_to_physical(
+    logical: int,
+    title: str,
+    pages: list[LabeledPage],
+) -> int | None:
+    """Busca la pagina fisica donde aparece el titulo, comenzando desde la
+    pagina cuyo numero impreso coincide con `logical`. Devuelve None si no
+    se puede resolver con confianza."""
+    needle = title.strip().casefold()[:80]
+    if not needle:
+        return None
+
+    # 1) Intento directo: la pagina fisica == logical (cubre PDFs sin portada).
+    if 1 <= logical <= len(pages):
+        text = pages[logical - 1]["text"].casefold()
+        if needle in text[:1000]:
+            return logical
+
+    # 2) Buscar el titulo a partir del primer match razonable, desde la
+    # mitad del documento hacia adelante (saltea ToC).
+    skip = max(1, len(pages) // 10)
+    for physical in range(skip, len(pages) + 1):
+        text = pages[physical - 1]["text"].casefold()
+        if needle in text[:1000]:
+            return physical
+
+    return None
 
 async def detect_toc(state: TreeState) -> dict[str, Any]:
-    candidate_text = "\n".join(
-        page["text"] for page in state["pages"][: max(5, len(state["pages"]) // 10)]
-    )
-    lines = [line.strip() for line in candidate_text.split("\n") if line.strip()]
-    toc_matches = [TOC_LINE.match(line) for line in lines]
-    matched = [m for m in toc_matches if m]
+    pages = state["raw_pages"]  # ver finding 3
+    toc_window = pages[: max(5, int(len(pages) * TOC_DETECTION_RANGE))]
+    lines = [
+        (page["page"], line.strip())
+        for page in toc_window
+        for line in page["text"].split("\n")
+        if line.strip()
+    ]
+    matches = [(page, TOC_LINE.match(line)) for page, line in lines]
+    parsed = [(page, m) for page, m in matches if m]
 
-    if len(matched) >= 4:
-        sections = [
-            {
-                "structure": str(index + 1),
-                "title": m.group("title").strip(),
-                "physical_index": int(m.group("page")),
-                "valid": True,
-            }
-            for index, m in enumerate(matched)
-        ]
+    if len(parsed) < 4:
         return {
-            "candidate_sections": sections,
-            "tree_mode": "toc_with_pages",
+            "tree_mode": "no_toc",
+            "metrics": {**state["metrics"], "toc_detected": False},
+        }
+
+    sections: list[CandidateSection] = []
+    resolved = 0
+    for index, (_page, match) in enumerate(parsed):
+        logical = int(match.group("page"))
+        title = match.group("title").strip()
+        physical = _resolve_logical_to_physical(logical, title, pages)
+        if physical is None:
+            continue
+        resolved += 1
+        sections.append({
+            "structure": str(index + 1),
+            "title": title,
+            "physical_index": physical,
+            "from_toc_heuristic": True,
+        })
+
+    resolution_ratio = resolved / len(parsed)
+    if resolution_ratio < 0.7 or len(sections) < 4:
+        # No confiable: degradar a flujo LLM normal.
+        return {
+            "tree_mode": "no_toc",
             "metrics": {
                 **state["metrics"],
                 "toc_detected": True,
-                "toc_section_count": len(sections),
+                "toc_resolution_ratio": round(resolution_ratio, 3),
+                "toc_used": False,
             },
         }
 
     return {
-        "tree_mode": "no_toc",
+        "candidate_sections": sections,
+        "tree_mode": "toc_heuristic",
         "metrics": {
             **state["metrics"],
-            "toc_detected": False,
+            "toc_detected": True,
+            "toc_section_count": len(sections),
+            "toc_resolution_ratio": round(resolution_ratio, 3),
+            "toc_used": True,
         },
     }
 ```
 
-`route_after_detect_toc` decide:
+**Routing**:
 
-- Si `tree_mode == "toc_with_pages"` y `candidate_sections` no esta vacio,
-  salta directo a `verify_tree`.
-- Si no, va a fan-out de `candidate_group`.
+```python
+def route_after_detect_toc(state: TreeState) -> str:
+    if state.get("tree_mode") == "toc_heuristic" and state.get("candidate_sections"):
+        return "verify_tree"          # atajo, valida anclas reales
+    return "build_candidate_tree"     # flujo LLM normal (secuencial)
+```
+
+**Tolerancia adaptativa en verify_tree**: si el verifier corre con
+`tree_mode == "toc_heuristic"` y rechaza > 30% de las secciones, no se
+intenta `repair_sections` sino que se degrada a `build_candidate_tree`
+completo (LLM puro). Eso evita gastar otra ronda LLM reparando un esqueleto
+heuristico fundamentalmente malo.
+
+Helper en `_normalize_section` (`pageindex_style.py`): aceptar
+`from_toc_heuristic` como passthrough.
 
 #### Confidence scoring
 
@@ -604,21 +660,49 @@ Edge: `post_process_tree -> coverage_check -> refine_large_nodes (Send fan-out)`
 
 #### Title-near-page-start guard (dedupe logos)
 
-En `pageindex_style.py`, antes de armar `LabeledPage`, calcular las top-K lineas
-mas repetidas across paginas y borrarlas del inicio/fin de cada pagina antes
-del verifier. Helper nuevo en `pageindex_style.py`:
+**Gotcha de doble fuente**: el codigo actual usa un solo `state["pages"]`
+para prompts LLM, post-process de rangos, refinamiento y construccion de
+`chunks` persistidos (`tree_graph.py:587, 806`). Si aplicamos dedupe in-place
+a `state["pages"]`, el texto persistido en `chunks.content` queda mutilado y
+el viewer pierde lineas reales. Mal cambio.
+
+**Separar dos fuentes en `TreeState`**:
+
+- `raw_pages: list[LabeledPage]` — original sin tocar. Lo usa
+  `post_process_tree`, `build_chunks_from_tree`, `coverage_check` y todo lo
+  que persiste contenido.
+- `prompt_pages: list[LabeledPage]` — version dedupeada. Lo usa
+  `detect_document_type`, `detect_toc`, `build_candidate_tree`,
+  `verify_tree`, `repair_sections`, `refine_one_node`.
+
+Inicializacion en `run_tree_index_graph` (`graph.py`):
 
 ```python
-def strip_repeated_headers_footers(pages: list[LabeledPage], top_k: int = 5) -> list[LabeledPage]:
+from .helpers import strip_repeated_headers_footers
+
+raw_pages = pages
+prompt_pages = strip_repeated_headers_footers(raw_pages)
+initial_state["raw_pages"] = raw_pages
+initial_state["prompt_pages"] = prompt_pages
+```
+
+Helper en `pageindex_style.py`:
+
+```python
+def strip_repeated_headers_footers(
+    pages: list[LabeledPage],
+    head_lines: int = 3,
+    tail_lines: int = 3,
+) -> list[LabeledPage]:
     if len(pages) < 4:
         return pages
     head_counts: dict[str, int] = {}
     tail_counts: dict[str, int] = {}
     for page in pages:
         lines = [line.strip() for line in page["text"].split("\n") if line.strip()]
-        for line in lines[:3]:
+        for line in lines[:head_lines]:
             head_counts[line] = head_counts.get(line, 0) + 1
-        for line in lines[-3:]:
+        for line in lines[-tail_lines:]:
             tail_counts[line] = tail_counts.get(line, 0) + 1
 
     threshold = max(2, len(pages) // 3)
@@ -636,16 +720,41 @@ def strip_repeated_headers_footers(pages: list[LabeledPage], top_k: int = 5) -> 
     return cleaned
 ```
 
-Aplicado solo al text que se pasa al verifier y al refine, no al text crudo
-que se persiste en `chunks`.
+**Migration en los nodos**:
+
+| Nodo | Antes | Despues |
+|------|-------|---------|
+| `detect_document_type` | `state["pages"][:3]` | `state["prompt_pages"][:3]` |
+| `detect_toc` | (nuevo) | `state["raw_pages"]` (busca en bruto), reporta sobre `prompt_pages` |
+| `build_candidate_tree` | `state["pages"]` para split | `state["prompt_pages"]` |
+| `verify_tree` | `state["pages"]` | `state["prompt_pages"]` |
+| `repair_sections` | `state["pages"]` | `state["prompt_pages"]` |
+| `_refined_subtree_for_node` | `state["pages"]` | `state["prompt_pages"]` |
+| `post_process_tree` | `state["pages"]` (para rangos) | `state["raw_pages"]` |
+| `coverage_check` | (nuevo) | `state["raw_pages"]` |
+| `build_chunks_from_tree` | `state["pages"]` | `state["raw_pages"]` |
+| `_attach_source_blocks` | indirecto via tree | sin cambio |
+
+Como `state["pages"]` desaparece, todos los nodos deben usar explicitamente
+`raw_pages` o `prompt_pages`. La migracion se hace en el mismo paso del
+refactor (paso 3 del plan) para evitar estados intermedios inconsistentes.
 
 ### Cache de summaries en Upstash
+
+**Alcance v1: solo `summary_one_node`**. `routing_summary` queda fuera del
+cache porque su prompt depende de mas inputs (`prompts.py:224-237`):
+`document_type`, `path`, `page_range`, `summary` previo y el propio text.
+Cachearlo con una key parcial corre el riesgo de devolver routing text
+incorrecto y contaminar embeddings derivados. Si en v2 se decide cachear
+routing, se hace con key completa explicita.
+
+`summary_one_node` (`prompts.py:209-221`) depende de: `title`, page range
+y text del nodo. Cache key v1 es estable.
 
 Helper en `app/cache.py`:
 
 ```python
 import hashlib
-import json
 import os
 from typing import Any
 
@@ -656,13 +765,30 @@ from .http_client import get_supabase_client
 UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL", "").rstrip("/")
 UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60
+CACHE_VERSION = "v1"
 
 def _is_configured() -> bool:
     return bool(UPSTASH_URL and UPSTASH_TOKEN)
 
-def _key(text: str, title: str, model: str, kind: str) -> str:
-    digest = hashlib.sha256(f"{model}|{kind}|{title}|{text}".encode("utf-8")).hexdigest()
-    return f"tree:summary:v1:{kind}:{digest}"
+def summary_cache_key(
+    *,
+    text: str,
+    title: str,
+    page_start: int,
+    page_end: int,
+    summary_model: str,
+    tree_prompt_version: str,
+) -> str:
+    payload = "|".join([
+        CACHE_VERSION,
+        tree_prompt_version,
+        summary_model,
+        title,
+        f"{page_start}-{page_end}",
+        text,
+    ])
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"tree:summary:{CACHE_VERSION}:{digest}"
 
 async def get_cached(key: str) -> str | None:
     if not _is_configured():
@@ -693,22 +819,29 @@ async def set_cached(key: str, value: str, ttl: int = DEFAULT_TTL_SECONDS) -> No
             timeout=2.0,
         )
     except (httpx.TimeoutException, httpx.HTTPError):
-        return  # cache fallback noop
+        return  # fallback noop
 ```
 
 `nodes/summarize_node.py` consulta cache antes del LLM:
 
 ```python
-from ..cache import _key, get_cached, set_cached
+from ..cache import summary_cache_key, get_cached, set_cached
 
 async def summarize_one_node(state: TreeState) -> dict[str, Any]:
     target = state["summary_target"]
     text = target.get("text", "")
     title = target.get("title", "")
-    model = os.getenv("SDA_TREE_SUMMARY_MODEL", "")
-    cache_key = _key(text, title, model, "summary")
+    model = os.getenv("SDA_TREE_SUMMARY_MODEL", os.getenv("SDA_TREE_LLM_MODEL", ""))
+    key = summary_cache_key(
+        text=text,
+        title=title,
+        page_start=target["start_index"],
+        page_end=target["end_index"],
+        summary_model=model,
+        tree_prompt_version=TREE_PROMPT_VERSION,
+    )
 
-    cached = await get_cached(cache_key)
+    cached = await get_cached(key)
     if cached:
         return {
             "summary_results": [{"node_id": target["node_id"], "text": cached}],
@@ -717,7 +850,7 @@ async def summarize_one_node(state: TreeState) -> dict[str, Any]:
 
     response = await call_tree_llm_text(summary_prompt(_node_from_task(target)), "summary")
     summary = response["content"].strip()
-    await set_cached(cache_key, summary)
+    await set_cached(key, summary)
     return {
         "summary_results": [{"node_id": target["node_id"], "text": summary}],
         "summary_cache_misses": 1,
@@ -731,8 +864,9 @@ summary_cache_hits: Annotated[int, operator.add]
 summary_cache_misses: Annotated[int, operator.add]
 ```
 
-Y `collect_summaries` los expone en `metrics`. Mismo patron para
-`routing_summary` con kind `"routing"`.
+Y `collect_summaries` los expone en `metrics`.
+
+`routing_summary` NO se cachea en v1. Sigue corriendo LLM en cada job.
 
 Compatibilidad con `docs/gotchas.md:73-79`:
 
@@ -740,6 +874,8 @@ Compatibilidad con `docs/gotchas.md:73-79`:
 - Fallback a LLM si Redis miss/down -> outage no bloquea indexing.
 - Operacional: el dato real vive en `chunks.summary` (postgres). Cache es solo
   acelerador.
+- Key incluye `tree_prompt_version` para invalidacion automatica cuando los
+  prompts cambien en futuros bumps.
 
 ### Concurrencia de workers
 
@@ -768,8 +904,62 @@ Aplicados via `deploy.sh` en cada worker.
 | 8 | Cache summaries Upstash | Bajo | Borrar prefijo `tree:summary:v1:*`, env flag off |
 | 9 | Subir concurrencia workers | Medio | Bajar a 1 |
 
-Cada paso es un commit independiente (idealmente PR aparte) que pasa
-`PYTHONPATH=. python -m unittest discover tests` antes de continuar.
+Cada paso es un commit independiente (idealmente PR aparte). Antes de cerrar
+cada paso, correr la suite de validacion:
+
+```bash
+# Tests Python (worker)
+npm run test:tree-indexer
+
+# Workspace JS/TS
+npm run lint
+npm run typecheck
+npm run build
+
+# Health checks operativos
+npm run env:doctor
+npm run redis:health
+npm run indexing:health
+```
+
+Health remoto de workers (despues de deploy `srv-ia-01`):
+
+```bash
+# Compute gateway
+curl -sf -H "authorization: Bearer $SDA_COMPUTE_GATEWAY_TOKEN" \
+  https://srv-ia-01.taileb1b9c.ts.net/v1/health | jq .
+
+# Tree indexer (via gateway proxy o directo en host privado)
+ssh sistemas@srv-ia-01 'curl -sf -H "authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8790/v1/health' | jq .
+
+# mineru-api (privado, solo via SSH)
+ssh sistemas@srv-ia-01 'curl -sf http://127.0.0.1:8765/health || \
+  systemctl status mineru-api.service --no-pager'
+```
+
+Verificacion GPU post deploy:
+
+```bash
+ssh sistemas@srv-ia-01 'nvidia-smi --query-gpu=memory.used,memory.free,utilization.gpu --format=csv'
+```
+
+Resultado esperado: `memory.used` cerca del modelo MinerU preloaded (no
+debe quedar en 85+ GB que era vllm), `memory.free` con al menos 70 GB
+disponibles, `utilization.gpu` sube cuando hay indexing activo.
+
+Smoke real (no opcional, parte del done):
+
+1. Subir un PDF nuevo al tenant principal (3 perfiles: escaneado, nativo
+   corto ~10p, nativo largo ~150p con ToC).
+2. Verificar que `indexing.compute_gateway.started` -> `compute/mineru.completed`
+   -> `compute/tree.completed` aparecen en Inngest dashboard sin error.
+3. Abrir el visor PDF y validar que `doc_tree` se renderiza y que clickear
+   un chunk navega al rango de paginas correcto.
+4. Re-indexar uno de los tres (forzar reindex). Verificar
+   `metrics.summary_cache_hits` > 0 en la segunda corrida.
+
+Si cualquier comando de la suite falla, no avanzar al siguiente paso.
 
 ## Versiones a bumpear en `lib/system-versions.json`
 
@@ -831,9 +1021,23 @@ Comparar antes/despues:
   `SDA_TREE_INDEXER_CONCURRENCY=4` da 48 in-flight max. Para Gemini Flash via
   OpenRouter alcanza. Si vemos 429s, bajar a 8.
 - **Send paralelo + checkpointing**: LangGraph soporta Send + checkpointer
-  juntos. Si se prende checkpointing, verificar que cada `Send` lleva el
-  contexto minimo (ya esta en spec). Test con `SDA_TREE_CHECKPOINTING=1`
-  antes de habilitar en produccion.
+  juntos. Cada `Send` en `refine_one_node` lleva contexto minimo
+  (`refine_target_node_id`, `refine_target_pages`, `refine_target_start_index`).
+  Test con `SDA_TREE_CHECKPOINTING=1` antes de habilitar en produccion.
+- **state["pages"] desaparece**: el refactor introduce `raw_pages` y
+  `prompt_pages` como campos separados. Cualquier helper externo que
+  consuma el state via la API publica `run_tree_index_graph` recibe
+  `pages` como antes (input), pero internamente se desdobla. Tests
+  existentes que mockeen `state["pages"]` deben actualizarse.
+- **ToC heuristico falso positivo**: si `_resolve_logical_to_physical` cae
+  en un titulo muy generico ("Introduccion") que aparece en multiples
+  paginas, puede asignar la fisica equivocada. Mitigaciones: matching
+  case-fold de los primeros 80 chars, busqueda desde la mitad del doc en
+  adelante (saltea ToC mismo), umbral de resolucion `>= 70%` y verifier
+  con tolerancia `>= 70%` que degrada a flujo LLM si no pasa.
+- **Cache key cambio en bump de prompts**: como `tree_prompt_version`
+  forma parte de la cache key, un bump invalida todo en una corrida.
+  Esperado: primera reindex despues del bump paga el costo LLM completo.
 - **mineru-api preload tarda al boot**: con `TimeoutStartSec=600` y
   `Restart=on-failure`, si el preload falla no entra en loop infinito.
 - **Refactor rompe imports externos**: `app/tree_graph/__init__.py` re-exporta
