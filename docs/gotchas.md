@@ -88,3 +88,12 @@
 
 - Do not use `next/link` for routes with side effects like `/auth/sign-out`. In production, prefetch/navigation behavior can call the route before the user intends to sign out.
 - Use a plain `<a>` tag or a POST form for sign-out. Keep `next/link` for safe navigation only.
+
+## MinerU GPU service en srv-ia-01
+
+- El binario `mineru-api` vive en `/home/sistemas/sda-mineru/.venv/bin/mineru-api`, no en `/home/sistemas/sda/.venv/bin/mineru-api`. El unit file original apuntaba al path roto y causó ~28 000 reinicios fallidos (status 203/EXEC).
+- La flag `--enable-vlm-preload True` es necesaria para precargar el VLM en VRAM al startup. El servidor FastAPI responde en el puerto 8765 casi inmediatamente (loguea "API documentation: http://127.0.0.1:8765/docs"), pero `/docs` no acepta conexiones hasta que el preload de transformers termina (~3 minutos en RTX PRO 6000 Blackwell). No confundir el log de startup con readiness real.
+- `vllm-nemotron-omni-nvfp4` ocupa ~85 GB de VRAM. Para que MinerU funcione en GPU hay que apagarlo primero: `docker stop vllm-nemotron-omni-nvfp4 && docker update --restart=no vllm-nemotron-omni-nvfp4`. No reiniciar este container sin decisión explícita.
+- El unit file correcto está en `/etc/systemd/system/mineru-api.service` con `WorkingDirectory=/home/sistemas/sda-mineru`, `CUDA_VISIBLE_DEVICES=0`, `MINERU_DEVICE_MODE=cuda`, y `TimeoutStartSec=600` para dar margen al preload.
+- Después del preload completo MinerU usa ~2.7 GB VRAM (no 5-15 GB como estimado: el modelo VLM carga lazy y crece bajo carga real).
+- Con 95 GB disponibles el batch_size se autodetecta en 8 (log: `gpu_memory: 95 GB, batch_size: 8`).
