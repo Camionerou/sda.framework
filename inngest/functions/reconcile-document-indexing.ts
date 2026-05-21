@@ -7,6 +7,7 @@ import { INDEXING_VERSION_COLUMNS, INDEXING_VERSION_METADATA } from "@/lib/syste
 type UploadedDocument = {
   created_by: string | null;
   id: string;
+  status: string;
   tenant_id: string;
   uploaded_at: string | null;
 };
@@ -47,6 +48,12 @@ type ReconcilerRepairResult = {
   completed_indexed_runs: number;
   failed_incomplete_upload_runs: number;
 };
+
+function metadataString(metadata: Record<string, unknown> | null | undefined, key: string) {
+  const value = metadata?.[key];
+
+  return typeof value === "string" && value ? value : null;
+}
 
 function getBatchSize() {
   const value = Number(process.env.INDEXING_RECONCILER_BATCH_SIZE ?? 25);
@@ -152,22 +159,31 @@ async function completeRunsWithPersistedTree(limit: number): Promise<number> {
     await Promise.all([
       supabase
         .from("doc_tree")
-        .select("tenant_id, document_id, indexing_pipeline_version, tree_indexer_version")
+        .select("tenant_id, document_id, indexing_pipeline_version, metadata, tree_indexer_version")
         .in("document_id", documentIds)
         .returns<
           Array<{
             document_id: string;
             indexing_pipeline_version: string | null;
+            metadata: Record<string, unknown> | null;
             tenant_id: string;
             tree_indexer_version: string | null;
           }>
         >(),
       supabase
         .from("chunks")
-        .select("tenant_id, document_id")
+        .select("tenant_id, document_id, indexing_pipeline_version, metadata, tree_indexer_version")
         .in("document_id", documentIds)
         .limit(5000)
-        .returns<Array<{ document_id: string; tenant_id: string }>>()
+        .returns<
+          Array<{
+            document_id: string;
+            indexing_pipeline_version: string | null;
+            metadata: Record<string, unknown> | null;
+            tenant_id: string;
+            tree_indexer_version: string | null;
+          }>
+        >()
     ]);
 
   if (treeError) {
@@ -186,13 +202,34 @@ async function completeRunsWithPersistedTree(limit: number): Promise<number> {
 
   for (const chunk of chunks ?? []) {
     const key = `${chunk.tenant_id}:${chunk.document_id}`;
-    chunkCounts.set(key, (chunkCounts.get(key) ?? 0) + 1);
+    const versionKey = [
+      key,
+      chunk.indexing_pipeline_version ?? "missing",
+      chunk.tree_indexer_version ?? "missing",
+      metadataString(chunk.metadata, "run_id") ?? "missing"
+    ].join(":");
+
+    chunkCounts.set(versionKey, (chunkCounts.get(versionKey) ?? 0) + 1);
   }
 
   const completableRuns = runs.filter((run) => {
     const key = `${run.tenant_id}:${run.document_id}`;
+    const tree = treeByDocument.get(key);
+    const treeRunId = metadataString(tree?.metadata, "run_id");
+    const versionKey = [
+      key,
+      run.indexing_pipeline_version,
+      run.tree_indexer_version,
+      run.id
+    ].join(":");
 
-    return treeKeys.has(key) && (chunkCounts.get(key) ?? 0) > 0;
+    return (
+      treeKeys.has(key) &&
+      tree?.indexing_pipeline_version === run.indexing_pipeline_version &&
+      tree?.tree_indexer_version === run.tree_indexer_version &&
+      treeRunId === run.id &&
+      (chunkCounts.get(versionKey) ?? 0) > 0
+    );
   });
 
   let completed = 0;
@@ -200,7 +237,13 @@ async function completeRunsWithPersistedTree(limit: number): Promise<number> {
   for (const run of completableRuns) {
     const now = new Date().toISOString();
     const key = `${run.tenant_id}:${run.document_id}`;
-    const chunkCount = chunkCounts.get(key) ?? 0;
+    const versionKey = [
+      key,
+      run.indexing_pipeline_version,
+      run.tree_indexer_version,
+      run.id
+    ].join(":");
+    const chunkCount = chunkCounts.get(versionKey) ?? 0;
     const tree = treeByDocument.get(key);
     const [{ error: runError }, { error: documentError }, { error: eventError }] =
       await Promise.all([
@@ -349,8 +392,8 @@ async function loadUploadedDocumentsWithoutActiveRun(limit: number): Promise<Upl
   const supabase = createAdminClient();
   const { data: documents, error: documentError } = await supabase
     .from("documents")
-    .select("id, tenant_id, created_by, uploaded_at")
-    .eq("status", "uploaded")
+    .select("id, tenant_id, created_by, uploaded_at, status")
+    .in("status", ["uploaded", "queued", "parsing", "structuring"])
     .not("uploaded_at", "is", null)
     .order("uploaded_at", { ascending: true })
     .limit(limit)
@@ -569,11 +612,17 @@ async function loadStaleRunningRuns(limit: number): Promise<DispatchableRun[]> {
       continue;
     }
 
+    const canResumeComputeJob =
+      run.compute_job_id &&
+      run.extraction_pipeline_version === INDEXING_VERSION_COLUMNS.extraction_pipeline_version &&
+      run.indexing_pipeline_version === INDEXING_VERSION_COLUMNS.indexing_pipeline_version &&
+      run.tree_indexer_version === INDEXING_VERSION_COLUMNS.tree_indexer_version;
+
     const { error: runError } = await supabase
       .from("indexing_runs")
       .update({
         attempt: run.attempt + 1,
-        compute_job_id: null,
+        compute_job_id: canResumeComputeJob ? run.compute_job_id : null,
         error_message: null,
         ...INDEXING_VERSION_COLUMNS,
         progress: 0,
@@ -593,6 +642,7 @@ async function loadStaleRunningRuns(limit: number): Promise<DispatchableRun[]> {
       event_type: "indexing.run.requeued",
       metadata: {
         ...INDEXING_VERSION_METADATA,
+        compute_job_reused: Boolean(canResumeComputeJob),
         previous_compute_job_id: run.compute_job_id,
         previous_error_message: run.error_message,
         previous_stage: run.stage,

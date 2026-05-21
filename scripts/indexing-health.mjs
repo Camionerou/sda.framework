@@ -207,6 +207,12 @@ const anomalies = {
       document.uploaded_at &&
       !activeRunKeys.has(`${document.tenant_id}:${document.id}`)
   ),
+  nonterminal_without_active_run: documents.filter(
+    (document) =>
+      ["queued", "parsing", "structuring"].includes(document.status) &&
+      document.uploaded_at &&
+      !activeRunKeys.has(`${document.tenant_id}:${document.id}`)
+  ),
   active_run_without_uploaded_at: activeRuns.filter((run) => {
     const document = documents.find(
       (item) => item.id === run.document_id && item.tenant_id === run.tenant_id
@@ -260,6 +266,7 @@ const output = {
     active_run_without_uploaded_at: sampleRuns(anomalies.active_run_without_uploaded_at),
     indexed_without_chunks: sampleDocuments(anomalies.indexed_without_chunks),
     indexed_without_tree: sampleDocuments(anomalies.indexed_without_tree),
+    nonterminal_without_active_run: sampleDocuments(anomalies.nonterminal_without_active_run),
     running_with_persisted_tree: sampleRuns(anomalies.running_with_persisted_tree),
     uploaded_without_active_run: sampleDocuments(anomalies.uploaded_without_active_run)
   },

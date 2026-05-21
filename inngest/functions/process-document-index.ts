@@ -35,6 +35,7 @@ type DocumentForIndexing = {
 };
 
 type IndexingRunClaim = {
+  compute_job_id: string | null;
   id: string;
   inngest_run_id: string | null;
   progress: number;
@@ -282,7 +283,7 @@ export const processDocumentIndex = inngest.createFunction(
         .eq("id", event.data.run_id)
         .eq("tenant_id", event.data.tenant_id)
         .eq("status", "queued")
-        .select("id, inngest_run_id, progress, stage, status")
+        .select("id, compute_job_id, inngest_run_id, progress, stage, status")
         .maybeSingle<IndexingRunClaim>();
 
       if (claimError) {
@@ -291,6 +292,7 @@ export const processDocumentIndex = inngest.createFunction(
 
       if (claimed) {
         return {
+          computeJobId: claimed.compute_job_id,
           progress: claimed.progress,
           reason: "claimed",
           shouldProcess: true,
@@ -301,7 +303,7 @@ export const processDocumentIndex = inngest.createFunction(
 
       const { data: existing, error: existingError } = await supabase
         .from("indexing_runs")
-        .select("id, inngest_run_id, progress, stage, status")
+        .select("id, compute_job_id, inngest_run_id, progress, stage, status")
         .eq("id", event.data.run_id)
         .eq("tenant_id", event.data.tenant_id)
         .maybeSingle<IndexingRunClaim>();
@@ -312,6 +314,7 @@ export const processDocumentIndex = inngest.createFunction(
 
       if (existing?.status === "running" && existing.inngest_run_id === executionRunId) {
         return {
+          computeJobId: existing.compute_job_id,
           progress: existing.progress,
           reason: "retry_same_event",
           shouldProcess: true,
@@ -340,6 +343,7 @@ export const processDocumentIndex = inngest.createFunction(
       }
 
       return {
+        computeJobId: existing?.compute_job_id ?? null,
         progress: existing?.progress ?? 0,
         reason: existing ? "already_claimed_or_terminal" : "run_not_found",
         shouldProcess: false,
@@ -542,6 +546,14 @@ export const processDocumentIndex = inngest.createFunction(
     });
 
     const gatewayJob = await (async (): Promise<ComputeGatewayIndexJobResponse | null> => {
+      if (claim.computeJobId) {
+        return {
+          job_id: claim.computeJobId,
+          stage: "resumed",
+          status: "running"
+        };
+      }
+
       try {
         return await step.run("create-compute-gateway-job", async () => {
           const supabase = createAdminClient();
