@@ -92,6 +92,7 @@ from .events import context_for_send as _context_for_send, emit_tree_node_event
 from .nodes.degrade_mode import degrade_mode, fail_verification
 from .nodes.detect_document_type import detect_document_type
 from .nodes.post_process_tree import post_process_tree
+from .nodes.repair_sections import repair_sections
 from .nodes.routing_summary import collect_routing_summaries, summarize_one_routing
 from .nodes.summarize_node import collect_summaries, prepare_summaries, summarize_one_node
 
@@ -228,51 +229,6 @@ def route_after_verify(state: TreeState) -> str:
     if can_degrade and accuracy < 0.6:
         return "degrade_mode"
     return "fail_verification"
-
-
-async def repair_sections(state: TreeState) -> dict[str, Any]:
-    await emit_tree_node_event(
-        state,
-        message="Reparando secciones invalidas.",
-        metadata={"invalid_section_count": len(state.get("invalid_sections", []))},
-        node="repair_sections",
-        progress=64,
-        status="started",
-    )
-    response = await call_tree_llm_json(
-        repair_sections_prompt(
-            state["document_title"],
-            state["document_type"],
-            state["verified_sections"],
-            state["invalid_sections"],
-            state["prompt_pages"],
-        ),
-        "structure",
-    )
-    repaired = _assert_sections(response["json"])
-    candidate_sections = _ordered_unique_sections([*state["verified_sections"], *repaired])
-    if not candidate_sections:
-        raise RuntimeError("Tree repair no devolvio secciones recuperables.")
-    await emit_tree_node_event(
-        state,
-        message=f"Reparacion genero {len(repaired)} secciones candidatas.",
-        metadata={"repair_section_count": len(repaired)},
-        node="repair_sections",
-        progress=66,
-        status="completed",
-    )
-    return {
-        "candidate_sections": candidate_sections,
-        "invalid_sections": [],
-        "metrics": {
-            **state["metrics"],
-            "candidate_section_count": len(candidate_sections),
-            "repair_attempts": state.get("repair_attempts", 0) + 1,
-            "repair_section_count": len(repaired),
-        },
-        "repair_attempts": state.get("repair_attempts", 0) + 1,
-        "verified_sections": [],
-    }
 
 
 async def _refined_subtree_for_node(state: TreeState, node: TreeNode) -> list[TreeNode] | None:
