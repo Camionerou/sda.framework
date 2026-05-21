@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -677,50 +676,16 @@ def build_graph(checkpointer: Any | None = None):
     return graph.compile(checkpointer=checkpointer)
 
 
-def _checkpoint_dsn() -> str | None:
-    return (
-        os.getenv("SDA_TREE_CHECKPOINT_DSN")
-        or os.getenv("SDA_LANGGRAPH_CHECKPOINT_DSN")
-        or os.getenv("SUPABASE_POOLER_URL")
-        or os.getenv("DATABASE_URL")
+from .checkpoint import (
+    is_checkpointing_configured,
+    run_graph_with_optional_checkpoint as _run_graph_with_optional_checkpoint_impl,
+)
+
+
+async def _run_graph_with_optional_checkpoint(initial_state, *, thread_id):
+    return await _run_graph_with_optional_checkpoint_impl(
+        build_graph, TREE_GRAPH, initial_state, thread_id=thread_id
     )
-
-
-def _checkpointing_enabled() -> bool:
-    value = os.getenv("SDA_TREE_CHECKPOINTING")
-    if value is not None and value != "":
-        return value.lower() not in {"0", "false", "no", "off"}
-    return bool(_checkpoint_dsn())
-
-
-def is_checkpointing_configured() -> bool:
-    return bool(_checkpoint_dsn() and _checkpointing_enabled())
-
-
-async def _run_graph_with_optional_checkpoint(
-    initial_state: TreeState,
-    *,
-    thread_id: str,
-) -> dict[str, Any]:
-    dsn = _checkpoint_dsn()
-    if not dsn or not _checkpointing_enabled():
-        return await TREE_GRAPH.ainvoke(initial_state)
-
-    try:
-        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-    except ImportError as error:
-        raise RuntimeError(
-            "SDA_TREE_CHECKPOINTING requiere instalar langgraph-checkpoint-postgres."
-        ) from error
-
-    async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
-        if os.getenv("SDA_TREE_CHECKPOINT_SETUP") == "1":
-            await checkpointer.setup()
-        graph = build_graph(checkpointer=checkpointer)
-        return await graph.ainvoke(
-            initial_state,
-            config={"configurable": {"thread_id": thread_id}},
-        )
 
 
 TREE_GRAPH = build_graph()
