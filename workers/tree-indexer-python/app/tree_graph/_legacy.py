@@ -7,10 +7,10 @@ from typing import Annotated, Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
-from .embeddings import embed_chunks
-from .events import publish_inngest_event
-from .llm import call_tree_llm_json, call_tree_llm_text
-from .pageindex_style import (
+from ..embeddings import embed_chunks
+from ..events import publish_inngest_event
+from ..llm import call_tree_llm_json, call_tree_llm_text
+from ..pageindex_style import (
     CandidateSection,
     LabeledPage,
     SOURCE_BLOCKS_COORDINATE_SYSTEM,
@@ -25,7 +25,7 @@ from .pageindex_style import (
     split_pages_for_prompt,
     tagged_pages_text,
 )
-from .prompts import (
+from ..prompts import (
     DOCUMENT_TYPES,
     candidate_prompt,
     doc_summary_prompt,
@@ -35,7 +35,7 @@ from .prompts import (
     summary_prompt,
     verification_prompt,
 )
-from .versions import TREE_INDEXER_PYTHON_VERSION
+from ..versions import TREE_INDEXER_PYTHON_VERSION
 
 TREE_INDEXER_VERSION = TREE_INDEXER_PYTHON_VERSION
 
