@@ -6,6 +6,7 @@ import {
   type ComputeGatewayTreeIndexJobResponse,
   type ComputeGatewayTreeIndexJobStatus
 } from "@/lib/indexing/compute-gateway";
+import { documentFailurePatchForRun } from "@/lib/indexing/state";
 import {
   INDEXING_VERSION_COLUMNS,
   INDEXING_VERSION_METADATA,
@@ -251,9 +252,11 @@ export async function recordTreeIndexerFailed(input: {
   await recordTransition({
     event,
     extras: {
-      document: {
-        status_reason: `Tree Indexer fallo; MinerU disponible. ${message}`
-      },
+      document: await documentFailurePatchForRun({
+        documentId: event.data.document_id,
+        message: `Tree Indexer fallo; MinerU disponible. ${message}`,
+        tenantId: event.data.tenant_id
+      }),
       event: { message },
       metadata: {
         extraction_id: terminalGatewayJob.job_id,

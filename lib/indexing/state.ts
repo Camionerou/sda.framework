@@ -101,6 +101,44 @@ export async function recordIndexingTransition(input: IndexingTransitionInput) {
   await snapshot;
 }
 
+export async function documentFailurePatchForRun(input: {
+  documentId: string;
+  message: string;
+  tenantId: string;
+}) {
+  const supabase = createAdminClient();
+  const [treeResult, chunksResult] = await Promise.all([
+    supabase
+      .from("doc_tree")
+      .select("document_id")
+      .eq("tenant_id", input.tenantId)
+      .eq("document_id", input.documentId)
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("chunks")
+      .select("id")
+      .eq("tenant_id", input.tenantId)
+      .eq("document_id", input.documentId)
+      .limit(1)
+      .maybeSingle()
+  ]);
+
+  throwFirstError([treeResult, chunksResult]);
+
+  if (treeResult.data && chunksResult.data) {
+    return {
+      status: "indexed",
+      status_reason: `Reindexacion fallo; indice anterior conservado. ${input.message}`
+    };
+  }
+
+  return {
+    status: "failed",
+    status_reason: input.message
+  };
+}
+
 export async function recordPermanentIndexingFailure(input: {
   documentId: string;
   eventType: string;

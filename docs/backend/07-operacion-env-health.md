@@ -22,17 +22,29 @@ El sync manual de Inngest vive en GitHub Actions via workflow dispatch:
 gh workflow run "Sync Inngest"
 ```
 
-`indexing:health` revisa DB con service role y devuelve JSON con:
+`indexing:health` revisa DB con service role y devuelve JSON con un estado
+operativo (`healthy`, `recovering`, `degraded`, `critical`) y hallazgos
+catalogados por severidad:
 
+- documentos visibles vs ocultos, incluyendo fallidos cargados
+  (`warning/degraded`) y uploads incompletos (`info/recovering`);
+- corridas activas, para marcar el sistema como `recovering` aunque no haya
+  una anomalia estructural;
+- ultima corrida fallida sobre un documento todavia indexado
+  (`latest_reindex_failed_index_preserved`), que conserva visible el indice
+  anterior y queda como warning operativo;
 - documentos `uploaded` sin corrida activa;
 - documentos `queued`, `parsing` o `structuring` sin corrida activa;
 - corridas activas sin upload completo;
 - documentos `indexed` sin arbol o chunks;
-- corridas running con arbol ya persistido;
+- corridas running con arbol ya persistido, catalogadas como `info/recovering`
+  durante una reindexacion normal y como warning si quedan viejas;
 - drift de versiones contra `lib/system-versions.json`.
 
-Con `--strict`, el script falla por anomalias, errores de query y stale indexes
-si se pide explicitamente. El drift de versiones es informativo por defecto: los
+En modo default el script falla por problemas `critical` o errores de query; los
+warnings no rompen health para que estados recuperables o transitorios no
+bloqueen deploys. Con `--strict`, tambien falla por warnings y stale indexes si
+se pide explicitamente. El drift de versiones es informativo por defecto: los
 documentos siguen siendo usables. Si se quiere exigir que todo este reindexado
 con latest, usar `--strict --require-fresh-indexes`.
 

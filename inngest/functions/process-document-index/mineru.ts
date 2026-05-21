@@ -6,7 +6,11 @@ import {
   type ComputeGatewayIndexJobResponse,
   type ComputeGatewayIndexJobStatus
 } from "@/lib/indexing/compute-gateway";
-import { recordIndexingTransition, recordPermanentIndexingFailure } from "@/lib/indexing/state";
+import {
+  documentFailurePatchForRun,
+  recordIndexingTransition,
+  recordPermanentIndexingFailure
+} from "@/lib/indexing/state";
 import { signedUrl as asSignedUrl } from "@/lib/security/signed-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -315,9 +319,11 @@ export async function recordMineruExtractionFailed(input: {
 
     await recordIndexingTransition(
       transitionInput(event, "extract_failed", {
-        document: {
-          status_reason: message
-        },
+        document: await documentFailurePatchForRun({
+          documentId: event.data.document_id,
+          message,
+          tenantId: event.data.tenant_id
+        }),
         event: { message },
         metadata: {
           gateway_stage: terminalGatewayJob.stage,

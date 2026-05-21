@@ -233,14 +233,17 @@ async function indexingHealth(options = {}) {
 
   try {
     const body = JSON.parse(result.stdout);
-    const anomalies = body.anomalies?.length ?? 0;
+    const health = body.health ?? {};
+    const summary = health.summary ?? {};
+    const state = health.state ?? "unknown";
     const drift = body.versions?.indexed_document_reindex_required_count ?? 0;
+    const status = state === "critical" ? "error" : state === "degraded" ? "warn" : "ok";
 
     return {
       details: body,
       label: "Indexing",
-      message: `${anomalies} anomalies · ${drift} docs requieren reindex`,
-      status: result.code === 0 ? "ok" : "warn"
+      message: `${state} · ${summary.info ?? 0} info, ${summary.warning ?? 0} warnings, ${summary.critical ?? 0} critical · ${drift} docs requieren reindex`,
+      status: result.code === 0 ? status : "error"
     };
   } catch {
     return {
