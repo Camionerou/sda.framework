@@ -242,9 +242,11 @@ Contrato:
 - Cada archivo producido se registra en `document_extraction_artifacts`.
 - Los artefactos viven en Supabase Storage bajo un prefijo versionado.
 - El dedupe de extraccion usa `tenant_id + parser + parser_version +
-  parser_backend + source_checksum_sha256`.
+  parser_backend + extraction_pipeline_version + source_checksum_sha256`.
 - Si el mismo tenant sube el mismo archivo dos veces, la segunda ingesta debe
   poder registrar `reused` sin volver a correr MinerU.
+- Si cambia `extraction_pipeline_version`, la misma fuente debe poder
+  reextraerse y persistir una nueva extraccion exitosa.
 
 Ruta canonica:
 
@@ -566,9 +568,12 @@ workers confiables y operaciones backend controladas.
 
 Cada corrida debe guardar:
 
-- `indexer_version`
-- `mineru_version`
-- `tree_builder_version`
+- `indexing_pipeline_version`
+- `extraction_pipeline_version`
+- `tree_indexer_version`
+- `embedding_pipeline_version`
+- `compute_gateway_extraction_version`
+- `mineru_version` / `parser_version`
 - `summary_model`
 - `embedding_model`
 - `vlm_model`
@@ -576,6 +581,12 @@ Cada corrida debe guardar:
 - `prompt_version`
 
 Esto permite reindexacion selectiva y auditoria.
+
+`system_component_versions` es el registro canonico de latest. La RPC
+`request_document_indexing` debe leer desde esa tabla para que los runs creados
+desde UI no nazcan stale. El reconciliador no puede cerrar corridas usando
+arboles de otro run aunque las versiones coincidan: tambien debe validar
+`run_id` en metadata de `doc_tree` y `chunks`.
 
 ---
 

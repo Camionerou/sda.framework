@@ -29,12 +29,16 @@ La arquitectura queda:
 La cache de extraccion se dedupea por:
 
 ```text
-tenant_id + parser + parser_version + parser_backend + source_checksum_sha256
+tenant_id + parser + parser_version + parser_backend + extraction_pipeline_version + source_checksum_sha256
 ```
 
 Si dos documentos del mismo tenant tienen el mismo checksum y ya existe una
 extraccion `succeeded`, el segundo documento puede registrar `reused` en vez de
 reprocesar MinerU.
+
+Actualizacion 2026-05-21: `extraction_pipeline_version` es parte obligatoria de
+la clave de cache. Sin esa columna, una version nueva del pipeline no puede
+reextraer la misma fuente.
 
 ## Ruta de artefactos
 

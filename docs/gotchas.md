@@ -59,7 +59,10 @@
 - Automatic indexing needs a cloud reconciler, not only the upload request. The upload path may fail after Storage succeeds, so Inngest must periodically enqueue uploaded documents without active runs and redispatch stale queued runs.
 - The indexing worker must claim `indexing_runs` idempotently before creating compute jobs. Reconciler redispatches are expected, and duplicate Inngest events must not create duplicate MinerU jobs.
 - Never index a document that does not have `uploaded_at`. If Storage returns `Object not found`, treat it as permanent upload corruption: fail the run/document and emit `indexing.storage_object_missing` instead of leaving the run `running`.
-- A document with persisted `doc_tree` plus chunks is materially indexed even if a previous Inngest run died before the final status update. The reconciler should close that run as `completed/indexed`.
+- A document with persisted `doc_tree` plus chunks is materially indexed even if a previous Inngest run died before the final status update, but the reconciler may only close the run when `doc_tree.metadata.run_id`, `chunks.metadata.run_id`, `indexing_pipeline_version`, and `tree_indexer_version` match that same run.
+- `document_extractions` cache keys must include `extraction_pipeline_version`. Otherwise a new extraction pipeline cannot reprocess the same source checksum.
+- `request_document_indexing` must read latest versions from `system_component_versions`; hardcoded versions in the RPC will create stale runs from the UI.
+- Do not deploy Vercel/Inngest during active reindexing unless it is a hotfix. If a deploy interrupts polling, verify `npm run indexing:health` and let the reconciler recover or requeue any `nonterminal_without_active_run`.
 
 ## Next.js links with side effects
 

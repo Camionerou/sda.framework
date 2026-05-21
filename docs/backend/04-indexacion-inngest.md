@@ -20,6 +20,10 @@ Hace:
 Si Inngest no esta configurado, la ruta responde con `eventQueued: false` y una
 advertencia, pero conserva la corrida en DB.
 
+La RPC toma las versiones latest desde `system_component_versions`. No debe
+tener literales de version hardcodeados: si se sube un componente, la corrida
+nueva debe nacer con esas versiones.
+
 ## Tablas
 
 `indexing_runs`:
@@ -73,6 +77,10 @@ Fases:
 11. Pollea el arbol hasta terminal.
 12. Marca `indexed` o `failed`.
 
+Si la corrida fue reencolada por el reconciliador y todavia conserva un
+`compute_job_id` compatible con las versiones actuales, el workflow retoma ese
+job remoto en vez de crear otro MinerU.
+
 ## Reconciliador
 
 Archivo:
@@ -85,9 +93,11 @@ Corre por cron (`INDEXING_RECONCILER_CRON`, default `*/2 * * * *`).
 
 Hace:
 
-- Cierra corridas activas si ya existe `doc_tree` y `chunks`.
+- Cierra corridas activas si ya existe `doc_tree` y `chunks` del mismo
+  `run_id` y con las mismas versiones del run.
 - Falla corridas cuyo upload nunca se completo.
-- Encola documentos `uploaded` sin corrida activa.
+- Encola documentos `uploaded`, `queued`, `parsing` o `structuring` sin corrida
+  activa.
 - Redispatcha corridas `queued` viejas.
 - Reencola corridas `running` sin progreso reciente.
 
@@ -99,8 +109,11 @@ workflow murio a mitad de camino.
 - Una corrida activa por documento.
 - Inngest debe reclamar antes de crear jobs externos.
 - Redispatch no debe crear dos jobs MinerU para la misma corrida reclamada.
+- Si un run stale tiene `compute_job_id` y las versiones coinciden, el
+  redispatch puede reutilizar ese job. Si las versiones cambiaron, debe borrar
+  `compute_job_id` y arrancar limpio.
 - Si Storage dice "object not found", se trata como corrupcion permanente de
   upload y no como retry infinito.
-- Si el arbol y chunks ya estan persistidos, el reconciliador puede cerrar la
-  corrida aunque Inngest haya muerto antes del ultimo update.
-
+- Si el arbol y chunks ya estan persistidos, el reconciliador solo puede cerrar
+  la corrida cuando `doc_tree.metadata.run_id` y `chunks.metadata.run_id`
+  pertenecen a esa corrida y las columnas de version coinciden.

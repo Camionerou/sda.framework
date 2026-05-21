@@ -45,3 +45,4 @@ separado, con estado claro y sin secretos.
 38. `2026-05-20-38-indexacion-automatica-reconciler.md`
 39. `2026-05-20-39-indexacion-operational-hardening.md`
 40. `2026-05-21-40-system-versioning.md`
+41. `2026-05-21-41-versioned-reindex-hardening.md`

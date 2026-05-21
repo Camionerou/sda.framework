@@ -17,9 +17,11 @@ npm run bootstrap:owner-invite
 - errores recientes;
 - si hay compute gateway configurado;
 - documentos `uploaded` sin corrida activa;
+- documentos `queued`, `parsing` o `structuring` sin corrida activa;
 - corridas activas sin upload completo;
 - documentos `indexed` sin arbol o chunks;
 - corridas running con arbol ya persistido.
+- drift de versiones contra `system_component_versions`.
 
 ## Env por grupo
 
@@ -118,6 +120,15 @@ Documento queda `queued`:
 - Falta sync de Inngest Cloud.
 - Reconciliador todavia no corrio.
 
+Documento queda `parsing` o `structuring` sin corrida activa:
+
+- Hubo interrupcion/redeploy del workflow despues de cambiar estado del
+  documento.
+- El reconciliador debe detectarlo como `nonterminal_without_active_run` y
+  reencolarlo.
+- Si no se reencola, correr `npm run indexing:health` y revisar
+  `indexing_runs` recientes del documento.
+
 Documento queda "Esperando Compute Gateway":
 
 - Falta `COMPUTE_GATEWAY_URL`.
@@ -140,10 +151,18 @@ Documento figura `indexed` pero no responde chat:
 - Verificar `doc_tree` y `chunks`.
 - Embeddings jerarquicos siguen pendientes.
 
+Documento figura `indexed` pero con version vieja:
+
+- `npm run indexing:health` lo lista en
+  `signals.version_drift_requires_reindex`.
+- Reencolarlo con una corrida nueva usando las versiones de
+  `system_component_versions`.
+- No desplegar Vercel/Inngest mientras haya reindexaciones activas salvo
+  hotfix necesario.
+
 ## Secretos
 
 - Nunca hardcodear keys en codigo.
 - No poner service role en browser.
 - Rotar tokens si se copiaron en chat, logs o shell history.
 - El gateway debe recibir signed URLs cortas, no service role desde Inngest.
-
