@@ -1067,6 +1067,29 @@ Hoy hay **12 comandos NPM** en `package.json:7-22`. Cada uno hace una cosa
 chica y el operador encadena varios a mano. La CLI propuesta agrupa flujos
 completos en supercomandos con UX bonita.
 
+### Estado de ejecucion — 2026-05-21
+
+- [x] 4.1 Stack y filosofia: implementado con `citty`, `@clack/prompts`,
+  `picocolors`, entrypoint `bin/sda.mjs` y `package.json#bin.sda`.
+- [x] 4.2 `sda doctor`: implementado; unifica env doctor, secret scan,
+  Upstash, Inngest, Compute Gateway, versiones y `--deep` para indexing.
+- [x] 4.3 `sda ship`: implementado; corre lint/typecheck/build, stage
+  interactivo, commit y push con `--no-push` / `--skip-checks`.
+- [x] 4.4 `sda deploy`: implementado para `gateway`, `tree` y `all`, con
+  comparacion local/remota de versiones, `--diff`, `--version` y healthcheck.
+- [x] 4.5 `sda indexing`: implementado con `list`, `health`, `tail`,
+  `cancel` y `requeue` con despacho Inngest.
+- [x] 4.6 `sda invite`: implementado con create directo (`sda invite
+  email@dominio.com`), `owner`, `list`, `revoke` y `resend`.
+- [x] 4.7 `sda db`: implementado con `diff`, `push`, `test`, `reset` y
+  `migrate`.
+- [x] 4.8 `sda redis`: implementado con `ping`, `ls`, `get`, `del`,
+  `flush --namespace` y `snapshot`.
+- [x] 4.9 `sda dev`: implementado; arranca Next + Inngest dev, con opciones
+  `--tunnel` y `--tail-logs`.
+- [x] 4.10 `sda init`: implementado; verifica deps, escribe `.env.local`,
+  corre `sda doctor --quick` y opcionalmente `types:gen`.
+
 ### 4.1 Stack y filosofia
 
 - **Runtime:** Node nativo, mismo entorno que el resto del repo. Sin Go ni
