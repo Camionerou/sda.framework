@@ -42,10 +42,13 @@ migration propia; la tabla es el espejo runtime que consume la RPC. Por defecto
 usa `NEXT_PUBLIC_SUPABASE_URL` antes que `SUPABASE_URL` para evitar shells con
 admin URL vieja; `VERSION_SYNC_SUPABASE_URL` fuerza un host especifico.
 
-`env:doctor` valida configuracion sin imprimir secretos: pares incompletos,
-URLs invalidas, reuse accidental de service key como public key, mismatch de
-Supabase admin/public URL y prefijos Redis peligrosos en produccion. Con
-`--strict` convierte faltantes criticos en error.
+`env:doctor` valida configuracion sin imprimir secretos y toma `.env.local`
+como fuente local del proyecto por encima de exports stale del shell. Reporta
+pares incompletos, URLs invalidas, reuse accidental de service key como public
+key, mismatch de Supabase admin/public URL y prefijos Redis peligrosos en
+produccion. En modo default, faltantes intencionalmente locales como
+`INNGEST_API_KEY`, Compute Gateway o Google OAuth se informan como `info`; con
+`--strict` vuelven a aparecer como readiness warnings.
 
 `secrets:scan` revisa archivos trackeables por Git y falla si encuentra tokens
 con forma de secreto. No escanea `.env.local` porque esta ignorado, pero evita

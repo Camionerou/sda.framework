@@ -39,9 +39,10 @@ no pueda reconstruirse desde Supabase/Inngest.
 - `npm run test:tree-indexer`
 - `npm run test:db`
 
-`env:doctor` queda con warnings conocidos del entorno local:
+`env:doctor` quedo ajustado posteriormente para usar `.env.local` por encima de
+exports stale del shell y para clasificar faltantes externos no criticos como
+`info` en modo default. En modo strict siguen apareciendo readiness warnings:
 
-- `SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_URL` apuntan a hosts distintos;
 - falta `INNGEST_API_KEY` local para sync manual;
 - falta `COMPUTE_GATEWAY_URL`/token local;
 - Google OAuth no esta configurado en este shell.

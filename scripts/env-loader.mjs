@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 
-export function loadEnvFiles(paths = [".env.local", ".env"]) {
+export function loadEnvFiles(paths = [".env.local", ".env"], options = {}) {
+  const override = options.override === true;
+
   for (const path of paths) {
     if (!existsSync(path)) {
       continue;
@@ -29,7 +31,9 @@ export function loadEnvFiles(paths = [".env.local", ".env"]) {
         value = value.slice(1, -1);
       }
 
-      process.env[key] ??= value;
+      if (override || process.env[key] === undefined) {
+        process.env[key] = value;
+      }
     }
   }
 }

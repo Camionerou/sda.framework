@@ -27,8 +27,9 @@ npm run test:db
 ```
 
 `secrets:scan` y `env:doctor` corren en CI antes de lint/typecheck/build.
-`redis:health` pasa sin secretos cuando Redis no esta configurado; si hay
-Upstash env, exige `PONG`.
+`env:doctor` usa `.env.local` como fuente local del proyecto y deja faltantes
+externos no criticos como `info` en modo default. `redis:health` pasa sin
+secretos cuando Redis no esta configurado; si hay Upstash env, exige `PONG`.
 
 ## Redis
 

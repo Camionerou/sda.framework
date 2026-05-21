@@ -1,6 +1,6 @@
 import { loadEnvFiles } from "./env-loader.mjs";
 
-loadEnvFiles();
+loadEnvFiles([".env.local", ".env"], { override: true });
 
 const args = new Set(process.argv.slice(2));
 const strict = args.has("--strict");
@@ -20,6 +20,10 @@ function has(name) {
 
 function add(status, id, message, metadata = {}) {
   checks.push({ id, message, metadata, status });
+}
+
+function info(id, message, metadata) {
+  add("info", id, message, metadata);
 }
 
 function ok(id, message, metadata) {
@@ -109,6 +113,27 @@ function checkPair(left, right, id, description) {
   error(id, `${description} esta incompleto: configurar ${left} y ${right}.`);
 }
 
+function checkOptionalPair(left, right, id, description, missingMessage) {
+  const leftSet = has(left);
+  const rightSet = has(right);
+
+  if (leftSet && rightSet) {
+    ok(id, `${description} configurado.`);
+    return;
+  }
+
+  if (!leftSet && !rightSet) {
+    if (strict) {
+      warn(id, `${description} no esta configurado.`);
+    } else {
+      info(id, missingMessage ?? `${description} no esta configurado en este entorno.`);
+    }
+    return;
+  }
+
+  error(id, `${description} esta incompleto: configurar ${left} y ${right}.`);
+}
+
 checkUrl("NEXT_PUBLIC_SUPABASE_URL", "supabase.public_url", "NEXT_PUBLIC_SUPABASE_URL", {
   required: true
 });
@@ -167,20 +192,36 @@ checkUrl("INNGEST_APP_URL", "inngest.app_url", "INNGEST_APP_URL", { publicHttps:
 
 if (has("INNGEST_API_KEY")) {
   ok("inngest.api_key", "INNGEST_API_KEY configurado para sync.");
-} else {
+} else if (strict) {
   warn("inngest.api_key", "INNGEST_API_KEY no esta configurado; `npm run inngest:sync` no va a correr.");
+} else {
+  info("inngest.api_key", "INNGEST_API_KEY no esta configurado localmente; solo hace falta para sync manual.");
 }
 
 if (has("INNGEST_SIGNING_KEY")) {
   ok("inngest.signing_key", "INNGEST_SIGNING_KEY configurado.");
-} else {
+} else if (strict) {
   warn("inngest.signing_key", "INNGEST_SIGNING_KEY no esta configurado; validar antes de produccion.");
+} else {
+  info("inngest.signing_key", "INNGEST_SIGNING_KEY no esta configurado en este entorno.");
 }
 
-checkPair("COMPUTE_GATEWAY_URL", "COMPUTE_GATEWAY_TOKEN", "compute.gateway_pair", "Compute Gateway");
+checkOptionalPair(
+  "COMPUTE_GATEWAY_URL",
+  "COMPUTE_GATEWAY_TOKEN",
+  "compute.gateway_pair",
+  "Compute Gateway",
+  "Compute Gateway no esta configurado localmente; el workflow queda en cola si no hay gateway."
+);
 checkUrl("COMPUTE_GATEWAY_URL", "compute.gateway_url", "COMPUTE_GATEWAY_URL");
 
-checkPair("UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "redis.rest_pair", "Upstash Redis REST");
+checkOptionalPair(
+  "UPSTASH_REDIS_REST_URL",
+  "UPSTASH_REDIS_REST_TOKEN",
+  "redis.rest_pair",
+  "Upstash Redis REST",
+  "Upstash Redis no esta configurado en este entorno; los guardrails degradan en abierto."
+);
 checkUrl("UPSTASH_REDIS_REST_URL", "redis.rest_url", "UPSTASH_REDIS_REST_URL", {
   publicHttps: true
 });
@@ -200,14 +241,17 @@ if (has("SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID") || has("SUPABASE_AUTH_EXTERNA
     "oauth.google_pair",
     "Google OAuth"
   );
-} else {
+} else if (strict) {
   warn("oauth.google_pair", "Google OAuth no esta configurado en este entorno.");
+} else {
+  info("oauth.google_pair", "Google OAuth no esta configurado localmente; Supabase remoto puede tenerlo.");
 }
 
 checkUrl("APP_ORIGIN", "app.origin", "APP_ORIGIN");
 
 const summary = {
   errors: checks.filter((check) => check.status === "error").length,
+  info: checks.filter((check) => check.status === "info").length,
   ok: checks.filter((check) => check.status === "ok").length,
   strict,
   warnings: checks.filter((check) => check.status === "warning").length
@@ -219,12 +263,19 @@ if (json) {
   console.log(`Env doctor (${strict ? "strict" : "default"})`);
 
   for (const check of checks) {
-    const prefix = check.status === "ok" ? "ok" : check.status === "warning" ? "warn" : "error";
+    const prefix =
+      check.status === "ok"
+        ? "ok"
+        : check.status === "info"
+          ? "info"
+          : check.status === "warning"
+            ? "warn"
+            : "error";
     console.log(`${prefix.padEnd(5)} ${check.id}: ${check.message}`);
   }
 
   console.log(
-    `Summary: ${summary.ok} ok, ${summary.warnings} warnings, ${summary.errors} errors.`
+    `Summary: ${summary.ok} ok, ${summary.info} info, ${summary.warnings} warnings, ${summary.errors} errors.`
   );
 }
 
