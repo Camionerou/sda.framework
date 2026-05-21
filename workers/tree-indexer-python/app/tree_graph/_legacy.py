@@ -16,7 +16,6 @@ from .config import (
     summary_concurrency as _summary_concurrency,
 )
 from ..embeddings import embed_chunks
-from ..events import publish_inngest_event
 from ..llm import call_tree_llm_json, call_tree_llm_text
 from ..pageindex_style import (
     CandidateSection,
@@ -90,56 +89,7 @@ def _is_large_leaf(node: TreeNode) -> bool:
     return _is_large_leaf_impl(node, max_pages=_refine_max_pages(), max_tokens=_refine_max_tokens())
 
 
-def _graph_event_base(state: TreeState) -> dict[str, Any] | None:
-    tenant_id = state.get("tenant_id")
-    document_id = state.get("document_id")
-    run_id = state.get("run_id")
-    job_id = state.get("job_id")
-    if not all(isinstance(value, str) and value for value in [tenant_id, document_id, run_id, job_id]):
-        return None
-    return {
-        "document_id": document_id,
-        "job_id": job_id,
-        "run_id": run_id,
-        "tenant_id": tenant_id,
-    }
-
-
-async def emit_tree_node_event(
-    state: TreeState,
-    *,
-    message: str,
-    metadata: dict[str, Any] | None = None,
-    node: str,
-    progress: int,
-    status: str,
-) -> None:
-    base = _graph_event_base(state)
-    if not base:
-        return
-    await publish_inngest_event(
-        "indexing/tree.node",
-        {
-            **base,
-            "message": message,
-            "metadata": metadata or {},
-            "node": node,
-            "progress": progress,
-            "stage": "structuring",
-            "status": status,
-        },
-    )
-
-
-def _context_for_send(state: TreeState) -> dict[str, str]:
-    return {
-        "document_id": state.get("document_id", ""),
-        "document_title": state.get("document_title", ""),
-        "document_type": state.get("document_type", "other"),
-        "job_id": state.get("job_id", ""),
-        "run_id": state.get("run_id", ""),
-        "tenant_id": state.get("tenant_id", ""),
-    }
+from .events import context_for_send as _context_for_send, emit_tree_node_event
 
 
 async def detect_document_type(state: TreeState) -> dict[str, Any]:
