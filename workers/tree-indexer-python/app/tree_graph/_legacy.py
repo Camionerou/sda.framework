@@ -91,6 +91,7 @@ def _is_large_leaf(node: TreeNode) -> bool:
 from .events import context_for_send as _context_for_send, emit_tree_node_event
 from .nodes.degrade_mode import degrade_mode, fail_verification
 from .nodes.detect_document_type import detect_document_type
+from .nodes.summarize_node import collect_summaries, prepare_summaries, summarize_one_node
 
 
 async def build_candidate_tree(state: TreeState) -> dict[str, Any]:
@@ -391,15 +392,6 @@ def route_after_refine(state: TreeState) -> str:
     return "prepare_summaries"
 
 
-def prepare_summaries(state: TreeState) -> dict[str, Any]:
-    return {
-        "metrics": {
-            **state["metrics"],
-            "tree_node_count": len(flatten_tree(state["tree"])),
-        }
-    }
-
-
 def fan_out_summaries(state: TreeState) -> list[Send]:
     context = _context_for_send(state)
     return [
@@ -412,43 +404,6 @@ def fan_out_summaries(state: TreeState) -> list[Send]:
         )
         for node, path in flatten_tree(state["tree"])
     ]
-
-
-async def summarize_one_node(state: TreeState) -> dict[str, Any]:
-    target = state["summary_target"]
-    await emit_tree_node_event(
-        state,
-        message=f"Resumiendo nodo {target['node_id']}.",
-        metadata={"node_id": target["node_id"], "title": target["title"]},
-        node="summarize_one_node",
-        progress=80,
-        status="started",
-    )
-    response = await call_tree_llm_text(summary_prompt(_node_from_task(target)), "summary")
-    summary = response["content"].strip()
-    await emit_tree_node_event(
-        state,
-        message=f"Resumen de nodo {target['node_id']} listo.",
-        metadata={"node_id": target["node_id"]},
-        node="summarize_one_node",
-        progress=82,
-        status="completed",
-    )
-    return {"summary_results": [{"node_id": target["node_id"], "text": summary}]}
-
-
-async def collect_summaries(state: TreeState) -> dict[str, Any]:
-    by_node_id = {result["node_id"]: result["text"] for result in state.get("summary_results", [])}
-    for node in _visit_tree(state["tree"]):
-        if summary := by_node_id.get(node["node_id"]):
-            node["summary"] = summary
-    doc_summary = (
-        await call_tree_llm_text(doc_summary_prompt(state["tree"]), "summary")
-    )["content"].strip()
-    return {
-        "doc_summary": doc_summary,
-        "metrics": {**state["metrics"], "summary_node_count": len(by_node_id)},
-    }
 
 
 def fan_out_routing_summaries(state: TreeState) -> list[Send]:
