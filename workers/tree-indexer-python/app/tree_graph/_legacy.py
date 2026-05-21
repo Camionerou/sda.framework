@@ -93,70 +93,11 @@ from .nodes.degrade_mode import degrade_mode, fail_verification
 from .nodes.detect_document_type import detect_document_type
 from .nodes.post_process_tree import post_process_tree
 from .nodes.repair_sections import repair_sections
+from .nodes.build_candidate_tree import build_candidate_tree
 from .nodes.embed_hierarchy import embed_hierarchy
 from .nodes.verify_tree import verify_tree
 from .nodes.routing_summary import collect_routing_summaries, summarize_one_routing
 from .nodes.summarize_node import collect_summaries, prepare_summaries, summarize_one_node
-
-
-async def build_candidate_tree(state: TreeState) -> dict[str, Any]:
-    await emit_tree_node_event(
-        state,
-        message="Construyendo arbol candidato.",
-        metadata={"tree_mode": state.get("tree_mode", "toc")},
-        node="build_candidate_tree",
-        progress=50,
-        status="started",
-    )
-    groups = split_pages_for_prompt(state["prompt_pages"], _max_prompt_chars())
-    sections: list[CandidateSection] = []
-    model: str | None = None
-    provider: str | None = None
-    provider_order: list[str] = []
-    service_tier: str | None = None
-
-    for group in groups:
-        response = await call_tree_llm_json(
-            candidate_prompt(
-                state["document_title"],
-                state["document_type"],
-                tagged_pages_text(group),
-                sections if sections else None,
-                state.get("tree_mode", "toc"),
-            ),
-            "structure",
-        )
-        sections.extend(_assert_sections(response["json"]))
-        model = response["model"]
-        provider = response["provider"]
-        provider_order = response.get("provider_order") or []
-        service_tier = response.get("service_tier")
-
-    if not sections:
-        raise RuntimeError("Tree LLM no encontro secciones para construir el arbol.")
-
-    metrics = {
-        **state["metrics"],
-        "candidate_section_count": len(sections),
-        "llm_model": model,
-        "llm_provider": provider,
-        "llm_provider_order": provider_order,
-        "llm_service_tier": service_tier,
-    }
-    await emit_tree_node_event(
-        state,
-        message=f"Arbol candidato generado con {len(sections)} secciones.",
-        metadata={"candidate_section_count": len(sections)},
-        node="build_candidate_tree",
-        progress=55,
-        status="completed",
-    )
-    return {
-        "candidate_sections": sections,
-        "metrics": metrics,
-        "provider": provider or "",
-        "version": TREE_INDEXER_VERSION,
-    }
 
 
 def route_after_verify(state: TreeState) -> str:
