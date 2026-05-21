@@ -28,9 +28,15 @@ import {
   documentStatusTone,
   formatBytes,
   type DocumentRow,
-  type IndexingEventRow,
   type IndexingRunRow
 } from "@/lib/documents";
+import {
+  getDocumentDetailSnapshotCache,
+  setDocumentDetailSnapshotCache,
+  type ComponentVersionRow,
+  type DocumentDetailSnapshot,
+  type TreeRow
+} from "@/lib/document-detail-cache";
 import {
   compactId,
   formatDateTime,
@@ -41,21 +47,6 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-
-type TreeRow = {
-  created_at: string;
-  indexing_pipeline_version: string | null;
-  model: string | null;
-  summary: string | null;
-  tree_indexer_version: string | null;
-  tree_prompt_version: string | null;
-  version: string | null;
-};
-
-type ComponentVersionRow = {
-  component: string;
-  version: string;
-};
 
 async function countRows(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -93,26 +84,28 @@ export default async function DocumentDetailPage({
     redirect("/app");
   }
 
-  const { data: document, error } = await supabase
-    .from("documents")
-    .select(
-      "id, title, filename, mime_type, byte_size, r2_bucket, r2_key, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
-    )
-    .eq("id", id)
-    .maybeSingle<DocumentRow>();
+  let snapshot = (await getDocumentDetailSnapshotCache({ documentId: id, tenantId })).value;
 
-  if (error || !document) {
-    notFound();
-  }
+  if (!snapshot) {
+    const { data: document, error } = await supabase
+      .from("documents")
+      .select(
+        "id, title, filename, mime_type, byte_size, r2_bucket, r2_key, status, status_reason, uploaded_at, indexed_at, created_at, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
+      )
+      .eq("id", id)
+      .maybeSingle<DocumentRow>();
 
-  const [
-    { data: tree },
-    chunks,
-    { data: indexingRuns },
-    { data: indexingEvents },
-    { data: componentVersions }
-  ] =
-    await Promise.all([
+    if (error || !document) {
+      notFound();
+    }
+
+    const [
+      { data: tree },
+      chunks,
+      { data: indexingRuns },
+      { data: indexingEvents },
+      { data: componentVersions }
+    ] = await Promise.all([
       supabase
         .from("doc_tree")
         .select(
@@ -135,15 +128,32 @@ export default async function DocumentDetailPage({
         .select("id, run_id, document_id, event_type, stage, severity, message, progress, created_at")
         .eq("document_id", document.id)
         .order("created_at", { ascending: true })
-        .limit(80)
-        .returns<IndexingEventRow[]>(),
+        .limit(80),
       supabase
         .from("system_component_versions")
         .select("component, version")
         .returns<ComponentVersionRow[]>()
     ]);
 
-  const latestRun = indexingRuns?.[0] ?? null;
+    snapshot = {
+      chunks,
+      componentVersions: componentVersions ?? [],
+      document,
+      indexingEvents: indexingEvents ?? [],
+      latestRun: indexingRuns?.[0] ?? null,
+      tree: tree ?? null
+    } satisfies DocumentDetailSnapshot;
+
+    await setDocumentDetailSnapshotCache(
+      {
+        documentId: document.id,
+        tenantId
+      },
+      snapshot
+    );
+  }
+
+  const { chunks, componentVersions, document, indexingEvents, latestRun, tree } = snapshot;
   const latestVersions = new Map(
     (componentVersions ?? []).map((row) => [row.component, row.version])
   );
@@ -189,7 +199,7 @@ export default async function DocumentDetailPage({
     return current === latest ? (
       <Badge tone="success">Actual</Badge>
     ) : (
-      <Badge tone="warning">Vieja</Badge>
+      <Badge tone="warning">Anterior</Badge>
     );
   }
 
@@ -212,7 +222,7 @@ export default async function DocumentDetailPage({
             <Badge tone={documentStatusTone(document.status)}>
               {documentStatusLabel(document.status)}
             </Badge>
-            {staleVersions ? <Badge tone="warning">Reindex sugerido</Badge> : null}
+            {staleVersions ? <Badge tone="warning">Versión anterior</Badge> : null}
             <Link className="button button-secondary" href={`/app/documents/${document.id}/download`}>
               <Download aria-hidden="true" size={16} />
               Descargar
@@ -297,7 +307,7 @@ export default async function DocumentDetailPage({
               <CardContent>
                 <IndexingTimeline
                   documentId={document.id}
-                  initialEvents={indexingEvents ?? []}
+                  initialEvents={indexingEvents}
                   initialRun={latestRun}
                 />
               </CardContent>

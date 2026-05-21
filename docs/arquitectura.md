@@ -21,6 +21,9 @@ La arquitectura combina:
 - **Next.js + Supabase** para app, auth, storage inicial, Postgres, RLS,
   Realtime y pgvector.
 - **Inngest** para ingesta durable, retries, fan-out y observabilidad.
+- **Upstash Redis** para estado operacional rapido y reconstruible: locks
+  efimeros, rate limits, backpressure por tenant, heartbeats, snapshots live y
+  caches TTL; no es fuente de verdad.
 - **srv-ia-01** como compute gateway privado para MinerU, LangGraph Tree
   Indexer y VLM futuro.
 - **Cloudflare Tunnel + Access** para exponer el compute gateway sin abrir
@@ -375,10 +378,17 @@ Tools esperadas:
 
 Upstash Redis:
 
-- rate limits
-- quotas
-- dedup hash
-- cache corto
+- rate limits por tenant/user en requests sensibles
+- backpressure por tenant para corridas activas de indexacion
+- locks efimeros con TTL para despachos de indexacion
+- heartbeats cortos de APIs/workflows/workers
+- snapshots live de corridas de indexacion
+- cache server-side de snapshots operativos reconstruibles
+- cache corto futuro para retrieval/LLM
+
+Redis es confiable como plataforma operacional, pero los datos guardados ahi
+deben ser reconstruibles o tolerar TTL. La verdad durable sigue en Supabase e
+Inngest.
 
 LangSmith:
 
@@ -580,13 +590,16 @@ Cada corrida debe guardar:
 - `document_checksum`
 - `prompt_version`
 
-Esto permite reindexacion selectiva y auditoria.
+Esto permite auditoria por epoca y reindexacion selectiva cuando una mejora lo
+justifique. Un documento con version anterior sigue siendo usable si tiene
+`doc_tree` y `chunks` validos.
 
-`system_component_versions` es el registro canonico de latest. La RPC
-`request_document_indexing` debe leer desde esa tabla para que los runs creados
-desde UI no nazcan stale. El reconciliador no puede cerrar corridas usando
-arboles de otro run aunque las versiones coincidan: tambien debe validar
-`run_id` en metadata de `doc_tree` y `chunks`.
+`lib/system-versions.ts` es el registro canonico de latest en el repo.
+`system_component_versions` es el espejo runtime que consume la RPC
+`request_document_indexing`; se actualiza con `npm run versions:sync`, no con
+una migration por cada bump. El reconciliador no puede cerrar corridas usando
+arboles de otro run aunque las versiones coincidan: tambien debe validar `run_id`
+en metadata de `doc_tree` y `chunks`.
 
 ---
 

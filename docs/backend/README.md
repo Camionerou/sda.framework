@@ -16,6 +16,7 @@ verdad; Inngest orquesta jobs durables; los workers hacen el computo pesado.
 - [`05-workers-compute-tree-indexer.md`](./05-workers-compute-tree-indexer.md): Compute Gateway, MinerU y Tree Indexer.
 - [`06-contratos-frontend.md`](./06-contratos-frontend.md): como conectar frontend al backend sin romper seguridad.
 - [`07-operacion-env-health.md`](./07-operacion-env-health.md): env vars, comandos, health checks y debugging.
+- [`08-upstash-redis.md`](./08-upstash-redis.md): Redis operacional para locks, backpressure, rate limits, heartbeats, snapshots live y caches TTL.
 
 ## Estado real
 
@@ -28,6 +29,8 @@ Implementado:
 - Supabase Storage privado para documentos y artefactos.
 - Upload con dedupe por `checksum_sha256`.
 - Inngest endpoint y funciones de indexacion.
+- Upstash Redis para locks efimeros, backpressure, rate limits, heartbeats,
+  snapshots live y cache server-side reconstruible.
 - Timeline live con Supabase Realtime.
 - Compute Gateway Node para MinerU.
 - Tree Indexer Python FastAPI con LangGraph y LLM.
@@ -43,4 +46,3 @@ Pendiente o incompleto:
 Si un documento dice "frontend", se refiere a la app Next que consume este
 backend. Si dice "worker", se refiere a servicios fuera de Vercel, normalmente
 corriendo en `srv-ia-01`.
-

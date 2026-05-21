@@ -6,8 +6,15 @@
 npm run lint
 npm run typecheck
 npm run build
+npm run secrets:scan
+npm run env:doctor
+npm run test:tree-indexer
+npm run test:db
 npm run indexing:health
+npm run indexing:health -- --strict
 npm run inngest:sync
+npm run redis:health
+npm run versions:sync
 npm run bootstrap:owner-invite
 ```
 
@@ -22,6 +29,28 @@ npm run bootstrap:owner-invite
 - documentos `indexed` sin arbol o chunks;
 - corridas running con arbol ya persistido.
 - drift de versiones contra `system_component_versions`.
+
+Con `--strict`, el script falla por senales operativas criticas como
+`COMPUTE_GATEWAY_URL`, `INNGEST_EVENT_KEY`, anomalias o errores de query. El
+drift de versiones es informativo por defecto: los documentos siguen siendo
+usables. Si se quiere exigir que todo este reindexado con latest, usar
+`--strict --require-fresh-indexes`.
+
+`versions:sync` lee `lib/system-versions.ts` y sincroniza
+`system_component_versions` con service role. Los version bumps no requieren una
+migration propia; la tabla es el espejo runtime que consume la RPC. Por defecto
+usa `NEXT_PUBLIC_SUPABASE_URL` antes que `SUPABASE_URL` para evitar shells con
+admin URL vieja; `VERSION_SYNC_SUPABASE_URL` fuerza un host especifico.
+
+`env:doctor` valida configuracion sin imprimir secretos: pares incompletos,
+URLs invalidas, reuse accidental de service key como public key, mismatch de
+Supabase admin/public URL y prefijos Redis peligrosos en produccion. Con
+`--strict` convierte faltantes criticos en error.
+
+`secrets:scan` revisa archivos trackeables por Git y falla si encuentra tokens
+con forma de secreto. No escanea `.env.local` porque esta ignorado, pero evita
+commits accidentales de Redis URLs con password, tokens Upstash, private keys y
+service-role-like keys.
 
 ## Env por grupo
 
@@ -76,6 +105,24 @@ INDEXING_RECONCILER_STALE_QUEUED_MINUTES
 INDEXING_RECONCILER_STALE_RUNNING_MINUTES
 ```
 
+Upstash Redis operacional:
+
+```text
+UPSTASH_REDIS_REST_URL
+UPSTASH_REDIS_REST_TOKEN
+UPSTASH_REDIS_KEY_PREFIX
+UPSTASH_REDIS_RATELIMIT_TIMEOUT_MS
+UPSTASH_REDIS_RATELIMIT_ANALYTICS
+UPSTASH_REDIS_HEARTBEAT_TTL_SECONDS
+INDEXING_REQUEST_RATE_LIMIT_MAX
+INDEXING_REQUEST_RATE_LIMIT_WINDOW
+INDEXING_DISPATCH_LOCK_TTL_SECONDS
+INDEXING_TENANT_ACTIVE_LIMIT
+INDEXING_TENANT_ACTIVE_TTL_SECONDS
+INDEXING_RUN_SNAPSHOT_TTL_SECONDS
+DOCUMENT_DETAIL_CACHE_TTL_SECONDS
+```
+
 LLM Tree Indexer:
 
 ```text
@@ -103,6 +150,9 @@ curl -H "authorization: Bearer $COMPUTE_GATEWAY_TOKEN" \
   "$COMPUTE_GATEWAY_URL/v1/health"
 ```
 
+El health del gateway es autenticado y no devuelve URLs internas. Debe informar
+`auth_configured: true` y los limites operativos, no secretos.
+
 Tree Indexer via gateway:
 
 ```bash
@@ -111,6 +161,20 @@ curl -H "authorization: Bearer $COMPUTE_GATEWAY_TOKEN" \
 ```
 
 Ese segundo check deberia devolver `404` autenticado, no `401` ni error de red.
+
+Upstash Redis:
+
+```bash
+npm run redis:health
+```
+
+Sin `UPSTASH_REDIS_REST_URL` y `UPSTASH_REDIS_REST_TOKEN`, el comando informa
+`configured: false` y sale con codigo `0`. Si Redis esta configurado, espera
+`PONG`; una falla ahi si sale con codigo distinto de cero.
+
+`npm run indexing:health` tambien incluye estado Redis cuando hay Upstash
+configurado: heartbeats de API/workflow, ultimo snapshot live de indexacion y
+conteo de slots activos por tenant.
 
 ## Diagnostico rapido
 
@@ -154,9 +218,12 @@ Documento figura `indexed` pero no responde chat:
 Documento figura `indexed` pero con version vieja:
 
 - `npm run indexing:health` lo lista en
-  `signals.version_drift_requires_reindex`.
-- Reencolarlo con una corrida nueva usando las versiones de
-  `system_component_versions`.
+  `signals.indexed_document_version_drift`.
+- Reencolarlo es opcional y se decide cuando una version nueva cambie calidad,
+  parsing, estructura o compatibilidad. La version sirve tambien como marca de
+  epoca/auditoria.
+- Si el deploy acaba de cambiar versiones, correr `npm run versions:sync`
+  antes de reencolar.
 - No desplegar Vercel/Inngest mientras haya reindexaciones activas salvo
   hotfix necesario.
 
@@ -164,5 +231,7 @@ Documento figura `indexed` pero con version vieja:
 
 - Nunca hardcodear keys en codigo.
 - No poner service role en browser.
+- No commitear tokens de Upstash. Usar solo `UPSTASH_REDIS_REST_URL` y
+  `UPSTASH_REDIS_REST_TOKEN` por env.
 - Rotar tokens si se copiaron en chat, logs o shell history.
 - El gateway debe recibir signed URLs cortas, no service role desde Inngest.

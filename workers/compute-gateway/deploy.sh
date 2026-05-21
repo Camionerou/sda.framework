@@ -47,8 +47,9 @@ ssh "$HOST" "mkdir -p '$REMOTE_DIR' '$DATA_DIR' ~/.config/systemd/user"
 ssh "$HOST" "cat > '$REMOTE_DIR/.env' <<'EOF'
 PORT=$PORT
 SDA_COMPUTE_GATEWAY_DATA_DIR=$DATA_DIR
-SDA_COMPUTE_GATEWAY_VERSION=${SDA_COMPUTE_GATEWAY_VERSION:-0.1.1}
-SDA_EXTRACTION_PIPELINE_VERSION=${SDA_EXTRACTION_PIPELINE_VERSION:-0.1.1}
+SDA_COMPUTE_GATEWAY_VERSION=${SDA_COMPUTE_GATEWAY_VERSION:-0.1.2}
+SDA_EXTRACTION_PIPELINE_VERSION=${SDA_EXTRACTION_PIPELINE_VERSION:-0.1.3}
+SDA_INDEXING_PIPELINE_VERSION=${SDA_INDEXING_PIPELINE_VERSION:-0.1.3}
 SDA_COMPUTE_GATEWAY_TOKEN=$SDA_COMPUTE_GATEWAY_TOKEN
 SDA_COMPUTE_GATEWAY_CONCURRENCY=$CONCURRENCY
 SDA_MINERU_BIN=$MINERU_BIN
@@ -59,6 +60,7 @@ SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
 SDA_TREE_INDEXER_URL=$TREE_INDEXER_URL
 SDA_TREE_INDEXER_TOKEN=$SDA_TREE_INDEXER_TOKEN
 EOF"
+ssh "$HOST" "chmod 600 '$REMOTE_DIR/.env'"
 ssh "$HOST" "cp '$REMOTE_DIR/sda-compute-gateway.service' ~/.config/systemd/user/sda-compute-gateway.service"
 ssh "$HOST" "if sudo -n true 2>/dev/null; then sudo loginctl enable-linger \"\$(whoami)\"; fi"
 ssh "$HOST" "systemctl --user daemon-reload && systemctl --user enable sda-compute-gateway.service && systemctl --user restart sda-compute-gateway.service"

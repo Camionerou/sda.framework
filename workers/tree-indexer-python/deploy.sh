@@ -73,7 +73,7 @@ rsync -av --delete \
 ssh "$HOST" "cat > '$REMOTE_DIR/.env' <<'EOF'
 PORT=$PORT
 SDA_TREE_INDEXER_DATA_DIR=$DATA_DIR
-SDA_TREE_INDEXER_VERSION=${SDA_TREE_INDEXER_VERSION:-0.1.1}
+SDA_TREE_INDEXER_VERSION=${SDA_TREE_INDEXER_VERSION:-0.1.2}
 SDA_TREE_PROMPT_VERSION=${SDA_TREE_PROMPT_VERSION:-0.1.1}
 SDA_TREE_INDEXER_TOKEN=$SDA_TREE_INDEXER_TOKEN
 SDA_TREE_INDEXER_CONCURRENCY=$CONCURRENCY
@@ -97,6 +97,7 @@ SDA_TREE_SUMMARY_CONCURRENCY=${SDA_TREE_SUMMARY_CONCURRENCY:-3}
 OPENROUTER_API_KEY=$OPENROUTER_API_KEY
 OPENAI_API_KEY=$OPENAI_API_KEY
 EOF"
+ssh "$HOST" "chmod 600 '$REMOTE_DIR/.env'"
 
 ssh "$HOST" "python3 -m venv '$REMOTE_DIR/.venv' && '$REMOTE_DIR/.venv/bin/pip' install --upgrade pip >/dev/null && '$REMOTE_DIR/.venv/bin/pip' install -r '$REMOTE_DIR/requirements.txt'"
 ssh "$HOST" "cp '$REMOTE_DIR/sda-tree-indexer.service' ~/.config/systemd/user/sda-tree-indexer.service"

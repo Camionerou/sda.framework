@@ -20,6 +20,8 @@ PORT=8790
 SDA_TREE_INDEXER_DATA_DIR=/var/lib/sda-tree-indexer
 SDA_TREE_INDEXER_TOKEN=secret
 SDA_TREE_INDEXER_CONCURRENCY=1
+SDA_TREE_INDEXER_MAX_BODY_BYTES=1048576
+SDA_ALLOW_UNAUTHENTICATED_WORKER=0
 
 SUPABASE_URL=https://project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
@@ -41,8 +43,8 @@ SDA_TREE_MAX_PROMPT_CHARS=60000
 SDA_TREE_SUMMARY_CONCURRENCY=3
 ```
 
-`SDA_TREE_INDEXER_TOKEN` puede omitirse en desarrollo. En servidor real debe
-estar configurado.
+`SDA_TREE_INDEXER_TOKEN` es obligatorio por defecto. Para desarrollo local sin
+auth hay que optar explicitamente con `SDA_ALLOW_UNAUTHENTICATED_WORKER=1`.
 
 ## Desarrollo local
 

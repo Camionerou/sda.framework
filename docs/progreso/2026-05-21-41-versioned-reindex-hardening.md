@@ -2,6 +2,10 @@
 
 Estado: implementado, deployado, migrado y verificado en remoto.
 
+Nota posterior: la semantica de drift de versiones cambio en
+`2026-05-21-42-worker-infra-hardening-version-sync.md`. Drift ya no implica
+reindexacion obligatoria; sirve como auditoria y reindexacion selectiva.
+
 ## Causa raiz
 
 Durante la reindexacion por versiones viejas aparecieron cuatro bordes:
@@ -41,14 +45,16 @@ necesario. Si se despliega durante un run, confirmar despues:
 npm run indexing:health
 ```
 
-La salida debe quedar sin:
+La salida debe quedar sin anomalias operativas:
 
-- `version_drift_requires_reindex`
 - `active_run_without_uploaded_at`
 - `indexed_without_tree`
 - `indexed_without_chunks`
 - `nonterminal_without_active_run`
 - `running_with_persisted_tree`
+
+El drift de versiones queda como senal informativa salvo que se corra
+`indexing:health -- --strict --require-fresh-indexes`.
 
 ## Estado final verificado
 

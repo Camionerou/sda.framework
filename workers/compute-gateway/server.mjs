@@ -10,9 +10,14 @@ import { promisify } from "node:util";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const DATA_DIR = process.env.SDA_COMPUTE_GATEWAY_DATA_DIR ?? "/var/lib/sda-compute-gateway";
-const COMPUTE_GATEWAY_VERSION = process.env.SDA_COMPUTE_GATEWAY_VERSION ?? "0.1.1";
-const EXTRACTION_PIPELINE_VERSION = process.env.SDA_EXTRACTION_PIPELINE_VERSION ?? "0.1.1";
+const COMPUTE_GATEWAY_VERSION = process.env.SDA_COMPUTE_GATEWAY_VERSION ?? "0.1.2";
+const EXTRACTION_PIPELINE_VERSION = process.env.SDA_EXTRACTION_PIPELINE_VERSION ?? "0.1.3";
+const INDEXING_PIPELINE_VERSION = process.env.SDA_INDEXING_PIPELINE_VERSION ?? "0.1.3";
 const MAX_CONCURRENT_JOBS = positiveInteger(process.env.SDA_COMPUTE_GATEWAY_CONCURRENCY, 1);
+const MAX_REQUEST_BODY_BYTES = positiveInteger(
+  process.env.SDA_COMPUTE_GATEWAY_MAX_BODY_BYTES,
+  1_048_576
+);
 const MINERU_BACKEND = process.env.SDA_MINERU_BACKEND ?? "pipeline";
 const MINERU_BIN = process.env.SDA_MINERU_BIN ?? "/home/sistemas/sda-mineru/.venv/bin/mineru";
 const MINERU_LANG = process.env.SDA_MINERU_LANG ?? "latin";
@@ -23,6 +28,7 @@ const SUPABASE_SERVICE_ROLE_KEY =
 const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/+$/, "");
 const TOKEN = process.env.SDA_COMPUTE_GATEWAY_TOKEN;
 const TREE_INDEXER_TOKEN = process.env.SDA_TREE_INDEXER_TOKEN ?? TOKEN;
+const ALLOW_UNAUTHENTICATED_WORKER = process.env.SDA_ALLOW_UNAUTHENTICATED_WORKER === "1";
 const TREE_INDEXER_URL = (process.env.SDA_TREE_INDEXER_URL ?? "http://127.0.0.1:8790").replace(
   /\/+$/,
   ""
@@ -45,9 +51,22 @@ function json(response, statusCode, body) {
   response.end(JSON.stringify(body));
 }
 
+class RequestBodyTooLargeError extends Error {
+  constructor(limit) {
+    super(`Request body exceeds ${limit} bytes.`);
+    this.name = "RequestBodyTooLargeError";
+    this.limit = limit;
+  }
+}
+
 function requireAuth(request, response) {
   if (!TOKEN) {
-    return true;
+    if (ALLOW_UNAUTHENTICATED_WORKER) {
+      return true;
+    }
+
+    json(response, 503, { error: "Worker auth token is not configured." });
+    return false;
   }
 
   const header = request.headers.authorization ?? "";
@@ -60,24 +79,29 @@ function requireAuth(request, response) {
   return false;
 }
 
-async function readJson(request) {
+async function readRequestBody(request, limit = MAX_REQUEST_BODY_BYTES) {
   const chunks = [];
+  let size = 0;
 
   for await (const chunk of request) {
+    size += chunk.length;
+
+    if (size > limit) {
+      throw new RequestBodyTooLargeError(limit);
+    }
+
     chunks.push(chunk);
   }
 
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return Buffer.concat(chunks);
+}
+
+async function readJson(request) {
+  return JSON.parse((await readRequestBody(request)).toString("utf8"));
 }
 
 async function readText(request) {
-  const chunks = [];
-
-  for await (const chunk of request) {
-    chunks.push(chunk);
-  }
-
-  return Buffer.concat(chunks).toString("utf8");
+  return (await readRequestBody(request)).toString("utf8");
 }
 
 function validateIndexJob(payload) {
@@ -557,7 +581,11 @@ async function buildExtractionManifest(payload, mineruResult, artifactUpload) {
       "extraction_pipeline_version",
       EXTRACTION_PIPELINE_VERSION
     ),
-    indexing_pipeline_version: versionFromPayload(payload, "indexing_pipeline_version", "0.1.1"),
+    indexing_pipeline_version: versionFromPayload(
+      payload,
+      "indexing_pipeline_version",
+      INDEXING_PIPELINE_VERSION
+    ),
     lang: MINERU_LANG,
     parser: "mineru",
     parser_version: mineruResult.parserVersion,
@@ -636,6 +664,14 @@ async function createIndexJob(request, response) {
     payload = await readJson(request);
     validateIndexJob(payload);
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      json(response, 413, {
+        error: error.message,
+        max_body_bytes: error.limit
+      });
+      return;
+    }
+
     json(response, 400, {
       error: error instanceof Error ? error.message : "Invalid request."
     });
@@ -706,7 +742,22 @@ async function proxyTreeIndexer(request, response, url) {
     return;
   }
 
-  const body = request.method === "POST" ? await readText(request) : undefined;
+  let body;
+
+  try {
+    body = request.method === "POST" ? await readText(request) : undefined;
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      json(response, 413, {
+        error: error.message,
+        max_body_bytes: error.limit
+      });
+      return;
+    }
+
+    throw error;
+  }
+
   const upstreamResponse = await fetch(`${TREE_INDEXER_URL}${url.pathname}${url.search}`, {
     body,
     headers: {
@@ -728,18 +779,25 @@ const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
     if (request.method === "GET" && url.pathname === "/v1/health") {
+      if (!requireAuth(request, response)) {
+        return;
+      }
+
       json(response, 200, {
         active_jobs: activeJobs,
+        auth_configured: Boolean(TOKEN),
         compute_gateway_version: COMPUTE_GATEWAY_VERSION,
         concurrency: MAX_CONCURRENT_JOBS,
         extraction_pipeline_version: EXTRACTION_PIPELINE_VERSION,
+        indexing_pipeline_version: INDEXING_PIPELINE_VERSION,
         mineru_backend: MINERU_BACKEND,
         mineru_lang: MINERU_LANG,
         mineru_storage_configured: Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY),
         ok: true,
         pending_jobs: pendingJobs.length,
+        request_body_limit_bytes: MAX_REQUEST_BODY_BYTES,
         service: "sda-compute-gateway",
-        tree_indexer_url: TREE_INDEXER_URL
+        tree_indexer_auth_configured: Boolean(TREE_INDEXER_TOKEN)
       });
       return;
     }

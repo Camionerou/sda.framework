@@ -11,10 +11,14 @@ POST /api/documents/:id/indexing/request
 Hace:
 
 1. Valida sesion y claims.
-2. Ejecuta RPC `request_document_indexing`.
-3. Crea o reutiliza una corrida en `indexing_runs`.
-4. Inserta evento inicial en `indexing_events`.
-5. Envia `document/index.requested` a Inngest si hay `INNGEST_DEV=1` o
+2. Aplica rate limit con Upstash Redis si esta configurado.
+3. Ejecuta RPC `request_document_indexing`.
+4. Crea o reutiliza una corrida en `indexing_runs`.
+5. Inserta evento inicial en `indexing_events`.
+6. Invalida cache Redis de detalle documental para ese documento.
+7. Toma un lock efimero por tenant/documento/run antes de despachar.
+8. Reserva un slot Redis de backpressure por tenant.
+9. Envia `document/index.requested` a Inngest si hay `INNGEST_DEV=1` o
    `INNGEST_EVENT_KEY`.
 
 Si Inngest no esta configurado, la ruta responde con `eventQueued: false` y una
@@ -100,6 +104,7 @@ Hace:
   activa.
 - Redispatcha corridas `queued` viejas.
 - Reencola corridas `running` sin progreso reciente.
+- Respeta el backpressure Redis por tenant antes de redispatchar.
 
 Esto cubre casos donde el upload completo, pero el request de encolado o un
 workflow murio a mitad de camino.
@@ -108,6 +113,14 @@ workflow murio a mitad de camino.
 
 - Una corrida activa por documento.
 - Inngest debe reclamar antes de crear jobs externos.
+- El lock Redis de dispatch es una barrera efimera contra doble click o
+  redispatch inmediato; no reemplaza la unicidad durable en Postgres.
+- El backpressure Redis limita corridas activas por tenant y se libera cuando
+  el workflow termina, falla, se cancela o queda esperando Compute Gateway.
+- La cache Redis de detalle documental solo se usa para estados terminales y se
+  invalida antes de una nueva indexacion.
+- El workflow escribe snapshots live reconstruibles en Redis para health y
+  futura UI operacional.
 - Redispatch no debe crear dos jobs MinerU para la misma corrida reclamada.
 - Si un run stale tiene `compute_job_id` y las versiones coinciden, el
   redispatch puede reutilizar ese job. Si las versiones cambiaron, debe borrar

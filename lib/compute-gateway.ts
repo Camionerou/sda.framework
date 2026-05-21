@@ -124,6 +124,51 @@ export class ComputeGatewayNotConfiguredError extends Error {
   }
 }
 
+type GatewayJson = Record<string, unknown>;
+
+function formatResponseStatus(response: Response) {
+  return `${response.status} ${response.statusText}`.trim();
+}
+
+function truncateResponseBody(text: string) {
+  return text.replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
+function errorMessageFromBody(body: GatewayJson, fallback: string) {
+  for (const key of ["error", "message", "status", "detail"]) {
+    const value = body[key];
+
+    if (typeof value === "string" && value) {
+      return value;
+    }
+
+    if (value && typeof value === "object") {
+      return JSON.stringify(value);
+    }
+  }
+
+  return fallback;
+}
+
+async function readJsonResponse<T extends GatewayJson>(
+  response: Response,
+  service: string
+): Promise<Partial<T> & GatewayJson> {
+  const text = await response.text();
+
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text) as Partial<T> & GatewayJson;
+  } catch {
+    const status = formatResponseStatus(response);
+    const snippet = truncateResponseBody(text);
+    throw new Error(`${service} respondio ${status} con cuerpo no JSON: ${snippet}`);
+  }
+}
+
 function getTimeoutMs() {
   const value = Number(process.env.COMPUTE_GATEWAY_TIMEOUT_MS ?? 30_000);
 
@@ -177,12 +222,14 @@ export async function createComputeGatewayIndexJob(
       signal: controller.signal
     });
 
-    const text = await response.text();
-    const body = text ? (JSON.parse(text) as Partial<ComputeGatewayIndexJobResponse>) : {};
+    const body = await readJsonResponse<ComputeGatewayIndexJobResponse>(
+      response,
+      "Compute Gateway"
+    );
 
     if (!response.ok) {
       throw new Error(
-        body.status ?? `Compute Gateway respondio ${response.status} ${response.statusText}`.trim()
+        errorMessageFromBody(body, `Compute Gateway respondio ${formatResponseStatus(response)}`)
       );
     }
 
@@ -223,12 +270,14 @@ export async function getComputeGatewayIndexJob(
       signal: controller.signal
     });
 
-    const text = await response.text();
-    const body = text ? (JSON.parse(text) as Partial<ComputeGatewayIndexJobStatus>) : {};
+    const body = await readJsonResponse<ComputeGatewayIndexJobStatus>(
+      response,
+      "Compute Gateway"
+    );
 
     if (!response.ok) {
       throw new Error(
-        body.status ?? `Compute Gateway respondio ${response.status} ${response.statusText}`.trim()
+        errorMessageFromBody(body, `Compute Gateway respondio ${formatResponseStatus(response)}`)
       );
     }
 
@@ -265,12 +314,14 @@ export async function createComputeGatewayTreeIndexJob(
       signal: controller.signal
     });
 
-    const text = await response.text();
-    const body = text ? (JSON.parse(text) as Partial<ComputeGatewayTreeIndexJobResponse>) : {};
+    const body = await readJsonResponse<ComputeGatewayTreeIndexJobResponse>(
+      response,
+      "Tree Indexer"
+    );
 
     if (!response.ok) {
       throw new Error(
-        body.status ?? `Tree Indexer respondio ${response.status} ${response.statusText}`.trim()
+        errorMessageFromBody(body, `Tree Indexer respondio ${formatResponseStatus(response)}`)
       );
     }
 
@@ -309,12 +360,14 @@ export async function getComputeGatewayTreeIndexJob(
       signal: controller.signal
     });
 
-    const text = await response.text();
-    const body = text ? (JSON.parse(text) as Partial<ComputeGatewayTreeIndexJobStatus>) : {};
+    const body = await readJsonResponse<ComputeGatewayTreeIndexJobStatus>(
+      response,
+      "Tree Indexer"
+    );
 
     if (!response.ok) {
       throw new Error(
-        body.status ?? `Tree Indexer respondio ${response.status} ${response.statusText}`.trim()
+        errorMessageFromBody(body, `Tree Indexer respondio ${formatResponseStatus(response)}`)
       );
     }
 

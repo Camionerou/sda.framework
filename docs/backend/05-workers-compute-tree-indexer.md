@@ -29,6 +29,9 @@ Responsabilidades:
 - Subir markdown, JSON, PDFs de debug, imagenes y logs a Storage.
 - Devolver manifest y lista de artefactos.
 - Proteger endpoints con bearer token.
+- Fallar cerrado si no hay token, salvo opt-in local
+  `SDA_ALLOW_UNAUTHENTICATED_WORKER=1`.
+- Rechazar bodies HTTP demasiado grandes antes de procesar jobs.
 - Limitar concurrencia.
 
 Env principal:
@@ -37,6 +40,8 @@ Env principal:
 COMPUTE_GATEWAY_URL
 COMPUTE_GATEWAY_TOKEN
 SDA_COMPUTE_GATEWAY_TOKEN
+SDA_COMPUTE_GATEWAY_MAX_BODY_BYTES
+SDA_ALLOW_UNAUTHENTICATED_WORKER
 SDA_MINERU_BIN
 SDA_MINERU_BACKEND
 SDA_MINERU_LANG
@@ -96,6 +101,10 @@ Fases:
 9. Persiste `doc_tree`.
 10. Borra e inserta `chunks` derivados del arbol.
 
+El Tree Indexer tambien falla cerrado sin token salvo
+`SDA_ALLOW_UNAUTHENTICATED_WORKER=1`, y limita bodies con
+`SDA_TREE_INDEXER_MAX_BODY_BYTES`.
+
 ## LLM
 
 Variables:
@@ -134,4 +143,3 @@ Los deploy scripts usan systemd user services:
 
 - `sda-tree-indexer.service`
 - `sda-compute-gateway.service`
-

@@ -7,6 +7,7 @@ Browser / Next UI
   -> Server Components, Client Components, Server Actions, Route Handlers
   -> Supabase client SSR/browser
   -> Supabase Auth + Postgres + Storage + Realtime
+  -> Upstash Redis para estado operacional TTL/reconstruible
   -> Inngest workflows
   -> Compute Gateway Node
   -> MinerU + Tree Indexer Python
@@ -31,6 +32,15 @@ Supabase:
 - Storage privado `documents`.
 - Realtime para `indexing_runs` e `indexing_events`.
 - RPCs para operaciones sensibles.
+
+Upstash Redis:
+
+- Rate limit de superficies sensibles.
+- Backpressure por tenant para no saturar compute.
+- Locks con TTL para evitar doble dispatch inmediato.
+- Heartbeats de API/workflows/workers.
+- Snapshot live de corridas de indexacion.
+- Cache server-side corto de snapshots reconstruibles.
 
 Inngest:
 
@@ -69,7 +79,11 @@ inngest/
 lib/
   supabase/
   compute-gateway.ts
+  document-detail-cache.ts
   documents.ts
+  indexing-redis.ts
+  rate-limit.ts
+  redis.ts
   session.ts
   system-versions.ts
   tree-indexer/
@@ -91,6 +105,7 @@ Usuario sube documento
   -> browser sube archivo al bucket documents
   -> RPC mark_document_uploaded
   -> POST /api/documents/:id/indexing/request
+  -> Redis rate limit + invalidacion cache detalle + lock de dispatch
   -> RPC request_document_indexing
   -> event document/index.requested
   -> Inngest process-document-index
@@ -107,3 +122,5 @@ La app no hace RAG naive como estrategia principal. El indice canonico es
 `doc_tree`; `chunks` es una superficie recuperable derivada del arbol, no una
 bolsa arbitraria de texto.
 
+Redis acelera y protege operacion, pero no reemplaza la verdad durable. Todo lo
+guardado ahi debe tolerar TTL o reconstruirse desde Supabase/Inngest.

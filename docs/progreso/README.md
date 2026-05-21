@@ -46,3 +46,7 @@ separado, con estado claro y sin secretos.
 39. `2026-05-20-39-indexacion-operational-hardening.md`
 40. `2026-05-21-40-system-versioning.md`
 41. `2026-05-21-41-versioned-reindex-hardening.md`
+42. `2026-05-21-42-worker-infra-hardening-version-sync.md`
+43. `2026-05-21-43-upstash-redis-ephemeral-infra.md`
+44. `2026-05-21-44-infra-env-secret-redis-cache.md`
+45. `2026-05-21-45-redis-backpressure-live-indexing.md`

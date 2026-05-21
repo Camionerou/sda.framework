@@ -12,6 +12,10 @@ import {
   type ComputeGatewayTreeIndexJobResponse,
   type ComputeGatewayTreeIndexJobStatus
 } from "@/lib/compute-gateway";
+import {
+  recordIndexingRunSnapshot,
+  releaseIndexingTenantActiveRun
+} from "@/lib/indexing-redis";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   INDEXING_VERSION_COLUMNS,
@@ -250,6 +254,49 @@ async function recordPermanentIndexingFailure(input: {
   if (eventError) {
     throw eventError;
   }
+
+  await recordTerminalIndexingWorkflowState({
+    documentId: input.documentId,
+    eventType: input.eventType,
+    message: input.message,
+    progress,
+    runId: input.runId,
+    stage: "failed",
+    status: "failed",
+    tenantId: input.tenantId
+  });
+}
+
+async function recordIndexingWorkflowState(input: {
+  documentId: string;
+  eventType?: string;
+  message?: string;
+  progress: number;
+  runId: string;
+  stage: string;
+  status: string;
+  tenantId: string;
+}) {
+  await recordIndexingRunSnapshot(input);
+}
+
+async function recordTerminalIndexingWorkflowState(input: {
+  documentId: string;
+  eventType?: string;
+  message?: string;
+  progress: number;
+  runId: string;
+  stage: string;
+  status: string;
+  tenantId: string;
+}) {
+  await Promise.all([
+    recordIndexingRunSnapshot(input),
+    releaseIndexingTenantActiveRun({
+      runId: input.runId,
+      tenantId: input.tenantId
+    })
+  ]);
 }
 
 export const processDocumentIndex = inngest.createFunction(
@@ -353,6 +400,15 @@ export const processDocumentIndex = inngest.createFunction(
     });
 
     if (!claim.shouldProcess) {
+      if (["canceled", "completed", "failed"].includes(claim.status)) {
+        await step.run("release-terminal-duplicate-active-slot", async () =>
+          releaseIndexingTenantActiveRun({
+            runId: event.data.run_id,
+            tenantId: event.data.tenant_id
+          })
+        );
+      }
+
       return {
         document_id: event.data.document_id,
         reason: claim.reason,
@@ -385,6 +441,17 @@ export const processDocumentIndex = inngest.createFunction(
       if (error) {
         throw error;
       }
+
+      await recordIndexingWorkflowState({
+        documentId: event.data.document_id,
+        eventType: "indexing.orchestrator.received",
+        message: "Inngest recibio la corrida de indexacion",
+        progress: 0,
+        runId: event.data.run_id,
+        stage: "queued",
+        status: "running",
+        tenantId: event.data.tenant_id
+      });
     });
 
     const document = await step.run("load-document-for-indexing", async () => {
@@ -483,6 +550,23 @@ export const processDocumentIndex = inngest.createFunction(
         if (documentError) {
           throw documentError;
         }
+
+        await Promise.all([
+          recordIndexingWorkflowState({
+            documentId: event.data.document_id,
+            eventType: "indexing.compute_gateway.pending",
+            message: "Esperando Compute Gateway para ejecutar MinerU",
+            progress: 0,
+            runId: event.data.run_id,
+            stage: "queued",
+            status: "queued",
+            tenantId: event.data.tenant_id
+          }),
+          releaseIndexingTenantActiveRun({
+            runId: event.data.run_id,
+            tenantId: event.data.tenant_id
+          })
+        ]);
       });
 
       return {
@@ -543,6 +627,17 @@ export const processDocumentIndex = inngest.createFunction(
       if (eventError) {
         throw eventError;
       }
+
+      await recordIndexingWorkflowState({
+        documentId: event.data.document_id,
+        eventType: "indexing.compute_gateway.dispatching",
+        message: "Enviando documento al Compute Gateway",
+        progress: 5,
+        runId: event.data.run_id,
+        stage: "extracting",
+        status: "running",
+        tenantId: event.data.tenant_id
+      });
     });
 
     const gatewayJob = await (async (): Promise<ComputeGatewayIndexJobResponse | null> => {
@@ -657,6 +752,17 @@ export const processDocumentIndex = inngest.createFunction(
           if (eventError) {
             throw eventError;
           }
+
+          await recordIndexingWorkflowState({
+            documentId: event.data.document_id,
+            eventType: "indexing.compute_gateway.dispatch_failed",
+            message,
+            progress: 5,
+            runId: event.data.run_id,
+            stage: "extracting",
+            status: "running",
+            tenantId: event.data.tenant_id
+          });
         });
 
         if (storageObjectMissing) {
@@ -726,6 +832,17 @@ export const processDocumentIndex = inngest.createFunction(
       if (eventError) {
         throw eventError;
       }
+
+      await recordIndexingWorkflowState({
+        documentId: event.data.document_id,
+        eventType: "indexing.compute_gateway.job_created",
+        message: "Compute Gateway recibio el job de MinerU",
+        progress: 8,
+        runId: event.data.run_id,
+        stage: "extracting",
+        status: "running",
+        tenantId: event.data.tenant_id
+      });
     });
 
     const terminalGatewayJob = await (async (): Promise<ComputeGatewayIndexJobStatus> => {
@@ -794,6 +911,17 @@ export const processDocumentIndex = inngest.createFunction(
             if (eventError) {
               throw eventError;
             }
+
+            await recordIndexingWorkflowState({
+              documentId: event.data.document_id,
+              eventType: "indexing.compute_gateway.progress",
+              message: currentJob.message ?? "Compute Gateway procesando MinerU",
+              progress,
+              runId: event.data.run_id,
+              stage,
+              status: "running",
+              tenantId: event.data.tenant_id
+            });
           });
         }
 
@@ -888,6 +1016,17 @@ export const processDocumentIndex = inngest.createFunction(
         if (eventError) {
           throw eventError;
         }
+
+        await recordTerminalIndexingWorkflowState({
+          documentId: event.data.document_id,
+          eventType: "indexing.extract.failed",
+          message,
+          progress: 100,
+          runId: event.data.run_id,
+          stage: "failed",
+          status: "failed",
+          tenantId: event.data.tenant_id
+        });
       });
 
       return {
@@ -1008,6 +1147,17 @@ export const processDocumentIndex = inngest.createFunction(
       if (eventError) {
         throw eventError;
       }
+
+      await recordIndexingWorkflowState({
+        documentId: event.data.document_id,
+        eventType: "indexing.extract.completed",
+        message: "Extraccion MinerU persistida en Storage",
+        progress: 35,
+        runId: event.data.run_id,
+        stage: "structuring",
+        status: "running",
+        tenantId: event.data.tenant_id
+      });
     });
 
     await step.run("record-tree-indexer-started", async () => {
@@ -1060,6 +1210,17 @@ export const processDocumentIndex = inngest.createFunction(
       if (eventError) {
         throw eventError;
       }
+
+      await recordIndexingWorkflowState({
+        documentId: event.data.document_id,
+        eventType: "indexing.tree.started",
+        message: "Tree Indexer Python inicio construccion PageIndex-style con LLM",
+        progress: 40,
+        runId: event.data.run_id,
+        stage: "structuring",
+        status: "running",
+        tenantId: event.data.tenant_id
+      });
     });
 
     const treeJob = await (async (): Promise<ComputeGatewayTreeIndexJobResponse> => {
@@ -1130,6 +1291,17 @@ export const processDocumentIndex = inngest.createFunction(
           if (eventError) {
             throw eventError;
           }
+
+          await recordIndexingWorkflowState({
+            documentId: event.data.document_id,
+            eventType: "indexing.tree.dispatch_failed",
+            message,
+            progress: 40,
+            runId: event.data.run_id,
+            stage: "structuring",
+            status: "running",
+            tenantId: event.data.tenant_id
+          });
         });
 
         throw dispatchError;
@@ -1186,6 +1358,17 @@ export const processDocumentIndex = inngest.createFunction(
       if (eventError) {
         throw eventError;
       }
+
+      await recordIndexingWorkflowState({
+        documentId: event.data.document_id,
+        eventType: "indexing.tree.job_created",
+        message: "Tree Indexer Python recibio el job",
+        progress: 42,
+        runId: event.data.run_id,
+        stage: "structuring",
+        status: "running",
+        tenantId: event.data.tenant_id
+      });
     });
 
     const terminalTreeJob = await (async (): Promise<ComputeGatewayTreeIndexJobStatus> => {
@@ -1256,6 +1439,17 @@ export const processDocumentIndex = inngest.createFunction(
             if (eventError) {
               throw eventError;
             }
+
+            await recordIndexingWorkflowState({
+              documentId: event.data.document_id,
+              eventType: "indexing.tree.progress",
+              message,
+              progress,
+              runId: event.data.run_id,
+              stage,
+              status: "running",
+              tenantId: event.data.tenant_id
+            });
           });
         }
 
@@ -1319,6 +1513,17 @@ export const processDocumentIndex = inngest.createFunction(
         if (eventError) {
           throw eventError;
         }
+
+        await recordTerminalIndexingWorkflowState({
+          documentId: event.data.document_id,
+          eventType: "indexing.tree.llm_missing",
+          message,
+          progress: 35,
+          runId: event.data.run_id,
+          stage: "structuring",
+          status: "failed",
+          tenantId: event.data.tenant_id
+        });
       });
 
       return {
@@ -1385,6 +1590,17 @@ export const processDocumentIndex = inngest.createFunction(
         if (eventError) {
           throw eventError;
         }
+
+        await recordTerminalIndexingWorkflowState({
+          documentId: event.data.document_id,
+          eventType: "indexing.tree.failed",
+          message,
+          progress: 100,
+          runId: event.data.run_id,
+          stage: "failed",
+          status: "failed",
+          tenantId: event.data.tenant_id
+        });
       });
 
       return {
@@ -1464,6 +1680,17 @@ export const processDocumentIndex = inngest.createFunction(
       if (eventError) {
         throw eventError;
       }
+
+      await recordTerminalIndexingWorkflowState({
+        documentId: event.data.document_id,
+        eventType: "indexing.tree.completed",
+        message: "Tree Index persistido en doc_tree y chunks recuperables",
+        progress: 100,
+        runId: event.data.run_id,
+        stage: "indexed",
+        status: "completed",
+        tenantId: event.data.tenant_id
+      });
     });
 
     return {

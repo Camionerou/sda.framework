@@ -1,9 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
+import { Redis } from "@upstash/redis";
 
 import { loadEnvFiles } from "./env-loader.mjs";
 
 loadEnvFiles();
 
+const strict = process.argv.includes("--strict");
+const requireFreshIndexes =
+  process.argv.includes("--require-fresh-indexes") ||
+  process.env.INDEXING_HEALTH_REQUIRE_FRESH_INDEXES === "1";
 const publicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const adminUrl = process.env.SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY;
@@ -41,6 +46,98 @@ function groupBy(rows, key) {
     acc[value] = (acc[value] ?? 0) + 1;
     return acc;
   }, {});
+}
+
+function cleanRedisKeyPart(value) {
+  return String(value).replace(/[^a-zA-Z0-9._:-]+/g, "-").slice(0, 180) || "unknown";
+}
+
+function redisKeyPrefix() {
+  const env = process.env.VERCEL_ENV || process.env.NODE_ENV || "local";
+
+  return process.env.UPSTASH_REDIS_KEY_PREFIX?.trim() || `sda:${cleanRedisKeyPart(env)}`;
+}
+
+function redisKey(...parts) {
+  return [redisKeyPrefix(), ...parts.map(cleanRedisKeyPart)].join(":");
+}
+
+function summarizeHeartbeat(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return {
+    age_s: value.at ? Math.max(0, Math.round((now - Date.parse(value.at)) / 1000)) : null,
+    at: value.at ?? null,
+    metadata: value.metadata ?? null,
+    service: value.service ?? null
+  };
+}
+
+function summarizeRunSnapshot(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return {
+    age_s: value.updated_at
+      ? Math.max(0, Math.round((now - Date.parse(value.updated_at)) / 1000))
+      : null,
+    doc: shortId(value.document_id),
+    event_type: value.event_type ?? null,
+    progress: value.progress ?? null,
+    run: shortId(value.run_id),
+    stage: value.stage ?? null,
+    status: value.status ?? null,
+    tenant: shortId(value.tenant_id),
+    updated_at: value.updated_at ?? null
+  };
+}
+
+async function redisOperationalState(tenantIds) {
+  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+
+  if (!url || !token) {
+    return { configured: false };
+  }
+
+  const redis = new Redis({ token, url });
+  const uniqueTenantIds = [...new Set(tenantIds.filter(Boolean))].slice(0, 20);
+
+  try {
+    const [apiHeartbeat, workflowHeartbeat, latestSnapshot] = await Promise.all([
+      redis.get(redisKey("heartbeat", "indexing-api")),
+      redis.get(redisKey("heartbeat", "indexing-workflow")),
+      redis.get(redisKey("cache", "indexing-latest"))
+    ]);
+    const activeRunsByTenant = {};
+
+    for (const tenantId of uniqueTenantIds) {
+      const key = redisKey("indexing", "tenant-active", tenantId);
+
+      await redis.zremrangebyscore(key, 0, now);
+      activeRunsByTenant[shortId(tenantId)] = await redis.zcard(key);
+    }
+
+    return {
+      active_runs_by_tenant: activeRunsByTenant,
+      configured: true,
+      heartbeats: {
+        indexing_api: summarizeHeartbeat(apiHeartbeat),
+        indexing_workflow: summarizeHeartbeat(workflowHeartbeat)
+      },
+      latest_run_snapshot: summarizeRunSnapshot(latestSnapshot),
+      ok: true
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      error: error instanceof Error ? error.message : "unknown redis health error",
+      ok: false
+    };
+  }
 }
 
 async function selectRows(table, columns, { limit = 1000, order = "created_at" } = {}) {
@@ -233,16 +330,31 @@ const anomalies = {
   })
 };
 const recentErrorEvents = events.filter((event) => event.severity === "error");
-const staleIndexedDocuments = documents.filter((document) => versionDrift(document).length > 0);
+const versionDriftDocuments = documents.filter((document) => versionDrift(document).length > 0);
+const redis = await redisOperationalState([
+  ...documents.map((document) => document.tenant_id),
+  ...runs.map((run) => run.tenant_id)
+]);
+const env = {
+  admin_public_url_mismatch: Boolean(adminUrl && publicUrl && adminUrl !== publicUrl),
+  compute_gateway_configured: Boolean(process.env.COMPUTE_GATEWAY_URL),
+  inngest_api_key_configured: Boolean(process.env.INNGEST_API_KEY),
+  inngest_event_key_configured: Boolean(process.env.INNGEST_EVENT_KEY),
+  redis_configured: Boolean(
+    process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+  ),
+  supabase_host: new URL(url).host
+};
+const strictFailures = [
+  env.admin_public_url_mismatch ? "admin_public_url_mismatch" : null,
+  !env.compute_gateway_configured ? "compute_gateway_not_configured" : null,
+  !env.inngest_event_key_configured ? "inngest_event_key_not_configured" : null,
+  requireFreshIndexes && versionDriftDocuments.length > 0 ? "stale_indexed_documents" : null
+].filter(Boolean);
 
 const output = {
-  env: {
-    admin_public_url_mismatch: Boolean(adminUrl && publicUrl && adminUrl !== publicUrl),
-    compute_gateway_configured: Boolean(process.env.COMPUTE_GATEWAY_URL),
-    inngest_api_key_configured: Boolean(process.env.INNGEST_API_KEY),
-    inngest_event_key_configured: Boolean(process.env.INNGEST_EVENT_KEY),
-    supabase_host: new URL(url).host
-  },
+  env,
+  redis,
   counts: {
     chunks: chunkCount,
     doc_tree: treeCount,
@@ -258,9 +370,9 @@ const output = {
     runs_by_status: groupBy(runs, "status")
   },
   versions: {
+    indexed_document_version_drift: sampleVersionDrift(versionDriftDocuments),
+    indexed_document_version_drift_count: versionDriftDocuments.length,
     latest: latestVersions,
-    stale_indexed_documents: sampleVersionDrift(staleIndexedDocuments),
-    stale_indexed_documents_count: staleIndexedDocuments.length
   },
   anomalies: {
     active_run_without_uploaded_at: sampleRuns(anomalies.active_run_without_uploaded_at),
@@ -290,7 +402,12 @@ const output = {
       stage: event.stage,
       type: event.event_type
     })),
-    version_drift_requires_reindex: sampleVersionDrift(staleIndexedDocuments)
+    indexed_document_version_drift: sampleVersionDrift(versionDriftDocuments)
+  },
+  strict: {
+    enabled: strict,
+    failures: strictFailures,
+    require_fresh_indexes: requireFreshIndexes
   }
 };
 
@@ -298,7 +415,8 @@ console.log(JSON.stringify(output, null, 2));
 
 if (
   Object.values(anomalies).some((value) => Array.isArray(value) && value.length > 0) ||
-  Object.keys(output.query_errors).length > 0
+  Object.keys(output.query_errors).length > 0 ||
+  (strict && strictFailures.length > 0)
 ) {
   process.exitCode = 1;
 }

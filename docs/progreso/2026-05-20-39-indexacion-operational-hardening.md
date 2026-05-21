@@ -38,11 +38,16 @@ GitHub Actions billing.
 
 ## Redis
 
-No se agrega Redis en este corte porque los problemas detectados se corrigen en
-la fuente durable: Supabase e Inngest. El uso recomendado para el proximo corte
-es efimero: locks con TTL por documento, rate limits por tenant/user,
-heartbeats de jobs y cache de retrieval/LLM. No debe reemplazar Postgres como
-fuente de verdad.
+En este corte no se agrego Redis porque los problemas detectados se corregian
+en la fuente durable: Supabase e Inngest. La recomendacion para el siguiente
+corte era empezar por estado operacional reconstruible: locks con TTL por
+documento, rate limits por tenant/user, heartbeats de jobs y cache de
+retrieval/LLM. No debe reemplazar Postgres como fuente de verdad.
+
+Nota posterior: Redis se incorporo despues como plataforma operacional para
+rate limits, locks, heartbeats y cache server-side reconstruible. Ver
+`2026-05-21-43-upstash-redis-ephemeral-infra.md` y
+`2026-05-21-44-infra-env-secret-redis-cache.md`.
 
 ## Verificacion aplicada
 

@@ -56,8 +56,8 @@ npm run versions:check -- --base HEAD~1 --head HEAD
 ## Observabilidad
 
 - `npm run indexing:health` ahora muestra `versions.latest`,
-  `versions.stale_indexed_documents_count` y una muestra de documentos que
-  requieren reindex.
+  `versions.indexed_document_version_drift_count` y una muestra de documentos
+  con version anterior para auditoria.
 - Tambien marca documentos en estado intermedio (`queued`, `parsing`,
   `structuring`) que no tengan corrida activa.
 - La pantalla de detalle del documento muestra si el pipeline, extractor, tree
@@ -68,8 +68,8 @@ npm run versions:check -- --base HEAD~1 --head HEAD
 Ultimo cierre verificado:
 
 - `npm run indexing:health`
-- `stale_indexed_documents_count = 0`
-- `version_drift_requires_reindex = []`
+- `indexed_document_version_drift_count = 0`
+- `indexed_document_version_drift = []`
 - `active_run_without_uploaded_at = []`
 - `indexed_without_tree = []`
 - `indexed_without_chunks = []`

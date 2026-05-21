@@ -1,6 +1,7 @@
 import { cron } from "inngest";
 
 import { documentIndexRequested, inngest } from "@/inngest/client";
+import { reserveIndexingTenantActiveRun } from "@/lib/indexing-redis";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { INDEXING_VERSION_COLUMNS, INDEXING_VERSION_METADATA } from "@/lib/system-versions";
 
@@ -717,10 +718,27 @@ export const reconcileDocumentIndexing = inngest.createFunction(
     const staleRunningRuns = await step.run("load-stale-running-runs", async () =>
       loadStaleRunningRuns(Math.max(batchSize - autoQueuedRuns.length - staleQueuedRuns.length, 0))
     );
-    const runsToDispatch = [...autoQueuedRuns, ...staleQueuedRuns, ...staleRunningRuns].slice(
+    const candidateRuns = [...autoQueuedRuns, ...staleQueuedRuns, ...staleRunningRuns].slice(
       0,
       batchSize
     );
+    const runsToDispatch = await step.run("apply-redis-tenant-backpressure", async () => {
+      const allowedRuns: DispatchableRun[] = [];
+
+      for (const run of candidateRuns) {
+        const reservation = await reserveIndexingTenantActiveRun({
+          documentId: run.document_id,
+          runId: run.run_id,
+          tenantId: run.tenant_id
+        });
+
+        if (reservation.allowed) {
+          allowedRuns.push(run);
+        }
+      }
+
+      return allowedRuns;
+    });
 
     if (runsToDispatch.length > 0) {
       await step.sendEvent(
@@ -742,6 +760,7 @@ export const reconcileDocumentIndexing = inngest.createFunction(
       batch_size: batchSize,
       completed_indexed_runs: repairedRuns.completed_indexed_runs,
       dispatched: runsToDispatch.length,
+      redis_backpressure_deferred: candidateRuns.length - runsToDispatch.length,
       failed_incomplete_upload_runs: repairedRuns.failed_incomplete_upload_runs,
       stale_running: staleRunningRuns.length,
       stale_queued: staleQueuedRuns.length

@@ -61,8 +61,25 @@
 - Never index a document that does not have `uploaded_at`. If Storage returns `Object not found`, treat it as permanent upload corruption: fail the run/document and emit `indexing.storage_object_missing` instead of leaving the run `running`.
 - A document with persisted `doc_tree` plus chunks is materially indexed even if a previous Inngest run died before the final status update, but the reconciler may only close the run when `doc_tree.metadata.run_id`, `chunks.metadata.run_id`, `indexing_pipeline_version`, and `tree_indexer_version` match that same run.
 - `document_extractions` cache keys must include `extraction_pipeline_version`. Otherwise a new extraction pipeline cannot reprocess the same source checksum.
-- `request_document_indexing` must read latest versions from `system_component_versions`; hardcoded versions in the RPC will create stale runs from the UI.
-- Do not deploy Vercel/Inngest during active reindexing unless it is a hotfix. If a deploy interrupts polling, verify `npm run indexing:health` and let the reconciler recover or requeue any `nonterminal_without_active_run`.
+- `request_document_indexing` reads latest versions from `system_component_versions`, which is synced from `lib/system-versions.ts` with `npm run versions:sync`.
+- Version drift is informational by default. Do not automatically reindex every document after every bump; documents with valid `doc_tree` and `chunks` remain usable.
+- Upstash Redis is used for operational state: indexing dispatch locks, tenant backpressure, request rate limits, heartbeats, live run snapshots, and short server-side caches. If Redis is missing or degraded, indexing must stay usable and rely on Postgres/Inngest idempotency.
+- During active indexing runs, avoid deploys unless it is a hotfix. If a deploy interrupts polling, verify `npm run indexing:health` and let the reconciler recover or requeue any `nonterminal_without_active_run`.
+
+## Upstash Redis
+
+- Use only `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` from env. Never commit tokens.
+- `npm run redis:health` exits `0` when Redis is intentionally unconfigured, so CI can run without Upstash secrets.
+- A Redis outage must not block upload, document reads, or indexing requests. Redis can hold valuable operational state, but it must be either TTL-based or rebuildable from Supabase/Inngest.
+- Tenant backpressure must use TTL/score cleanup so a crashed workflow cannot block future indexing permanently.
+- Document detail snapshots may be cached only for terminal document/run states and must be invalidated before reindexing.
+- Rotate Upstash tokens if they are pasted into chat, shell history, CI logs, or issue trackers.
+
+## Secret scanning
+
+- Run `npm run secrets:scan` before publishing broad infra changes.
+- The scanner reports only path, line, and pattern. It intentionally does not print matched secret values.
+- Keep `.env.local` ignored. Secrets belong there locally and in provider env vars remotely, not in docs, scripts, fixtures, or progress notes.
 
 ## Next.js links with side effects
 

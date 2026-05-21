@@ -10,6 +10,8 @@ from uuid import uuid4
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .llm import is_tree_llm_configured
 from .pageindex_style import content_list_to_labeled_pages
@@ -19,6 +21,7 @@ from .versions import INDEXING_VERSION_COLUMNS, TREE_PROMPT_VERSION
 
 DATA_DIR = Path(os.getenv("SDA_TREE_INDEXER_DATA_DIR", "/var/lib/sda-tree-indexer"))
 TOKEN = os.getenv("SDA_TREE_INDEXER_TOKEN") or os.getenv("SDA_COMPUTE_GATEWAY_TOKEN")
+ALLOW_UNAUTHENTICATED_WORKER = os.getenv("SDA_ALLOW_UNAUTHENTICATED_WORKER") == "1"
 
 
 def positive_int_env(name: str, fallback: int) -> int:
@@ -30,8 +33,63 @@ def positive_int_env(name: str, fallback: int) -> int:
 
 
 MAX_CONCURRENT_JOBS = positive_int_env("SDA_TREE_INDEXER_CONCURRENCY", 1)
+MAX_REQUEST_BODY_BYTES = positive_int_env("SDA_TREE_INDEXER_MAX_BODY_BYTES", 1_048_576)
+
+
+class RequestBodyTooLargeError(RuntimeError):
+    pass
+
+
+class RequestBodyLimitMiddleware:
+    def __init__(self, app: ASGIApp, max_body_bytes: int) -> None:
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers") or [])
+        content_length = headers.get(b"content-length")
+        if content_length:
+            try:
+                if int(content_length) > self.max_body_bytes:
+                    await self._reject(scope, receive, send)
+                    return
+            except ValueError:
+                pass
+
+        received = 0
+
+        async def limited_receive() -> Message:
+            nonlocal received
+            message = await receive()
+
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_body_bytes:
+                    raise RequestBodyTooLargeError
+
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except RequestBodyTooLargeError:
+            await self._reject(scope, receive, send)
+
+    async def _reject(self, scope: Scope, receive: Receive, send: Send) -> None:
+        response = JSONResponse(
+            {
+                "detail": "Request body too large.",
+                "max_body_bytes": self.max_body_bytes,
+            },
+            status_code=413,
+        )
+        await response(scope, receive, send)
 
 app = FastAPI(title="SDA Tree Indexer", version=TREE_INDEXER_VERSION)
+app.add_middleware(RequestBodyLimitMiddleware, max_body_bytes=MAX_REQUEST_BODY_BYTES)
 job_semaphore = asyncio.Semaphore(MAX_CONCURRENT_JOBS if MAX_CONCURRENT_JOBS > 0 else 1)
 
 
@@ -87,7 +145,9 @@ def patch_job(job_id: str, patch: dict[str, Any]) -> dict[str, Any]:
 
 async def require_auth(authorization: str | None = Header(default=None)) -> None:
     if not TOKEN:
-        return
+        if ALLOW_UNAUTHENTICATED_WORKER:
+            return
+        raise HTTPException(status_code=503, detail="Worker auth token is not configured.")
     if authorization == f"Bearer {TOKEN}":
         return
     raise HTTPException(status_code=401, detail="Unauthorized")
@@ -243,10 +303,11 @@ async def process_tree_job(job_id: str, payload: TreeIndexJobRequest) -> None:
 @app.get("/v1/health", dependencies=[Depends(require_auth)])
 async def health() -> dict[str, Any]:
     return {
+        "auth_configured": bool(TOKEN),
         "concurrency": MAX_CONCURRENT_JOBS,
-        "data_dir": str(DATA_DIR),
         "llm_configured": is_tree_llm_configured(),
         "ok": True,
+        "request_body_limit_bytes": MAX_REQUEST_BODY_BYTES,
         "service": "sda-tree-indexer",
         "version": TREE_INDEXER_VERSION,
     }
