@@ -7,8 +7,8 @@ import "@fontsource-variable/jetbrains-mono/index.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SDA Framework",
-  description: "Consola privada para documentos, tenants y agentes SDA."
+  title: "SDA Ops",
+  description: "Workspace privado para documentos, tenants e indexación SDA."
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

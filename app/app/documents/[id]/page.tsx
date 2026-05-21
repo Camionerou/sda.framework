@@ -204,6 +204,7 @@ export default async function DocumentDetailPage({
               <ArrowLeft aria-hidden="true" size={16} />
               Documentos
             </Link>
+            <div className="kicker">Detalle documental</div>
             <h1>{document.title ?? document.filename}</h1>
             <p>{document.filename}</p>
           </div>
@@ -243,8 +244,8 @@ export default async function DocumentDetailPage({
 
             <Card>
               <CardHeader>
-                <CardTitle>Metadata</CardTitle>
-                <CardDescription>Datos operativos del documento.</CardDescription>
+                <CardTitle>Ficha operativa</CardTitle>
+                <CardDescription>Datos principales del documento y su estado.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="key-value-list">
@@ -270,7 +271,7 @@ export default async function DocumentDetailPage({
 
             <Card>
               <CardHeader>
-                <CardTitle>Storage</CardTitle>
+                <CardTitle>Ubicación privada</CardTitle>
                 <CardDescription>Ubicación privada del archivo original.</CardDescription>
               </CardHeader>
               <CardContent>
@@ -291,7 +292,7 @@ export default async function DocumentDetailPage({
             <Card>
               <CardHeader>
                 <CardTitle>Indexación live</CardTitle>
-                <CardDescription>Timeline en vivo del SDA Tree Index.</CardDescription>
+                <CardDescription>Progreso y eventos del SDA Tree Index.</CardDescription>
               </CardHeader>
               <CardContent>
                 <IndexingTimeline
@@ -304,8 +305,8 @@ export default async function DocumentDetailPage({
 
             <Card>
               <CardHeader>
-                <CardTitle>Índice</CardTitle>
-                <CardDescription>Estado de árbol y nodos para búsqueda.</CardDescription>
+                <CardTitle>Índice semántico</CardTitle>
+                <CardDescription>Estado del árbol y nodos para búsqueda.</CardDescription>
               </CardHeader>
               <CardContent>
                 {tree ? (

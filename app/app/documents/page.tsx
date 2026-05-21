@@ -75,8 +75,9 @@ export default async function DocumentsPage() {
       <section className="page">
         <div className="page-header">
           <div className="page-title">
+            <div className="kicker">Biblioteca</div>
             <h1>Documentos</h1>
-            <p>Carga privada por tenant y base para indexación posterior.</p>
+            <p>Carga privada, seguimiento de ingesta y disponibilidad para indexación.</p>
           </div>
           <Badge tone="success">Storage privado</Badge>
         </div>
@@ -103,8 +104,8 @@ export default async function DocumentsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Biblioteca</CardTitle>
-                <CardDescription>Últimos 100 documentos visibles por RLS.</CardDescription>
+                <CardTitle>Archivos del tenant</CardTitle>
+                <CardDescription>Últimos 100 documentos visibles para tu sesión.</CardDescription>
               </CardHeader>
               <CardContent>
                 {error ? (
@@ -177,9 +178,9 @@ export default async function DocumentsPage() {
           <div className="section-grid">
             <Card>
               <CardHeader>
-                <CardTitle>Subir documento</CardTitle>
+                <CardTitle>Nueva carga</CardTitle>
                 <CardDescription>
-                  El archivo se guarda en un bucket privado bajo el prefijo del tenant.
+                  El archivo queda guardado en Storage privado bajo el prefijo del tenant.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -190,7 +191,7 @@ export default async function DocumentsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Pipeline</CardTitle>
-                <CardDescription>Estados previstos para el siguiente bloque.</CardDescription>
+                <CardDescription>Secuencia operativa conectada a la biblioteca.</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="steps">

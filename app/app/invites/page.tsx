@@ -108,8 +108,9 @@ export default async function InvitesPage({
       <section className="page">
         <div className="page-header">
           <div className="page-title">
+            <div className="kicker">Accesos</div>
             <h1>Invitaciones</h1>
-            <p>Alta controlada de usuarios para el tenant activo.</p>
+            <p>Alta controlada de usuarios, roles y links activos del tenant.</p>
           </div>
           <Badge tone={canManageInvites ? "success" : "danger"}>
             {canManageInvites ? "Gestión habilitada" : "Sin permisos"}
@@ -148,8 +149,8 @@ export default async function InvitesPage({
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Historial</CardTitle>
-                  <CardDescription>Últimas 100 invitaciones visibles por RLS.</CardDescription>
+                  <CardTitle>Historial de accesos</CardTitle>
+                  <CardDescription>Últimas 100 invitaciones visibles para tu sesión.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {params.revoked ? (
@@ -241,7 +242,7 @@ export default async function InvitesPage({
             <div className="section-grid">
               <Card>
                 <CardHeader>
-                  <CardTitle>Nueva invitación</CardTitle>
+                  <CardTitle>Crear invitación</CardTitle>
                   <CardDescription>
                     El link solo funciona para el email indicado.
                     {tenantRole === "owner"
