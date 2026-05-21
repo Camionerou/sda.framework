@@ -1,28 +1,50 @@
 "use client";
 
 import { Bell, ChevronRight, PanelRight, Share2 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 import {
   indexingStageLabel,
+  type DocumentExtractionArtifactRow,
+  type DocumentExtractionRow,
   type DocumentRow,
   type IndexingEventRow,
   type IndexingRunRow,
   type IndexingRunStatus
 } from "@/lib/documents";
-import { createClient } from "@/lib/supabase/client";
+import { useDocumentExtractionsRealtime } from "@/lib/realtime/use-document-extractions-realtime";
+import { useDocumentIndexingRealtime } from "@/lib/realtime/use-document-indexing-realtime";
+import { useDocumentPresence } from "@/lib/realtime/use-document-presence";
+import { useTenantNotifications } from "@/lib/realtime/use-tenant-notifications";
 import { INDEXING_VERSION_COLUMNS } from "@/lib/system-versions";
 import type { TreeRowView } from "@/lib/workspace";
 
 import { Inspector, type InspectorTab } from "./inspector";
-import { PdfViewer } from "./pdf-viewer";
+
+const PdfViewer = dynamic(() => import("./pdf-viewer").then((mod) => mod.PdfViewer), {
+  loading: () => (
+    <div className="stage glass-strong" style={{ gridTemplateColumns: "1fr", display: "grid" }}>
+      <div className="canvas" style={{ alignItems: "center", justifyContent: "center" }}>
+        <div className="viewer-empty" role="status" aria-live="polite">
+          <p>Cargando documento...</p>
+        </div>
+      </div>
+    </div>
+  ),
+  ssr: false
+});
 
 type DetailVersion = { label: string; component: string; value: string | null };
 
 type WorkspaceClientProps = {
   document: DocumentRow;
+  initialArtifacts: DocumentExtractionArtifactRow[];
+  initialExtractions: DocumentExtractionRow[];
   tenantLabel: string;
+  tenantId: string;
   treeRows: TreeRowView[];
   treeSummary: string | null;
   treeModel: string | null;
@@ -33,17 +55,27 @@ type WorkspaceClientProps = {
   versions: DetailVersion[];
   latestVersions: Record<string, string>;
   defaultTab: InspectorTab;
+  viewer: {
+    id: string;
+    label: string;
+  };
 };
 
-function sortEvents(events: IndexingEventRow[]) {
-  return [...events].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+function initials(label: string) {
+  return label
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "U";
 }
 
 export function WorkspaceClient({
   document,
+  initialArtifacts,
+  initialExtractions,
   tenantLabel,
+  tenantId,
   treeRows,
   treeSummary,
   treeModel,
@@ -53,10 +85,11 @@ export function WorkspaceClient({
   initialEvents,
   versions,
   latestVersions,
-  defaultTab
+  defaultTab,
+  viewer
 }: WorkspaceClientProps) {
-  const [run, setRun] = useState<IndexingRunRow | null>(initialRun);
-  const [events, setEvents] = useState<IndexingEventRow[]>(() => sortEvents(initialEvents));
+  const router = useRouter();
+  const [, startTransition] = useTransition();
   const [currentPage, setCurrentPage] = useState(1);
   const [jumpTarget, setJumpTarget] = useState<{ page: number; nonce: number } | null>(null);
   const [highlightRange, setHighlightRange] = useState<{ start: number; end: number } | null>(null);
@@ -64,60 +97,36 @@ export function WorkspaceClient({
   const [requestError, setRequestError] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const nonce = useRef(0);
-
-  // ---- Realtime: run + events scoped to this document ------------------
-  useEffect(() => {
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`workspace-doc:${document.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "indexing_runs",
-          filter: `document_id=eq.${document.id}`
-        },
-        (payload) => {
-          const next = payload.new as IndexingRunRow;
-          if (!next?.id) {
-            return;
-          }
-          setRun((current) => {
-            if (!current) {
-              return next;
-            }
-            return new Date(next.created_at) >= new Date(current.created_at) ? next : current;
-          });
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "indexing_events",
-          filter: `document_id=eq.${document.id}`
-        },
-        (payload) => {
-          const next = payload.new as IndexingEventRow;
-          if (!next?.id) {
-            return;
-          }
-          setEvents((current) => {
-            if (current.some((e) => e.id === next.id)) {
-              return current;
-            }
-            return sortEvents([...current, next]).slice(-120);
-          });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [document.id]);
+  const refreshOnTerminalRun = useCallback(() => {
+    startTransition(() => router.refresh());
+  }, [router, startTransition]);
+  const {
+    events,
+    realtimeStatus: indexingRealtimeStatus,
+    run,
+    setRun
+  } = useDocumentIndexingRealtime({
+    documentId: document.id,
+    initialEvents,
+    initialRun,
+    onTerminalRun: refreshOnTerminalRun
+  });
+  const {
+    artifacts,
+    extractions,
+    realtimeStatus: extractionRealtimeStatus
+  } = useDocumentExtractionsRealtime({
+    documentId: document.id,
+    initialArtifacts,
+    initialExtractions
+  });
+  const { presenceStatus, viewers } = useDocumentPresence({
+    currentPage,
+    documentId: document.id,
+    label: viewer.label,
+    userId: viewer.id
+  });
+  const { notifications } = useTenantNotifications({ tenantId });
 
   const onSelectNode = useCallback((row: TreeRowView) => {
     if (row.pageStart != null) {
@@ -193,9 +202,12 @@ export function WorkspaceClient({
     } finally {
       setRequesting(false);
     }
-  }, [document.id]);
+  }, [document.id, setRun]);
 
   const live = run?.status === "running" || run?.status === "queued";
+  const notificationTitle = notifications.length
+    ? `${notifications.length} actualizaciones live`
+    : "Notificaciones";
 
   return (
     <>
@@ -214,6 +226,16 @@ export function WorkspaceClient({
           </div>
 
           <div className="topbar-actions">
+            {viewers.length > 0 ? (
+              <div className="presence-stack" title={`${viewers.length} usuario(s) en este documento`}>
+                {viewers.slice(0, 3).map((presence) => (
+                  <span className="presence-pill" key={presence.key}>
+                    {initials(presence.label)}
+                  </span>
+                ))}
+                {viewers.length > 3 ? <span className="presence-more">+{viewers.length - 3}</span> : null}
+              </div>
+            ) : null}
             {live ? (
               <div className="live-strip" role="status" aria-live="polite">
                 <span className="ls-spin" aria-hidden="true" />
@@ -227,7 +249,12 @@ export function WorkspaceClient({
             <button className="ico-btn" type="button" title="Compartir (próximamente)" disabled>
               <Share2 size={16} aria-hidden="true" />
             </button>
-            <button className="ico-btn" type="button" title="Notificaciones (próximamente)" disabled>
+            <button
+              className={`ico-btn ${notifications.length > 0 ? "has-live-dot" : ""}`}
+              type="button"
+              title={notificationTitle}
+              aria-label={notificationTitle}
+            >
               <Bell size={16} aria-hidden="true" />
             </button>
             <button
@@ -264,6 +291,11 @@ export function WorkspaceClient({
           chunksCount={chunksCount}
           run={run}
           events={events}
+          extractionArtifacts={artifacts}
+          extractionRealtimeStatus={extractionRealtimeStatus}
+          extractions={extractions}
+          indexingRealtimeStatus={indexingRealtimeStatus}
+          presenceStatus={presenceStatus}
           versions={versions}
           latestVersions={latestVersions}
           defaultTab={defaultTab}

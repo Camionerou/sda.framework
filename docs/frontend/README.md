@@ -25,8 +25,12 @@ Documentacion para construir UI contra el backend real del proyecto.
 
 - `components/documents/document-upload-form.tsx`: RPCs de upload, Storage y
   request de indexacion.
+- `components/documents/documents-live-list.tsx`: lista live de documentos del
+  tenant.
 - `components/documents/indexing-timeline.tsx`: Realtime sobre
   `indexing_runs` e `indexing_events`.
+- `components/workspace/workspace-client.tsx`: workspace live con timeline,
+  extracciones, Presence y Broadcast.
 - `components/invites/invite-create-form.tsx`: server action de invitaciones.
 - `components/dashboard/app-topbar.tsx`: navegacion principal y sign-out por
   form `POST`.

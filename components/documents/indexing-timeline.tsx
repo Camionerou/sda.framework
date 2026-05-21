@@ -8,8 +8,10 @@ import {
   Loader2,
   Play
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
+import { RealtimeStatusBadge } from "@/components/realtime/realtime-status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,8 +23,8 @@ import {
   type IndexingStage
 } from "@/lib/documents";
 import { compactId, formatDateTime } from "@/lib/auth/session";
+import { useDocumentIndexingRealtime } from "@/lib/realtime/use-document-indexing-realtime";
 import { INDEXING_VERSION_COLUMNS } from "@/lib/system-versions";
-import { createClient } from "@/lib/supabase/client";
 
 type IndexingTimelineProps = {
   documentId: string;
@@ -105,75 +107,29 @@ export function IndexingTimeline({
   initialEvents,
   initialRun
 }: IndexingTimelineProps) {
-  const [events, setEvents] = useState(() => sortEvents(initialEvents));
-  const [run, setRun] = useState<IndexingRunRow | null>(initialRun);
+  const router = useRouter();
+  const [, startTransition] = useTransition();
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
+  const refreshOnTerminalRun = useCallback(() => {
+    startTransition(() => router.refresh());
+  }, [router, startTransition]);
+  const {
+    events,
+    realtimeStatus,
+    run,
+    setRun
+  } = useDocumentIndexingRealtime({
+    documentId,
+    eventLimit: 80,
+    initialEvents,
+    initialRun,
+    onTerminalRun: refreshOnTerminalRun
+  });
 
   const sortedEvents = useMemo(() => sortEvents(events), [events]);
   const stages = useMemo(() => railRows(run), [run]);
   const canRequest = !run || run.status === "completed" || run.status === "failed" || run.status === "canceled";
-
-  useEffect(() => {
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`document-indexing:${documentId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          filter: `document_id=eq.${documentId}`,
-          schema: "public",
-          table: "indexing_runs"
-        },
-        (payload) => {
-          const nextRun = payload.new as IndexingRunRow;
-
-          if (!nextRun?.id) {
-            return;
-          }
-
-          setRun((currentRun) => {
-            if (!currentRun) {
-              return nextRun;
-            }
-
-            return new Date(nextRun.created_at) >= new Date(currentRun.created_at)
-              ? nextRun
-              : currentRun;
-          });
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          filter: `document_id=eq.${documentId}`,
-          schema: "public",
-          table: "indexing_events"
-        },
-        (payload) => {
-          const nextEvent = payload.new as IndexingEventRow;
-
-          if (!nextEvent?.id) {
-            return;
-          }
-
-          setEvents((currentEvents) => {
-            if (currentEvents.some((event) => event.id === nextEvent.id)) {
-              return currentEvents;
-            }
-
-            return sortEvents([...currentEvents, nextEvent]).slice(-80);
-          });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [documentId]);
 
   async function requestIndexing() {
     setRequestError(null);
@@ -250,7 +206,10 @@ export function IndexingTimeline({
               : "Creá una corrida para dejar el documento en cola de indexación."}
           </p>
         </div>
-        {run ? <Badge tone={indexingRunTone(run.status)}>{run.status}</Badge> : null}
+        <div className="timeline-badges">
+          {run ? <Badge tone={indexingRunTone(run.status)}>{run.status}</Badge> : null}
+          <RealtimeStatusBadge label="DB" status={realtimeStatus} />
+        </div>
       </div>
 
       {run ? (

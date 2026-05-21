@@ -16,12 +16,16 @@ import {
   documentStatusLabel,
   formatBytes,
   indexingStageLabel,
+  type DocumentExtractionArtifactRow,
+  type DocumentExtractionRow,
   type DocumentRow,
   type IndexingEventRow,
   type IndexingRunRow,
   type IndexingStage
 } from "@/lib/documents";
+import { RealtimeStatusBadge } from "@/components/realtime/realtime-status-badge";
 import { formatDateTime } from "@/lib/auth/session";
+import type { RealtimeSubscriptionStatus } from "@/lib/realtime/status";
 import { STAGE_PIPELINE, formatPageRange, type TreeRowView } from "@/lib/workspace";
 
 export type InspectorTab = "structure" | "indexing" | "details";
@@ -41,6 +45,11 @@ type InspectorProps = {
   chunksCount: number;
   run: IndexingRunRow | null;
   events: IndexingEventRow[];
+  extractionArtifacts: DocumentExtractionArtifactRow[];
+  extractionRealtimeStatus: RealtimeSubscriptionStatus;
+  extractions: DocumentExtractionRow[];
+  indexingRealtimeStatus: RealtimeSubscriptionStatus;
+  presenceStatus: RealtimeSubscriptionStatus;
   versions: DetailVersion[];
   latestVersions: Record<string, string>;
   defaultTab: InspectorTab;
@@ -83,6 +92,11 @@ export function Inspector({
   chunksCount,
   run,
   events,
+  extractionArtifacts,
+  extractionRealtimeStatus,
+  extractions,
+  indexingRealtimeStatus,
+  presenceStatus,
   versions,
   latestVersions,
   defaultTab,
@@ -185,6 +199,11 @@ export function Inspector({
           <IndexingTab
             run={run}
             events={events}
+            extractionArtifacts={extractionArtifacts}
+            extractionRealtimeStatus={extractionRealtimeStatus}
+            extractions={extractions}
+            indexingRealtimeStatus={indexingRealtimeStatus}
+            presenceStatus={presenceStatus}
             stages={stages}
             requesting={requesting}
             requestError={requestError}
@@ -301,6 +320,11 @@ function StructureTab({
 function IndexingTab({
   run,
   events,
+  extractionArtifacts,
+  extractionRealtimeStatus,
+  extractions,
+  indexingRealtimeStatus,
+  presenceStatus,
   stages,
   requesting,
   requestError,
@@ -309,6 +333,11 @@ function IndexingTab({
 }: {
   run: IndexingRunRow | null;
   events: IndexingEventRow[];
+  extractionArtifacts: DocumentExtractionArtifactRow[];
+  extractionRealtimeStatus: RealtimeSubscriptionStatus;
+  extractions: DocumentExtractionRow[];
+  indexingRealtimeStatus: RealtimeSubscriptionStatus;
+  presenceStatus: RealtimeSubscriptionStatus;
   stages: { stage: IndexingStage; state: StageState }[];
   requesting: boolean;
   requestError: string | null;
@@ -345,6 +374,12 @@ function IndexingTab({
         )}
       </div>
 
+      <div className="realtime-row" aria-label="Estado realtime">
+        <RealtimeStatusBadge label="Index" status={indexingRealtimeStatus} />
+        <RealtimeStatusBadge label="Extract" status={extractionRealtimeStatus} />
+        <RealtimeStatusBadge label="Presence" status={presenceStatus} />
+      </div>
+
       {run ? (
         <div className="stage-list" role="list" aria-label="Etapas de indexación">
           {stages.map(({ stage, state }) => (
@@ -374,6 +409,8 @@ function IndexingTab({
           ))}
         </div>
       ) : null}
+
+      <ExtractionPanel artifacts={extractionArtifacts} extractions={extractions} />
 
       {requestError ? (
         <div className="alert alert-danger" role="alert">
@@ -426,6 +463,87 @@ function IndexingTab({
         </button>
       </div>
     </>
+  );
+}
+
+function extractionTone(status: DocumentExtractionRow["status"]) {
+  if (status === "succeeded" || status === "reused") {
+    return "teal";
+  }
+
+  if (status === "failed" || status === "canceled") {
+    return "danger";
+  }
+
+  if (status === "running") {
+    return "blue";
+  }
+
+  return "amber";
+}
+
+function shortArtifactName(path: string) {
+  const parts = path.split("/").filter(Boolean);
+  return parts.at(-1) ?? path;
+}
+
+function ExtractionPanel({
+  artifacts,
+  extractions
+}: {
+  artifacts: DocumentExtractionArtifactRow[];
+  extractions: DocumentExtractionRow[];
+}) {
+  const latest = extractions[0] ?? null;
+
+  if (!latest && artifacts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="extraction-panel">
+      <div className="section-label">
+        <span>Extracción</span>
+        {latest ? <span className={`chip ${extractionTone(latest.status)}`}>{latest.status}</span> : null}
+      </div>
+
+      {latest ? (
+        <div className="kv">
+          <div className="kv-row">
+            <span className="k">Parser</span>
+            <span className="v mono">
+              {latest.parser}@{latest.parser_version}
+            </span>
+          </div>
+          <div className="kv-row">
+            <span className="k">Backend</span>
+            <span className="v mono">{latest.parser_backend}</span>
+          </div>
+          <div className="kv-row">
+            <span className="k">Actualizado</span>
+            <span className="v">{formatDateTime(latest.updated_at)}</span>
+          </div>
+          {latest.error_message ? (
+            <div className="kv-row">
+              <span className="k">Error</span>
+              <span className="v">{latest.error_message}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {artifacts.length > 0 ? (
+        <div className="artifact-list" aria-label="Artefactos de extracción">
+          {artifacts.slice(0, 6).map((artifact) => (
+            <div className="artifact-row" key={artifact.id}>
+              <span className="artifact-kind">{artifact.artifact_type}</span>
+              <span className="artifact-name">{shortArtifactName(artifact.storage_path)}</span>
+              <span className="artifact-size">{formatBytes(artifact.byte_size)}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

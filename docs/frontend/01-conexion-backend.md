@@ -78,7 +78,10 @@ Ejemplos vivos:
 | --- | --- |
 | Render inicial de una pagina con datos del tenant | Server Component + Supabase server client |
 | Upload de archivo privado | Browser Supabase client + RPC + Storage |
-| Timeline live | Browser Supabase client + Realtime filtrado por `document_id` |
+| Lista de documentos live | Browser Supabase client + Realtime filtrado por `tenant_id` |
+| Timeline/extracciones live | Browser Supabase client + Realtime filtrado por `document_id` |
+| Usuarios activos en documento | Presence privado `document:<id>:presence` |
+| Notificaciones livianas | Broadcast privado `tenant:<tenant_id>:notifications` |
 | Pedir indexacion | `POST /api/documents/:id/indexing/request` |
 | Descargar archivo | Link a `/app/documents/:id/download` |
 | Ver PDF embebido | `GET /api/documents/:id/file-url` |
@@ -99,13 +102,14 @@ Usuario elige archivo
   -> RPC mark_document_uploaded
   -> POST /api/documents/:id/indexing/request
   -> Inngest + workers
-  -> Realtime actualiza timeline
+  -> Realtime actualiza lista, timeline, extracciones y artifacts
 ```
 
 Archivos:
 
 - `components/documents/document-upload-form.tsx`
 - `app/api/documents/[id]/indexing/request/route.ts`
+- `components/documents/documents-live-list.tsx`
 - `components/documents/indexing-timeline.tsx`
 
 ### Detalle de documento
@@ -116,6 +120,7 @@ Archivos:
   -> getDocumentDetailSnapshot({ documentId, tenantId })
   -> muestra document, latestRun, indexingEvents, tree y chunks.count
   -> client se suscribe a Realtime para updates
+  -> al terminar una corrida, refresca la ruta para traer tree/chunks actualizados
 ```
 
 Archivos:
@@ -123,6 +128,26 @@ Archivos:
 - `app/app/documents/[id]/page.tsx`
 - `lib/documents/detail.ts`
 - `components/documents/indexing-timeline.tsx`
+
+### Workspace live
+
+```text
+/app/workspace/documents/:id
+  -> Server Component trae documento, tree, chunks, run, events y extracciones
+  -> useDocumentIndexingRealtime actualiza run/events
+  -> useDocumentExtractionsRealtime actualiza extracciones/artifacts
+  -> useDocumentPresence publica usuario/pagina actual
+  -> useTenantNotifications escucha Broadcast del tenant
+```
+
+Archivos:
+
+- `components/workspace/workspace-client.tsx`
+- `components/workspace/inspector.tsx`
+- `lib/realtime/use-document-indexing-realtime.ts`
+- `lib/realtime/use-document-extractions-realtime.ts`
+- `lib/realtime/use-document-presence.ts`
+- `lib/realtime/use-tenant-notifications.ts`
 
 ### Visor PDF
 
@@ -204,7 +229,9 @@ canceled
 - No guardar signed URLs en Redis, localStorage ni DB.
 - No asumir que `uploaded` significa `indexed`.
 - No pedir `service_role` para resolver problemas de UI.
-- No suscribirse a tablas completas en Realtime; filtrar por `document_id`.
+- No suscribirse a tablas completas en Realtime; filtrar por `document_id` o `tenant_id`.
+- No usar Presence para eventos de alta frecuencia.
+- No usar Broadcast para signed URLs, secretos o contenido pesado.
 - No usar `next/link` para `/auth/sign-out`; es `POST`.
 
 ## Checklist para una pantalla nueva
@@ -215,4 +242,6 @@ canceled
 4. Usar los tipos de `lib/documents/types.ts` cuando aplique.
 5. Para mutaciones, refrescar con `router.refresh()` o `revalidatePath()`.
 6. Si necesita live updates, suscribirse con filtro estrecho.
-7. Revisar el catalogo: `docs/backend/09-catalogo-api-rutas.md`.
+7. Si el live update habilita datos server-side nuevos, refrescar al estado terminal.
+8. Revisar el catalogo: `docs/backend/09-catalogo-api-rutas.md`.
+9. Revisar el contrato Realtime: `docs/backend/10-supabase-realtime.md`.

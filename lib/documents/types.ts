@@ -74,3 +74,42 @@ export type IndexingEventRow = {
   progress: number | null;
   created_at: string;
 };
+
+export type DocumentExtractionStatus =
+  | "canceled"
+  | "failed"
+  | "queued"
+  | "reused"
+  | "running"
+  | "succeeded";
+
+export type DocumentExtractionRow = {
+  artifact_prefix: string;
+  completed_at: string | null;
+  created_at: string;
+  document_id: string;
+  error_message: string | null;
+  failed_at: string | null;
+  id: string;
+  manifest: Record<string, unknown>;
+  metrics: Record<string, unknown>;
+  parser: string;
+  parser_backend: string;
+  parser_version: string;
+  run_id: string | null;
+  started_at: string | null;
+  status: DocumentExtractionStatus;
+  updated_at: string;
+};
+
+export type DocumentExtractionArtifactRow = {
+  artifact_type: string;
+  byte_size: number | null;
+  content_type: string | null;
+  created_at: string;
+  document_id: string;
+  extraction_id: string;
+  id: string;
+  storage_bucket: string;
+  storage_path: string;
+};

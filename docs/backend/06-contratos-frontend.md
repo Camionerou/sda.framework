@@ -60,6 +60,9 @@ Ejemplo vivo:
 
 - `DocumentUploadForm` calcula checksum, llama RPCs y sube a Storage.
 - `IndexingTimeline` se subscribe a `indexing_runs` e `indexing_events`.
+- `DocumentsLiveList` se subscribe a `documents` por `tenant_id`.
+- `WorkspaceClient` usa hooks Realtime compartidos para indexacion,
+  extracciones, Presence y Broadcast.
 
 ## Route Handlers
 
@@ -135,7 +138,11 @@ a navegacion por pagina con `page_start`/`page_end`.
 - Preferir RLS sobre filtros manuales por tenant.
 - Mostrar `status_reason` cuando exista.
 - Tratar errores de ingesta como advertencias, no como fallo de upload.
-- Suscribirse por `document_id` para timelines, no a tablas completas.
+- Suscribirse por `document_id` o `tenant_id`, no a tablas completas.
+- Usar `router.refresh()` cuando un estado terminal live habilita nuevas lecturas
+  server-side como `doc_tree`, `chunks` o versiones.
+- Usar Presence solo para estado efimero lento; no para eventos de alta
+  frecuencia.
 - No asumir que `uploaded` significa `indexed`.
 - No llamar "listo para chat" si no existe `doc_tree` y al menos un `chunk`.
 - Reintentar indexacion desde detalle cuando la corrida esta `failed`,
@@ -166,6 +173,8 @@ Timeline:
 - Estado principal con `indexing_runs.stage`.
 - Lista historica desde `indexing_events`.
 - Mensaje de error desde `indexing_runs.error_message`.
+- Panel de extraccion desde `document_extractions` y
+  `document_extraction_artifacts`.
 
 ## Integracion futura de chat
 

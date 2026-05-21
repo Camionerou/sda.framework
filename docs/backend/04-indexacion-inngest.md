@@ -42,6 +42,12 @@ La RPC toma las versiones latest desde `_metadata.versions`, generado por
 - Realtime para UI.
 - Mensajes accionables por etapa.
 
+`document_extractions` y `document_extraction_artifacts`:
+
+- Estado y artefactos del parseo MinerU.
+- Realtime para el panel de workspace.
+- No se escriben desde browser; los persisten workers/backend.
+
 Stages:
 
 ```text

@@ -128,7 +128,8 @@ Responsabilidades:
 - Upload directo a Supabase Storage.
 - Lectura de datos via Supabase SSR/client.
 - Streaming de chat via SSE cuando entre el Agent Runtime.
-- Suscripciones live a documentos, `indexing_runs` e `indexing_events`.
+- Suscripciones live a documentos, `indexing_runs`, `indexing_events`,
+  extracciones, Presence y Broadcast privado.
 
 ### 3.2 Supabase
 
@@ -527,6 +528,7 @@ Superficies live:
 Tecnologias:
 
 - Supabase Realtime para cambios de DB.
+- Supabase Broadcast/Presence para senales efimeras privadas.
 - SSE para chat y agent runtime.
 - Inngest para estado durable y retries.
 - `indexing_events` para timeline historico y live.

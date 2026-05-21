@@ -1,4 +1,7 @@
 export type {
+  DocumentExtractionArtifactRow,
+  DocumentExtractionRow,
+  DocumentExtractionStatus,
   DocumentRow,
   DocumentStatus,
   IndexingEventRow,

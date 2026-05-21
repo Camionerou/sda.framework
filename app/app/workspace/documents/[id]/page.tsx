@@ -4,6 +4,8 @@ import { WorkspaceClient } from "@/components/workspace/workspace-client";
 import type { InspectorTab } from "@/components/workspace/inspector";
 import {
   visibleDocumentStatuses,
+  type DocumentExtractionArtifactRow,
+  type DocumentExtractionRow,
   type DocumentRow,
   type IndexingEventRow,
   type IndexingRunRow
@@ -51,47 +53,74 @@ export default async function WorkspaceDocumentPage({
     notFound();
   }
 
-  const [{ data: tree }, { data: chunkRows }, { data: runs }, { data: eventRows }, { data: versionRows }] =
-    await Promise.all([
-      supabase
-        .from("doc_tree")
-        .select(
-          "summary, routing_summary, model, version, created_at, indexing_pipeline_version, tree_indexer_version, tree_prompt_version"
-        )
-        .eq("document_id", document.id)
-        .eq("tenant_id", tenantId)
-        .maybeSingle<TreeRow>(),
-      supabase
-        .from("chunks")
-        .select("node_id, node_path, chunk_index, page_start, page_end, summary")
-        .eq("document_id", document.id)
-        .eq("tenant_id", tenantId)
-        .order("chunk_index", { ascending: true })
-        .limit(4000)
-        .returns<ChunkRow[]>(),
-      supabase
-        .from("indexing_runs")
-        .select(
-          "id, document_id, status, stage, progress, attempt, created_at, started_at, completed_at, failed_at, error_message, compute_job_id, inngest_run_id, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
-        )
-        .eq("document_id", document.id)
-        .eq("tenant_id", tenantId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .returns<IndexingRunRow[]>(),
-      supabase
-        .from("indexing_events")
-        .select("id, run_id, document_id, event_type, stage, severity, message, progress, created_at")
-        .eq("document_id", document.id)
-        .eq("tenant_id", tenantId)
-        .order("created_at", { ascending: true })
-        .limit(120)
-        .returns<IndexingEventRow[]>(),
-      supabase
-        .from("system_component_versions")
-        .select("component, version")
-        .returns<ComponentVersionRow[]>()
-    ]);
+  const [
+    { data: tree },
+    { data: chunkRows },
+    { data: runs },
+    { data: eventRows },
+    { data: extractionRows },
+    { data: artifactRows },
+    { data: versionRows }
+  ] = await Promise.all([
+    supabase
+      .from("doc_tree")
+      .select(
+        "summary, routing_summary, model, version, created_at, indexing_pipeline_version, tree_indexer_version, tree_prompt_version"
+      )
+      .eq("document_id", document.id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle<TreeRow>(),
+    supabase
+      .from("chunks")
+      .select("node_id, node_path, chunk_index, page_start, page_end, summary")
+      .eq("document_id", document.id)
+      .eq("tenant_id", tenantId)
+      .order("chunk_index", { ascending: true })
+      .limit(4000)
+      .returns<ChunkRow[]>(),
+    supabase
+      .from("indexing_runs")
+      .select(
+        "id, document_id, status, stage, progress, attempt, created_at, started_at, completed_at, failed_at, error_message, compute_job_id, inngest_run_id, indexing_pipeline_version, extraction_pipeline_version, tree_indexer_version, embedding_pipeline_version"
+      )
+      .eq("document_id", document.id)
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .returns<IndexingRunRow[]>(),
+    supabase
+      .from("indexing_events")
+      .select("id, run_id, document_id, event_type, stage, severity, message, progress, created_at")
+      .eq("document_id", document.id)
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: true })
+      .limit(120)
+      .returns<IndexingEventRow[]>(),
+    supabase
+      .from("document_extractions")
+      .select(
+        "id, document_id, run_id, parser, parser_version, parser_backend, status, artifact_prefix, manifest, metrics, error_message, started_at, completed_at, failed_at, created_at, updated_at"
+      )
+      .eq("document_id", document.id)
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false })
+      .limit(5)
+      .returns<DocumentExtractionRow[]>(),
+    supabase
+      .from("document_extraction_artifacts")
+      .select(
+        "id, extraction_id, document_id, artifact_type, storage_bucket, storage_path, content_type, byte_size, created_at"
+      )
+      .eq("document_id", document.id)
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false })
+      .limit(24)
+      .returns<DocumentExtractionArtifactRow[]>(),
+    supabase
+      .from("system_component_versions")
+      .select("component, version")
+      .returns<ComponentVersionRow[]>()
+  ]);
 
   const chunks = chunkRows ?? [];
   const treeRows = buildTreeRows(chunks);
@@ -149,7 +178,10 @@ export default async function WorkspaceDocumentPage({
   return (
     <WorkspaceClient
       document={document}
+      initialArtifacts={artifactRows ?? []}
+      initialExtractions={extractionRows ?? []}
       tenantLabel={tenantSlug || "SDA"}
+      tenantId={tenantId}
       treeRows={treeRows}
       treeSummary={tree?.summary ?? null}
       treeModel={tree?.model ?? null}
@@ -160,6 +192,10 @@ export default async function WorkspaceDocumentPage({
       versions={versions}
       latestVersions={latestVersions}
       defaultTab={defaultTab}
+      viewer={{
+        id: claims.sub ?? "unknown",
+        label: claims.email ?? "Usuario"
+      }}
     />
   );
 }

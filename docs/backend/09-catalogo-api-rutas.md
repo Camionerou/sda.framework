@@ -185,8 +185,20 @@ cuando hay una cache controlada:
 
 Realtime actual:
 
+- `documents` filtrado por `tenant_id` para biblioteca live.
 - `indexing_runs` filtrado por `document_id`.
 - `indexing_events` filtrado por `document_id`.
+- `document_extractions` filtrado por `document_id`.
+- `document_extraction_artifacts` filtrado por `document_id`.
+
+Topics privados:
+
+- `tenant:<tenant_id>:notifications` para Broadcast de cambios livianos.
+- `document:<document_id>:presence` para usuarios activos en workspace.
+- `document:<document_id>:indexing` para Broadcast de run/eventos de
+  indexacion.
+
+Ver contrato completo en [`10-supabase-realtime.md`](./10-supabase-realtime.md).
 
 ## Storage
 

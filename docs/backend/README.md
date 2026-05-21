@@ -18,6 +18,7 @@ verdad; Inngest orquesta jobs durables; los workers hacen el computo pesado.
 - [`07-operacion-env-health.md`](./07-operacion-env-health.md): env vars, comandos, health checks y debugging.
 - [`08-upstash-redis.md`](./08-upstash-redis.md): Redis operacional para locks, backpressure, rate limits, heartbeats, snapshots live y caches TTL.
 - [`09-catalogo-api-rutas.md`](./09-catalogo-api-rutas.md): catalogo canonico de rutas UI, route handlers, RPCs, Storage y workers.
+- [`10-supabase-realtime.md`](./10-supabase-realtime.md): Postgres Changes, Broadcast, Presence, topics, policies y patrones de UI live.
 
 Para frontend, empezar por [`../frontend/01-conexion-backend.md`](../frontend/01-conexion-backend.md).
 
@@ -34,7 +35,8 @@ Implementado:
 - Inngest endpoint y funciones de indexacion.
 - Upstash Redis para locks efimeros, backpressure, rate limits, heartbeats,
   snapshots live y cache server-side reconstruible.
-- Timeline live con Supabase Realtime.
+- Biblioteca, timeline, extracciones, Presence y notificaciones live con Supabase
+  Realtime.
 - Compute Gateway Node para MinerU.
 - Tree Indexer Python FastAPI con LangGraph y LLM.
 

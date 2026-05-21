@@ -1,17 +1,11 @@
-import { Clock, Database, FileText, HardDriveUpload, Search, UploadCloud } from "lucide-react";
-import Link from "next/link";
+import { Database, HardDriveUpload, Search, UploadCloud } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/workspace/app-shell";
+import { DocumentsLiveList } from "@/components/documents/documents-live-list";
 import { DocumentUploadForm } from "@/components/documents/document-upload-form";
-import {
-  formatBytes,
-  isPendingVisibleDocument,
-  visibleDocumentStatuses,
-  type DocumentRow
-} from "@/lib/documents";
-import { formatDateTime, getClaimValue, type AppClaims, type TenantRole } from "@/lib/auth/session";
-import { libStatus, libStatusLabel } from "@/lib/workspace";
+import { visibleDocumentStatuses, type DocumentRow } from "@/lib/documents";
+import { getClaimValue, type AppClaims, type TenantRole } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -45,9 +39,6 @@ export default async function DocumentsPage() {
     .returns<DocumentRow[]>();
 
   const documents = documentRows ?? [];
-  const uploadedCount = documents.filter((doc) => doc.status === "uploaded").length;
-  const indexedCount = documents.filter((doc) => doc.status === "indexed").length;
-  const pendingCount = documents.filter(isPendingVisibleDocument).length;
 
   return (
     <AppShell active="documents" tenantLabel={tenantSlug || "SDA"} tenantRole={tenantRole}>
@@ -60,94 +51,11 @@ export default async function DocumentsPage() {
       </div>
 
       <div className="grid-2">
-        <div className="section-grid">
-          <div className="stats-grid">
-            <div className="stat">
-              <div className="stat-label">Subidos</div>
-              <div className="stat-value">{uploadedCount}</div>
-              <div className="stat-sub">Listos para pipeline</div>
-            </div>
-            <div className="stat">
-              <div className="stat-label">Pendientes</div>
-              <div className="stat-value">{pendingCount}</div>
-              <div className="stat-sub">Upload o indexación</div>
-            </div>
-            <div className="stat">
-              <div className="stat-label">Indexados</div>
-              <div className="stat-value">{indexedCount}</div>
-              <div className="stat-sub">Disponibles en el workspace</div>
-            </div>
-          </div>
-
-          <div className="glass-card">
-            <div className="gc-head">
-              <h2 className="gc-title">Archivos del tenant</h2>
-              <p className="gc-desc">Últimos 100 documentos. Hacé click para abrirlos en el workspace.</p>
-            </div>
-
-            {error ? (
-              <div className="alert alert-danger" role="alert">
-                <strong>No se pudieron leer los documentos.</strong>
-                <span>{error.message}</span>
-              </div>
-            ) : null}
-
-            {documents.length === 0 ? (
-              <div className="empty">
-                <FileText aria-hidden="true" size={22} />
-                <div>
-                  <strong>No hay documentos todavía.</strong>
-                  <p>Subí el primer archivo desde el panel lateral.</p>
-                </div>
-              </div>
-            ) : (
-              <div className="table-wrap">
-                <table className="ws-table">
-                  <thead>
-                    <tr>
-                      <th>Documento</th>
-                      <th>Estado</th>
-                      <th>Tamaño</th>
-                      <th>Subido</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {documents.map((document) => {
-                      const bucket = libStatus(document.status);
-                      return (
-                        <tr key={document.id}>
-                          <td>
-                            <div className="t-primary">
-                              <Link href={`/app/workspace/documents/${document.id}`}>
-                                {document.title ?? document.filename}
-                              </Link>
-                            </div>
-                            <div className="t-secondary">{document.filename}</div>
-                          </td>
-                          <td>
-                            <span className={`status status-${bucket}`}>
-                              {libStatusLabel(document.status)}
-                            </span>
-                            {document.status_reason ? (
-                              <div className="t-secondary">{document.status_reason}</div>
-                            ) : null}
-                          </td>
-                          <td>{formatBytes(document.byte_size)}</td>
-                          <td>
-                            <span className="inline-icon">
-                              <Clock aria-hidden="true" size={14} />
-                              {formatDateTime(document.uploaded_at ?? document.created_at)}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
+        <DocumentsLiveList
+          errorMessage={error?.message}
+          initialDocuments={documents}
+          tenantId={tenantId}
+        />
 
         <div className="section-grid">
           <div className="glass-card">

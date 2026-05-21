@@ -250,48 +250,97 @@ const tailCommand = defineCommand({
       required: true,
       description: "Document ID"
     },
-    interval: {
+    history: {
       type: "string",
-      description: "Intervalo en ms",
-      default: "2000"
+      description: "Eventos historicos iniciales",
+      default: "100"
     }
   },
   async run({ args }) {
     loadSdaEnv();
     const supabase = createAdminClient();
     const seen = new Set();
-    const intervalMs = positiveInt(args.interval, 2_000);
     const documentId = await resolveTailDocumentId(supabase, args.documentId);
 
     console.log(`Tail indexing events for ${documentId}. Ctrl-C para salir.`);
-
-    while (true) {
-      const { data, error } = await supabase
-        .from("indexing_events")
-        .select("id, event_type, stage, message, progress, severity, created_at")
-        .eq("document_id", documentId)
-        .order("created_at", { ascending: true })
-        .limit(100);
-
-      if (error) {
-        throw error;
-      }
-
-      for (const event of data ?? []) {
-        if (seen.has(event.id)) {
-          continue;
-        }
-
-        seen.add(event.id);
-        console.log(
-          `${event.stage.padEnd(14)} ${String(event.progress ?? "-").padStart(3)}% ${event.event_type.padEnd(36)} ${event.message}`
-        );
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
-    }
+    await printBackfillEvents(supabase, documentId, seen, positiveInt(args.history, 100));
+    await subscribeToIndexingEvents(supabase, documentId, seen);
   }
 });
+
+async function printBackfillEvents(supabase, documentId, seen, limit) {
+  const { data, error } = await supabase
+    .from("indexing_events")
+    .select("id, event_type, stage, message, progress, severity, created_at")
+    .eq("document_id", documentId)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    throw error;
+  }
+
+  for (const event of data ?? []) {
+    printTailEvent(event, seen);
+  }
+}
+
+async function subscribeToIndexingEvents(supabase, documentId, seen) {
+  await new Promise((resolve, reject) => {
+    let closing = false;
+    const channel = supabase
+      .channel(`cli:document:${documentId}:indexing-events`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          filter: `document_id=eq.${documentId}`,
+          schema: "public",
+          table: "indexing_events"
+        },
+        (payload) => printTailEvent(payload.new, seen)
+      )
+      .subscribe((status, error) => {
+        if (status === "SUBSCRIBED") {
+          console.error("Realtime subscribed.");
+          return;
+        }
+
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          reject(error ?? new Error(`Realtime tail failed with status ${status}.`));
+        }
+      });
+
+    const stop = async (code) => {
+      if (closing) {
+        return;
+      }
+
+      closing = true;
+      await supabase.removeChannel(channel).catch(() => null);
+      resolve();
+      process.exit(code);
+    };
+
+    process.once("SIGINT", () => {
+      void stop(130);
+    });
+    process.once("SIGTERM", () => {
+      void stop(143);
+    });
+  });
+}
+
+function printTailEvent(event, seen) {
+  if (!event?.id || seen.has(event.id)) {
+    return;
+  }
+
+  seen.add(event.id);
+  console.log(
+    `${event.stage.padEnd(14)} ${String(event.progress ?? "-").padStart(3)}% ${event.event_type.padEnd(36)} ${event.message}`
+  );
+}
 
 async function failedDocuments(supabase) {
   const { data, error } = await supabase

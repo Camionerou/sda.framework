@@ -64,6 +64,9 @@
 - `request_document_indexing` reads operative versions from `_metadata.versions`; `lib/system-versions.json` is the source of truth.
 - Version drift is informational by default. Do not automatically reindex every document after every bump; documents with valid `doc_tree` and `chunks` remain usable.
 - Upstash Redis is used for operational state: indexing dispatch locks, tenant backpressure, request rate limits, heartbeats, live run snapshots, and short server-side caches. If Redis is missing or degraded, indexing must stay usable and rely on Postgres/Inngest idempotency.
+- Supabase Realtime is not a second source of truth. Use it to notify UI about
+  changes already authorized by RLS, then refresh server data when a terminal
+  state unlocks new `doc_tree`, `chunks` or artifact queries.
 - During active indexing runs, avoid deploys unless it is a hotfix. If a deploy interrupts polling, verify `npm run indexing:health` and let the reconciler recover or requeue any `nonterminal_without_active_run`.
 
 ## Upstash Redis

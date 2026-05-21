@@ -30,7 +30,8 @@ Supabase:
 - Postgres como fuente de verdad.
 - RLS por `tenant_id`.
 - Storage privado `documents`.
-- Realtime para `indexing_runs` e `indexing_events`.
+- Realtime para `documents`, `indexing_runs`, `indexing_events`,
+  `document_extractions`, artifacts, Presence y Broadcast privado.
 - RPCs para operaciones sensibles.
 
 Upstash Redis:

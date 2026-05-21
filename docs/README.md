@@ -12,6 +12,8 @@ Indice operativo de la documentacion vigente del proyecto.
 4. [`frontend/README.md`](./frontend/README.md): como conectar UI con backend.
 5. [`backend/09-catalogo-api-rutas.md`](./backend/09-catalogo-api-rutas.md):
    catalogo canonico de rutas, handlers, RPCs y endpoints externos.
+6. [`backend/10-supabase-realtime.md`](./backend/10-supabase-realtime.md):
+   contrato de Postgres Changes, Broadcast, Presence y topics privados.
 
 ## Separacion por area
 

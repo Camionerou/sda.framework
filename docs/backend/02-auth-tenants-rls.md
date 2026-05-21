@@ -77,6 +77,7 @@ Las politicas filtran por tenant en:
 - `indexing_events`
 - `document_extractions`
 - `document_extraction_artifacts`
+- `realtime.messages` para Broadcast/Presence privados
 
 ## Frontera de seguridad
 

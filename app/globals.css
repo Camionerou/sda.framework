@@ -1043,6 +1043,14 @@ select {
   gap: 14px;
 }
 
+.timeline-badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .timeline-summary h3 {
   margin: 4px 0 5px;
   font-family: var(--font-display);
