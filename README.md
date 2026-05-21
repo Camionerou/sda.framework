@@ -47,8 +47,12 @@ No guardar ahi archivos completos, signed URLs, service-role keys ni permisos.
 
 ## Documentacion
 
+- [`docs/README.md`](./docs/README.md): indice principal por area.
 - [`docs/arquitectura.md`](./docs/arquitectura.md): arquitectura general.
 - [`docs/backend/README.md`](./docs/backend/README.md): mapa granular del backend.
+- [`docs/middleware/README.md`](./docs/middleware/README.md): proxy de sesion, CSRF, rate limits y fronteras.
+- [`docs/frontend/README.md`](./docs/frontend/README.md): guia para frontend dev.
+- [`docs/backend/09-catalogo-api-rutas.md`](./docs/backend/09-catalogo-api-rutas.md): catalogo de API/rutas.
 - [`docs/backend/07-operacion-env-health.md`](./docs/backend/07-operacion-env-health.md): env, health checks y debugging.
 - [`docs/backend/08-upstash-redis.md`](./docs/backend/08-upstash-redis.md): contrato Redis.
 - [`docs/gotchas.md`](./docs/gotchas.md): decisiones y trampas operativas.

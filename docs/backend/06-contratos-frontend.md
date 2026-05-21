@@ -1,5 +1,12 @@
 # Contratos Para Frontend
 
+Lectura complementaria:
+
+- [`../frontend/01-conexion-backend.md`](../frontend/01-conexion-backend.md):
+  guia practica para conectar pantallas.
+- [`09-catalogo-api-rutas.md`](./09-catalogo-api-rutas.md): catalogo completo
+  de rutas, handlers, RPCs y endpoints.
+
 ## Regla base
 
 El frontend debe consumir el backend a traves de tres puertas:

@@ -17,6 +17,9 @@ verdad; Inngest orquesta jobs durables; los workers hacen el computo pesado.
 - [`06-contratos-frontend.md`](./06-contratos-frontend.md): como conectar frontend al backend sin romper seguridad.
 - [`07-operacion-env-health.md`](./07-operacion-env-health.md): env vars, comandos, health checks y debugging.
 - [`08-upstash-redis.md`](./08-upstash-redis.md): Redis operacional para locks, backpressure, rate limits, heartbeats, snapshots live y caches TTL.
+- [`09-catalogo-api-rutas.md`](./09-catalogo-api-rutas.md): catalogo canonico de rutas UI, route handlers, RPCs, Storage y workers.
+
+Para frontend, empezar por [`../frontend/01-conexion-backend.md`](../frontend/01-conexion-backend.md).
 
 ## Estado real
 
