@@ -52,7 +52,6 @@ export default async function WorkspaceHome() {
                 fontFamily: "var(--font-display)",
                 fontSize: 24,
                 fontWeight: 800,
-                letterSpacing: "-0.01em",
                 color: "var(--ink)",
                 margin: 0
               }}

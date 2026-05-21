@@ -1,9 +1,4 @@
-/* =========================================================
-   SDA Framework — Workspace (V1 "Atrium")
-   Quiet-luxury liquid glass on aurora wash.
-   Everything is scoped under `.ws` so it never collides with
-   the existing console styles in globals.css.
-   ========================================================= */
+/* SDA Framework — Workspace (V1 "Atrium"), scoped under `.ws`. */
 
 .ws {
   /* Type — self-hosted Variable fonts (see app/layout.tsx) */
@@ -64,6 +59,7 @@
   overflow: hidden;
   background: var(--ws-bg);
   font-family: var(--font-text);
+  letter-spacing: 0;
   color: var(--ink);
   isolation: isolate;
   -webkit-font-smoothing: antialiased;
@@ -126,51 +122,74 @@
   gap: 14px;
 }
 
-/* =========================================================
-   GLASS PRIMITIVE
-   ========================================================= */
-.ws .glass {
+/* Glass primitives */
+.ws :is(.glass, .glass-soft, .glass-strong, .glass-card) {
+  --glass-fill: var(--glass-bg);
+  --glass-blur: 28px;
+  --glass-saturation: 140%;
+  --glass-elevation: var(--glass-shadow);
   position: relative;
-  background: var(--glass-bg);
-  backdrop-filter: blur(28px) saturate(140%);
-  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  background: var(--glass-fill);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
   border-radius: var(--r);
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-elevation);
   border: 1px solid var(--glass-edge);
 }
 .ws .glass-soft {
-  background: var(--glass-bg-soft);
-  backdrop-filter: blur(22px) saturate(130%);
-  -webkit-backdrop-filter: blur(22px) saturate(130%);
-  border-radius: var(--r);
-  box-shadow: var(--glass-shadow-soft);
-  border: 1px solid var(--glass-edge);
+  --glass-fill: var(--glass-bg-soft);
+  --glass-blur: 22px;
+  --glass-saturation: 130%;
+  --glass-elevation: var(--glass-shadow-soft);
 }
 .ws .glass-strong {
-  background: var(--glass-bg-strong);
-  backdrop-filter: blur(34px) saturate(150%);
-  -webkit-backdrop-filter: blur(34px) saturate(150%);
-  border-radius: var(--r);
-  box-shadow: var(--glass-shadow);
-  border: 1px solid var(--glass-edge);
+  --glass-fill: var(--glass-bg-strong);
+  --glass-blur: 34px;
+  --glass-saturation: 150%;
 }
 
 /* Backdrop-filter fallback (older / low-power) */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .ws .glass,
   .ws .glass-soft,
-  .ws .glass-strong {
+  .ws .glass-strong,
+  .ws .glass-card {
     background: var(--glass-bg-strong);
   }
 }
 
-/* =========================================================
-   LEFT RAIL — collapsible (icons -> hover flyout library)
-   ========================================================= */
-.ws .rail {
-  width: 60px;
+/* Shared micro-primitives */
+.ws :where(.brand, .rail-btn, .rail-avatar, .lib-item .thumb, .ico-btn, .pdf-toolbar .tb-btn, .viewer-empty .ve-ico, .tab, .node .chev, .node .ico, .stage-row .sr-ico, .btn-ghost-sq) {
+  display: grid;
+  place-items: center;
+}
+.ws :where(.rail, .rail-nav, .rail-foot, .lib, .thumb-wrap, .center, .inspector, .inspector-head, .inspector-body, .tree, .stage-list, .events, .section-grid, .glass-card, .gc-head, .form-grid, .field, .steps, .auth-card),
+.ws-app-shell,
+.ws-page-inner {
   display: flex;
   flex-direction: column;
+}
+.ws :where(.lib-item .title, .lib-item .meta, .crumbs .here, .topbar-center .doc-name, .node .label, .copy-row code) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws :where(.search-input input, .find-pop input, .insp-tools .search-mini input) {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+}
+.ws :where(.section-label, .lib-item .status, .topbar-center .status-chip, .live-strip, .thumb-strip .ts-head, .bbox-tag, .kv-row .k, .kicker, .stat-label, table.ws-table th, .label) {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* Left rail */
+.ws .rail {
+  width: 60px;
   padding: 12px 10px;
   gap: 14px;
   align-items: center;
@@ -179,22 +198,17 @@
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  display: grid;
-  place-items: center;
   background: linear-gradient(160deg, #11b3a1 0%, #0b756b 100%);
   color: #fff;
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 16px;
-  letter-spacing: -0.02em;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.5) inset,
     0 6px 18px -8px rgba(15, 159, 143, 0.6);
   flex: 0 0 auto;
 }
 .ws .rail-nav {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
   align-items: center;
   width: 100%;
@@ -202,8 +216,6 @@
 .ws .rail-btn {
   width: 40px;
   height: 40px;
-  display: grid;
-  place-items: center;
   border-radius: 10px;
   color: var(--muted);
   position: relative;
@@ -212,6 +224,14 @@
 .ws .rail-btn:hover {
   color: var(--ink);
   background: rgba(12, 22, 32, 0.04);
+}
+.ws .rail-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ws .rail-btn:disabled:hover {
+  color: var(--muted);
+  background: transparent;
 }
 .ws .rail-btn.is-active {
   color: var(--teal-2);
@@ -230,8 +250,6 @@
 }
 .ws .rail-foot {
   margin-top: auto;
-  display: flex;
-  flex-direction: column;
   gap: 6px;
   align-items: center;
 }
@@ -241,8 +259,6 @@
   border-radius: 999px;
   background: linear-gradient(135deg, #b2d8ff, #c9b8ff);
   box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(12, 22, 32, 0.08);
-  display: grid;
-  place-items: center;
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 12px;
@@ -279,11 +295,7 @@
 }
 
 .ws .section-label {
-  font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--muted-2);
   padding: 0 4px;
   display: flex;
@@ -305,16 +317,10 @@
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid var(--glass-edge);
-  font-family: var(--font-text);
   font-size: 13px;
   color: var(--ink);
 }
 .ws .search-input input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
   font: inherit;
   color: inherit;
 }
@@ -337,8 +343,6 @@
 
 /* Library list */
 .ws .lib {
-  display: flex;
-  flex-direction: column;
   gap: 2px;
   overflow-y: auto;
   flex: 1;
@@ -354,7 +358,6 @@
   padding: 8px;
   border-radius: 10px;
   align-items: center;
-  cursor: pointer;
   isolation: isolate;
   text-align: left;
   width: 100%;
@@ -374,8 +377,6 @@
   border-radius: 4px;
   background: linear-gradient(180deg, #fbfaf6, #ede9e0);
   border: 1px solid rgba(12, 22, 32, 0.1);
-  display: grid;
-  place-items: center;
   font-family: var(--font-mono);
   font-size: 8px;
   font-weight: 700;
@@ -399,46 +400,34 @@
 }
 .ws .lib-item .title {
   min-width: 0;
-  font-family: var(--font-text);
   font-weight: 600;
   font-size: 13.5px;
   color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .ws .lib-item .meta {
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--muted-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   margin-top: 1px;
 }
 .ws .lib-item .status {
-  font-family: var(--font-mono);
   font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   padding: 3px 6px;
   border-radius: 999px;
-  white-space: nowrap;
 }
-.ws .status-indexed {
+.ws :is(.status-indexed, .chip.teal) {
   background: rgba(15, 159, 143, 0.14);
   color: var(--teal-2);
 }
-.ws .status-running {
+.ws :is(.status-running, .chip.blue) {
   background: rgba(56, 103, 214, 0.14);
   color: var(--blue);
 }
-.ws .status-queued {
+.ws :is(.status-queued, .chip.amber) {
   background: rgba(201, 138, 43, 0.14);
   color: var(--amber);
 }
-.ws .status-failed {
+.ws :is(.status-failed, .chip.danger) {
   background: rgba(200, 56, 74, 0.12);
   color: var(--danger);
 }
@@ -481,7 +470,6 @@
   gap: 6px;
   width: 100%;
   text-align: left;
-  cursor: pointer;
 }
 .ws .upload-tile:hover {
   border-color: rgba(15, 159, 143, 0.55);
@@ -501,14 +489,10 @@
   line-height: 1.4;
 }
 
-/* =========================================================
-   CENTER — viewer column
-   ========================================================= */
+/* Center viewer column */
 .ws .center {
   position: relative;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 
@@ -524,7 +508,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: var(--font-text);
   font-size: 13px;
   color: var(--muted);
   min-width: 0;
@@ -532,9 +515,6 @@
 .ws .crumbs .here {
   color: var(--ink);
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .ws .topbar-center {
   display: flex;
@@ -551,17 +531,10 @@
 .ws .topbar-center .doc-name {
   font-weight: 600;
   color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 280px;
 }
 .ws .topbar-center .status-chip {
-  font-family: var(--font-mono);
   font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   padding: 3px 8px;
   border-radius: 999px;
   flex: 0 0 auto;
@@ -575,8 +548,6 @@
 .ws .ico-btn {
   width: 32px;
   height: 32px;
-  display: grid;
-  place-items: center;
   border-radius: 9px;
   color: var(--ink-3);
   transition: background 0.15s ease, color 0.15s ease;
@@ -603,11 +574,7 @@
   background: rgba(56, 103, 214, 0.1);
   border: 1px solid rgba(56, 103, 214, 0.18);
   color: var(--blue);
-  font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 .ws .live-strip .ls-spin {
   width: 16px;
@@ -640,9 +607,7 @@
   }
 }
 
-/* =========================================================
-   PDF STAGE
-   ========================================================= */
+/* PDF stage */
 .ws .stage {
   position: relative;
   flex: 1;
@@ -663,7 +628,6 @@
   min-height: 0;
 }
 
-/* Vertical thumbnail strip */
 .ws .thumb-strip {
   width: 96px;
   padding: 14px 8px 14px 14px;
@@ -674,11 +638,7 @@
   border-right: 1px solid var(--hair);
 }
 .ws .thumb-strip .ts-head {
-  font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--muted-2);
   padding: 0 2px 4px;
   display: flex;
@@ -688,16 +648,11 @@
   top: 0;
 }
 .ws .thumb-wrap {
-  display: flex;
-  flex-direction: column;
   align-items: center;
   gap: 6px;
   padding-bottom: 6px;
   position: relative;
-  background: none;
-  border: 0;
   width: 100%;
-  cursor: pointer;
 }
 .ws .thumb {
   position: relative;
@@ -734,7 +689,6 @@
   border-color: rgba(15, 159, 143, 0.5);
 }
 
-/* PDF canvas area */
 .ws .canvas {
   position: relative;
   min-width: 0;
@@ -755,7 +709,6 @@
   gap: 24px;
 }
 
-/* react-pdf page wrapper — paper look */
 .ws .pdf-page-wrap {
   position: relative;
   width: 100%;
@@ -777,7 +730,6 @@
   border-radius: 3px;
 }
 
-/* Highlight overlay (bbox) — drawn only when coords exist */
 .ws .bbox {
   position: absolute;
   border: 1.5px solid rgba(15, 159, 143, 0.55);
@@ -790,11 +742,7 @@
   position: absolute;
   top: -10px;
   left: -1px;
-  font-family: var(--font-mono);
   font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   background: var(--teal-2);
   color: #fff;
   padding: 2px 6px;
@@ -802,7 +750,6 @@
   white-space: nowrap;
 }
 
-/* Floating PDF toolbar */
 .ws .pdf-toolbar {
   position: absolute;
   top: 22px;
@@ -842,8 +789,6 @@
 .ws .pdf-toolbar .tb-btn {
   width: 30px;
   height: 30px;
-  display: grid;
-  place-items: center;
   border-radius: 999px;
   color: var(--ink-3);
 }
@@ -916,12 +861,6 @@
   padding: 4px 6px;
 }
 .ws .find-pop input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
-  font-family: var(--font-text);
   font-size: 13px;
   color: var(--ink);
 }
@@ -989,20 +928,14 @@
   font-weight: 700;
 }
 
-/* =========================================================
-   INSPECTOR
-   ========================================================= */
+/* Inspector */
 .ws .inspector {
   width: 360px;
-  display: flex;
-  flex-direction: column;
   padding: 0;
   overflow: hidden;
 }
 .ws .inspector-head {
   padding: 14px 14px 0;
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 .ws .inspector-title {
@@ -1022,7 +955,6 @@
   font-family: var(--font-mono);
   font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.08em;
   color: #8a6826;
   flex: 0 0 auto;
 }
@@ -1030,7 +962,6 @@
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 16px;
-  letter-spacing: -0.01em;
   margin: 0 0 2px;
   color: var(--ink);
   line-height: 1.2;
@@ -1039,7 +970,6 @@
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--muted-2);
-  letter-spacing: 0.02em;
 }
 .ws .inspector-title .chips {
   display: flex;
@@ -1059,9 +989,6 @@
   flex: 1;
   height: 28px;
   border-radius: 7px;
-  display: grid;
-  place-items: center;
-  font-family: var(--font-text);
   font-size: 12.5px;
   font-weight: 600;
   color: var(--muted);
@@ -1081,8 +1008,6 @@
   flex: 1;
   overflow-y: auto;
   padding: 14px;
-  display: flex;
-  flex-direction: column;
   gap: 14px;
 }
 
@@ -1106,19 +1031,12 @@
   color: var(--muted);
 }
 .ws .insp-tools .search-mini input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
   font: inherit;
   color: var(--ink);
 }
 
 /* Tree */
 .ws .tree {
-  display: flex;
-  flex-direction: column;
   gap: 1px;
 }
 .ws .node {
@@ -1129,10 +1047,8 @@
   align-items: center;
   padding: 5px 6px;
   border-radius: 7px;
-  font-family: var(--font-text);
   font-size: 13px;
   color: var(--ink-2);
-  cursor: pointer;
   text-align: left;
   width: 100%;
 }
@@ -1157,24 +1073,18 @@
 .ws .node .chev,
 .ws .node .ico {
   color: var(--muted-2);
-  display: grid;
-  place-items: center;
 }
 .ws .node.is-active .ico {
   color: var(--teal-2);
 }
 .ws .node .label {
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .ws .node .pages {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
   color: var(--muted-2);
-  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 .ws .node.depth-1 {
@@ -1210,7 +1120,6 @@
   left: 49px;
 }
 
-/* Indexing stage rail */
 .ws .stage-progress {
   display: grid;
   gap: 12px;
@@ -1226,7 +1135,6 @@
   font-weight: 700;
   font-size: 15px;
   color: var(--ink);
-  letter-spacing: -0.005em;
 }
 .ws .stage-head .pct {
   font-family: var(--font-mono);
@@ -1273,12 +1181,9 @@
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--muted-2);
-  letter-spacing: 0.02em;
 }
 
 .ws .stage-list {
-  display: flex;
-  flex-direction: column;
   gap: 1px;
   padding: 6px;
   border-radius: 10px;
@@ -1296,18 +1201,12 @@
   font-size: 11.5px;
   color: var(--muted-2);
 }
-.ws .stage-row .sr-ico {
-  display: grid;
-  place-items: center;
-}
 .ws .stage-row .sr-name {
-  font-family: var(--font-text);
   font-weight: 600;
   font-size: 12.5px;
 }
 .ws .stage-row .sr-tag {
   font-size: 10px;
-  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .ws .stage-row.is-done .sr-ico {
@@ -1353,10 +1252,7 @@
   animation: ws-spin 0.95s linear infinite;
 }
 
-/* Event log */
 .ws .events {
-  display: flex;
-  flex-direction: column;
   gap: 2px;
   max-height: 220px;
   overflow-y: auto;
@@ -1401,14 +1297,12 @@
   color: var(--ink-3);
 }
 
-/* Primary action button */
 .ws .btn-primary {
   flex: 1;
   height: 34px;
   border-radius: 9px;
   background: linear-gradient(180deg, #12aa99, #0b756b);
   color: #fff;
-  font-family: var(--font-text);
   font-weight: 700;
   font-size: 13px;
   display: flex;
@@ -1434,12 +1328,9 @@
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.6);
   border: 1px solid var(--glass-edge);
-  display: grid;
-  place-items: center;
   color: var(--ink-3);
 }
 
-/* Details key/value */
 .ws .kv {
   display: grid;
   gap: 0;
@@ -1457,11 +1348,7 @@
   border-bottom: 0;
 }
 .ws .kv-row .k {
-  font-family: var(--font-mono);
   font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--muted-2);
 }
 .ws .kv-row .v {
@@ -1475,7 +1362,6 @@
   font-size: 11.5px;
 }
 
-/* Alerts */
 .ws .alert {
   display: grid;
   gap: 2px;
@@ -1493,7 +1379,6 @@
   color: var(--danger);
 }
 
-/* Chips */
 .ws .chip {
   display: inline-flex;
   align-items: center;
@@ -1506,22 +1391,6 @@
   font-size: 11.5px;
   font-weight: 600;
 }
-.ws .chip.teal {
-  background: rgba(15, 159, 143, 0.14);
-  color: var(--teal-2);
-}
-.ws .chip.blue {
-  background: rgba(56, 103, 214, 0.14);
-  color: var(--blue);
-}
-.ws .chip.amber {
-  background: rgba(201, 138, 43, 0.14);
-  color: var(--amber);
-}
-.ws .chip.danger {
-  background: rgba(200, 56, 74, 0.12);
-  color: var(--danger);
-}
 .ws .chip .dot {
   width: 6px;
   height: 6px;
@@ -1529,7 +1398,6 @@
   background: currentColor;
 }
 
-/* Empty state inside inspector tabs */
 .ws .insp-empty {
   display: grid;
   gap: 8px;
@@ -1554,12 +1422,10 @@
   font-size: 12.5px;
 }
 
-/* Helpers */
 .ws .muted-mono {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--muted-2);
-  letter-spacing: 0.02em;
 }
 .ws .divider {
   height: 1px;
@@ -1575,7 +1441,6 @@
   animation: ws-spin 0.95s linear infinite;
 }
 
-/* Skeleton shimmer */
 .ws .skeleton {
   position: relative;
   overflow: hidden;
@@ -1591,9 +1456,7 @@
   animation: ws-shimmer 1.6s ease-in-out infinite;
 }
 
-/* =========================================================
-   RESPONSIVE
-   ========================================================= */
+/* Responsive */
 @media (max-width: 1279px) {
   .ws .inspector {
     width: 312px;
@@ -1629,9 +1492,7 @@
   }
 }
 
-/* =========================================================
-   REDUCED MOTION
-   ========================================================= */
+/* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .ws *,
   .ws *::before,
@@ -1662,14 +1523,10 @@
   border: 0;
 }
 
-/* =========================================================
-   GLASS PAGE CHROME (login / home / biblioteca / invites)
-   ========================================================= */
+/* Glass page chrome */
 .ws-app-shell {
   position: relative;
   z-index: 1;
-  display: flex;
-  flex-direction: column;
   height: 100%;
   padding: 14px;
   gap: 14px;
@@ -1692,7 +1549,6 @@
   font-family: var(--font-display);
   font-weight: 750;
   font-size: 15px;
-  letter-spacing: -0.01em;
   color: var(--ink);
   line-height: 1.1;
 }
@@ -1701,7 +1557,6 @@
   font-family: var(--font-mono);
   font-weight: 500;
   font-size: 10px;
-  letter-spacing: 0.05em;
   color: var(--muted);
   text-transform: uppercase;
 }
@@ -1737,6 +1592,10 @@
   align-items: center;
   gap: 10px;
 }
+.ws .signout-form {
+  display: flex;
+  margin: 0;
+}
 .ws .tenant-pill {
   display: inline-flex;
   align-items: center;
@@ -1766,8 +1625,6 @@
 .ws-page-inner {
   width: min(1100px, 100%);
   margin: 0 auto;
-  display: flex;
-  flex-direction: column;
   gap: 18px;
 }
 .ws .page-head {
@@ -1778,18 +1635,13 @@
   padding: 14px 6px 2px;
 }
 .ws .kicker {
-  font-family: var(--font-mono);
   font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--teal-2);
 }
 .ws .page-head h1 {
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 26px;
-  letter-spacing: -0.015em;
   color: var(--ink);
   margin: 4px 0 4px;
   line-height: 1.1;
@@ -1801,7 +1653,6 @@
   max-width: 60ch;
 }
 
-/* Generic page grid + cards */
 .ws .grid-2 {
   display: grid;
   grid-template-columns: 1.6fr 1fr;
@@ -1814,33 +1665,19 @@
   }
 }
 .ws .section-grid {
-  display: flex;
-  flex-direction: column;
   gap: 16px;
 }
 .ws .glass-card {
-  position: relative;
-  background: var(--glass-bg);
-  backdrop-filter: blur(28px) saturate(140%);
-  -webkit-backdrop-filter: blur(28px) saturate(140%);
-  border-radius: var(--r);
-  box-shadow: var(--glass-shadow);
-  border: 1px solid var(--glass-edge);
   padding: 18px;
-  display: flex;
-  flex-direction: column;
   gap: 14px;
 }
 .ws .gc-head {
-  display: flex;
-  flex-direction: column;
   gap: 3px;
 }
 .ws .gc-title {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 16px;
-  letter-spacing: -0.005em;
   color: var(--ink);
   margin: 0;
 }
@@ -1851,7 +1688,6 @@
   margin: 0;
 }
 
-/* Stats */
 .ws .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1866,11 +1702,7 @@
   gap: 4px;
 }
 .ws .stat-label {
-  font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--muted-2);
 }
 .ws .stat-value {
@@ -1879,7 +1711,6 @@
   font-size: 28px;
   line-height: 1;
   color: var(--ink);
-  letter-spacing: -0.02em;
 }
 .ws .stat-value.small {
   font-size: 18px;
@@ -1889,7 +1720,6 @@
   color: var(--muted);
 }
 
-/* Data table */
 .ws .table-wrap {
   overflow-x: auto;
   border-radius: 12px;
@@ -1902,11 +1732,7 @@
 }
 .ws table.ws-table th {
   text-align: left;
-  font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--muted-2);
   padding: 10px 14px;
   background: rgba(255, 255, 255, 0.45);
@@ -1942,7 +1768,6 @@
   margin-top: 2px;
 }
 
-/* Key/value (reuses .kv from workspace) */
 .ws .code {
   font-family: var(--font-mono);
   font-size: 11.5px;
@@ -1952,7 +1777,6 @@
   border-radius: 5px;
 }
 
-/* Empty state */
 .ws .empty {
   display: flex;
   align-items: center;
@@ -1972,7 +1796,6 @@
   font-size: 12.5px;
 }
 
-/* Alerts (extends earlier .alert / .alert-danger) */
 .ws .alert-success {
   background: rgba(15, 159, 143, 0.1);
   border: 1px solid rgba(15, 159, 143, 0.25);
@@ -1984,7 +1807,7 @@
   color: var(--amber);
 }
 
-/* ---- Reused client components: re-skin their global classes ---- */
+/* Reused client components */
 .ws .button {
   display: inline-flex;
   align-items: center;
@@ -1993,7 +1816,6 @@
   height: 36px;
   padding: 0 14px;
   border-radius: 9px;
-  font-family: var(--font-text);
   font-size: 13px;
   font-weight: 600;
   border: 1px solid var(--glass-edge);
@@ -2025,8 +1847,6 @@
 }
 
 .ws .form-grid {
-  display: flex;
-  flex-direction: column;
   gap: 12px;
 }
 .ws .form-row {
@@ -2035,16 +1855,10 @@
   gap: 12px;
 }
 .ws .field {
-  display: flex;
-  flex-direction: column;
   gap: 5px;
 }
 .ws .label {
-  font-family: var(--font-mono);
   font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--muted-2);
 }
 .ws .input,
@@ -2054,7 +1868,6 @@
   border-radius: 9px;
   border: 1px solid var(--glass-edge);
   background: rgba(255, 255, 255, 0.7);
-  font-family: var(--font-text);
   font-size: 13px;
   color: var(--ink);
   outline: none;
@@ -2066,7 +1879,6 @@
 }
 .ws .file-input {
   width: 100%;
-  font-family: var(--font-text);
   font-size: 12.5px;
   color: var(--muted);
   padding: 8px;
@@ -2083,7 +1895,6 @@
   border: 1px solid var(--glass-edge);
   background: rgba(255, 255, 255, 0.8);
   color: var(--ink-2);
-  cursor: pointer;
 }
 
 .ws .copy-row {
@@ -2101,9 +1912,6 @@
   background: rgba(12, 22, 32, 0.05);
   padding: 7px 10px;
   border-radius: 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .ws .inline-icon {
   display: inline-flex;
@@ -2118,8 +1926,6 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
   gap: 10px;
 }
 .ws .steps li {
@@ -2141,7 +1947,6 @@
   min-width: 0;
 }
 
-/* Auth / login */
 .ws-auth {
   position: relative;
   z-index: 1;
@@ -2152,8 +1957,6 @@
 }
 .ws .auth-card {
   width: min(420px, 100%);
-  display: flex;
-  flex-direction: column;
   gap: 18px;
   padding: 26px;
 }
@@ -2166,7 +1969,6 @@
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 22px;
-  letter-spacing: -0.015em;
   color: var(--ink);
   margin: 2px 0 0;
 }

@@ -33,7 +33,10 @@ const WINDOW_BEFORE = 1;
 const WINDOW_AFTER = 2;
 const THUMB_WINDOW = 7;
 
-type FileMeta = { url: string; mimeType: string; filename: string };
+type FileMeta = { url: string; mimeType: string; filename: string; expiresAt: string };
+type LoadedFileMeta = FileMeta & { documentId: string };
+type FileLoadError = { documentId: string; message: string };
+type LoadedPageCount = { documentId: string; count: number };
 
 type PdfViewerProps = {
   documentId: string;
@@ -56,9 +59,9 @@ export function PdfViewer({
   jumpTarget,
   highlightRange
 }: PdfViewerProps) {
-  const [file, setFile] = useState<FileMeta | null>(null);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [numPages, setNumPages] = useState(0);
+  const [file, setFile] = useState<LoadedFileMeta | null>(null);
+  const [fetchError, setFetchError] = useState<FileLoadError | null>(null);
+  const [loadedPageCount, setLoadedPageCount] = useState<LoadedPageCount | null>(null);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [containerWidth, setContainerWidth] = useState(680);
@@ -69,31 +72,56 @@ export function PdfViewer({
   const ratios = useRef<Map<number, number>>(new Map());
   const pdfDocRef = useRef<unknown>(null);
 
+  const activeFile = file?.documentId === documentId ? file : null;
+  const activeFetchError = fetchError?.documentId === documentId ? fetchError.message : null;
+  const numPages = loadedPageCount?.documentId === documentId ? loadedPageCount.count : 0;
+
   // ---- Load the inline signed URL --------------------------------------
   useEffect(() => {
     let cancelled = false;
+    let refreshTimer: number | undefined;
 
-    // Only PDFs render inline; other formats fall back to the empty state.
-    fetch(`/api/documents/${documentId}/file-url`, { cache: "no-store" })
-      .then(async (res) => {
-        if (!res.ok) {
-          throw new Error(res.status === 404 ? "No encontrado" : "No se pudo abrir el archivo");
-        }
-        return (await res.json()) as FileMeta;
-      })
-      .then((meta) => {
-        if (!cancelled) {
-          setFile(meta);
-        }
-      })
-      .catch((err: Error) => {
-        if (!cancelled) {
-          setFetchError(err.message);
-        }
-      });
+    ratios.current.clear();
+    pageRefs.current.clear();
+    pdfDocRef.current = null;
+
+    const loadFile = async () => {
+      const res = await fetch(`/api/documents/${documentId}/file-url`, { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error(res.status === 404 ? "No encontrado" : "No se pudo abrir el archivo");
+      }
+      return (await res.json()) as FileMeta;
+    };
+
+    const refreshFile = () => {
+      loadFile()
+        .then((meta) => {
+          if (cancelled) {
+            return;
+          }
+          setFile({ ...meta, documentId });
+          setFetchError(null);
+
+          const expiresAt = new Date(meta.expiresAt).getTime();
+          const refreshInMs = Number.isFinite(expiresAt)
+            ? Math.max(10_000, expiresAt - Date.now() - 30_000)
+            : 10 * 60 * 1000;
+          refreshTimer = window.setTimeout(refreshFile, refreshInMs);
+        })
+        .catch((err: Error) => {
+          if (!cancelled) {
+            setFetchError({ documentId, message: err.message });
+          }
+        });
+    };
+
+    refreshFile();
 
     return () => {
       cancelled = true;
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
     };
   }, [documentId]);
 
@@ -108,7 +136,7 @@ export function PdfViewer({
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [file]);
+  }, [activeFile]);
 
   const baseWidth = Math.max(320, Math.min(containerWidth - 72, 820));
   const pageWidth = Math.round(baseWidth * zoom);
@@ -178,15 +206,15 @@ export function PdfViewer({
   );
 
   // ---- Empty / progress states -----------------------------------------
-  const isPdf = file?.mimeType === "application/pdf";
+  const isPdf = activeFile?.mimeType.toLowerCase().startsWith("application/pdf");
   const showProgressPlaceholder =
-    !file &&
-    !fetchError &&
+    !activeFile &&
+    !activeFetchError &&
     ["uploading", "uploaded", "queued", "parsing", "structuring", "embedding"].includes(
       documentStatus
     );
 
-  if (fetchError) {
+  if (activeFetchError) {
     return (
       <ViewerShell>
         <div className="viewer-empty" role="status">
@@ -194,13 +222,13 @@ export function PdfViewer({
             <FileWarning size={24} aria-hidden="true" />
           </span>
           <h3>No se pudo abrir el documento</h3>
-          <p>{fetchError}</p>
+          <p>{activeFetchError}</p>
         </div>
       </ViewerShell>
     );
   }
 
-  if (!file) {
+  if (!activeFile) {
     return (
       <ViewerShell>
         {showProgressPlaceholder ? (
@@ -234,7 +262,7 @@ export function PdfViewer({
             <FileWarning size={24} aria-hidden="true" />
           </span>
           <h3>Vista previa no disponible</h3>
-          <p>Este formato no se puede previsualizar acá ({file.mimeType}).</p>
+          <p>Este formato no se puede previsualizar acá ({activeFile.mimeType}).</p>
           <a className="btn-primary" href={`/app/documents/${documentId}/download`} style={{ maxWidth: 200 }}>
             <Download size={14} aria-hidden="true" />
             Descargar
@@ -249,7 +277,7 @@ export function PdfViewer({
 
   return (
     <Document
-      file={file.url}
+      file={activeFile.url}
       className="stage glass-strong"
       loading={
         <ViewerShell>
@@ -271,7 +299,7 @@ export function PdfViewer({
         </ViewerShell>
       }
       onLoadSuccess={(pdf) => {
-        setNumPages(pdf.numPages);
+        setLoadedPageCount({ documentId, count: pdf.numPages });
         pdfDocRef.current = pdf;
       }}
     >
@@ -412,6 +440,7 @@ function PdfToolbar({
 }: PdfToolbarProps) {
   const [draft, setDraft] = useState(String(page));
   const [lastPage, setLastPage] = useState(page);
+  const hasPages = numPages > 0;
 
   // Sync the input with external page changes (React-recommended render-time reset).
   if (page !== lastPage) {
@@ -428,6 +457,7 @@ function PdfToolbar({
         <div className="page-of">
           <input
             value={draft}
+            disabled={!hasPages}
             inputMode="numeric"
             aria-label="Número de página"
             onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ""))}
@@ -445,7 +475,7 @@ function PdfToolbar({
           type="button"
           title="Siguiente"
           onClick={onNext}
-          disabled={numPages > 0 && page >= numPages}
+          disabled={!hasPages || page >= numPages}
         >
           <ChevronDown size={14} aria-hidden="true" />
         </button>
@@ -469,6 +499,7 @@ function PdfToolbar({
           title="Buscar"
           aria-pressed={findOpen}
           onClick={onToggleFind}
+          disabled={!hasPages}
         >
           <Search size={14} aria-hidden="true" />
         </button>

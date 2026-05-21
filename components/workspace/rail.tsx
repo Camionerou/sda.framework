@@ -55,9 +55,9 @@ export function Rail({ documents, tenantInitials, hasActiveRun }: RailProps) {
             {hasActiveRun ? <span className="dot" aria-hidden="true" /> : null}
             <span className="sr-only">Documentos</span>
           </button>
-          <button className="rail-btn" type="button" title="Buscar global">
+          <button className="rail-btn" type="button" title="Buscar global (próximamente)" disabled>
             <Search size={18} aria-hidden="true" />
-            <span className="sr-only">Buscar</span>
+            <span className="sr-only">Buscar global (próximamente)</span>
           </button>
           <Link className="rail-btn" href="/app/invites" title="Invitaciones">
             <Inbox size={18} aria-hidden="true" />
@@ -67,21 +67,20 @@ export function Rail({ documents, tenantInitials, hasActiveRun }: RailProps) {
             className="rail-btn"
             type="button"
             title="Chat (próximamente)"
-            style={{ opacity: 0.5 }}
             disabled
           >
             <MessageSquare size={18} aria-hidden="true" />
             <span className="sr-only">Chat (próximamente)</span>
           </button>
-          <button className="rail-btn" type="button" title="Etiquetas">
+          <button className="rail-btn" type="button" title="Etiquetas (próximamente)" disabled>
             <Tag size={18} aria-hidden="true" />
-            <span className="sr-only">Etiquetas</span>
+            <span className="sr-only">Etiquetas (próximamente)</span>
           </button>
         </nav>
         <div className="rail-foot">
-          <button className="rail-btn" type="button" title="Ajustes">
+          <button className="rail-btn" type="button" title="Ajustes (próximamente)" disabled>
             <Settings size={18} aria-hidden="true" />
-            <span className="sr-only">Ajustes</span>
+            <span className="sr-only">Ajustes (próximamente)</span>
           </button>
           <div className="rail-avatar" title="Tu cuenta">
             {tenantInitials}

@@ -123,10 +123,10 @@ export function WorkspaceClient({
     if (row.pageStart != null) {
       nonce.current += 1;
       setJumpTarget({ page: row.pageStart, nonce: nonce.current });
-      if (row.pageEnd != null) {
-        setHighlightRange({ start: row.pageStart, end: row.pageEnd });
-      }
+      setHighlightRange(row.pageEnd != null ? { start: row.pageStart, end: row.pageEnd } : null);
+      return;
     }
+    setHighlightRange(null);
   }, []);
 
   const canRequest =
@@ -188,6 +188,8 @@ export function WorkspaceClient({
             current?.tree_indexer_version ?? INDEXING_VERSION_COLUMNS.tree_indexer_version
         }));
       }
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "No se pudo pedir la indexación.");
     } finally {
       setRequesting(false);
     }
@@ -222,10 +224,10 @@ export function WorkspaceClient({
                 <span style={{ color: "var(--ink-2)" }}>{run!.progress}%</span>
               </div>
             ) : null}
-            <button className="ico-btn" type="button" title="Compartir">
+            <button className="ico-btn" type="button" title="Compartir (próximamente)" disabled>
               <Share2 size={16} aria-hidden="true" />
             </button>
-            <button className="ico-btn" type="button" title="Notificaciones">
+            <button className="ico-btn" type="button" title="Notificaciones (próximamente)" disabled>
               <Bell size={16} aria-hidden="true" />
             </button>
             <button

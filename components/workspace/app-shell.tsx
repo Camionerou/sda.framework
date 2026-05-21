@@ -56,9 +56,11 @@ export function AppShell({ active, tenantLabel, tenantRole, children }: AppShell
                 {tenantLabel} · {tenantRole}
               </span>
             ) : null}
-            <a className="ico-btn" href="/auth/sign-out" title="Cerrar sesión" aria-label="Cerrar sesión">
-              <LogOut size={16} aria-hidden="true" />
-            </a>
+            <form action="/auth/sign-out" className="signout-form" method="POST">
+              <button className="ico-btn" type="submit" title="Cerrar sesión" aria-label="Cerrar sesión">
+                <LogOut size={16} aria-hidden="true" />
+              </button>
+            </form>
           </div>
         </nav>
 
