@@ -7,6 +7,15 @@ from typing import Annotated, Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
+from .config import (
+    degrade_attempt_limit as _degrade_attempt_limit,
+    max_prompt_chars as _max_prompt_chars,
+    refine_iteration_limit as _refine_iteration_limit,
+    refine_max_pages as _refine_max_pages,
+    refine_max_tokens as _refine_max_tokens,
+    repair_attempt_limit as _repair_attempt_limit,
+    summary_concurrency as _summary_concurrency,
+)
 from ..embeddings import embed_chunks
 from ..events import publish_inngest_event
 from ..llm import call_tree_llm_json, call_tree_llm_text
@@ -81,62 +90,6 @@ class TreeState(TypedDict):
     tree_mode: str
     verified_sections: list[CandidateSection]
     version: str
-
-
-def _max_prompt_chars() -> int:
-    try:
-        value = int(os.getenv("SDA_TREE_MAX_PROMPT_CHARS", "60000"))
-    except ValueError:
-        return 60_000
-    return value if value > 0 else 60_000
-
-
-def _summary_concurrency() -> int:
-    try:
-        value = int(os.getenv("SDA_TREE_SUMMARY_CONCURRENCY", "3"))
-    except ValueError:
-        return 3
-    return value if value > 0 else 3
-
-
-def _repair_attempt_limit() -> int:
-    try:
-        value = int(os.getenv("SDA_TREE_REPAIR_ATTEMPTS", "1"))
-    except ValueError:
-        return 1
-    return max(value, 0)
-
-
-def _degrade_attempt_limit() -> int:
-    try:
-        value = int(os.getenv("SDA_TREE_DEGRADE_ATTEMPTS", "1"))
-    except ValueError:
-        return 1
-    return max(value, 0)
-
-
-def _refine_max_pages() -> int:
-    try:
-        value = int(os.getenv("SDA_TREE_REFINE_MAX_PAGES", "10"))
-    except ValueError:
-        return 10
-    return value if value > 0 else 10
-
-
-def _refine_max_tokens() -> int:
-    try:
-        value = int(os.getenv("SDA_TREE_REFINE_MAX_TOKENS", "20000"))
-    except ValueError:
-        return 20_000
-    return value if value > 0 else 20_000
-
-
-def _refine_iteration_limit() -> int:
-    try:
-        value = int(os.getenv("SDA_TREE_REFINE_MAX_ITERATIONS", "3"))
-    except ValueError:
-        return 3
-    return max(value, 0)
 
 
 def _assert_sections(value: Any) -> list[CandidateSection]:
