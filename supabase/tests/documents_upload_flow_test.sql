@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(17);
+SELECT plan(19);
 
 insert into public.tenants (id, slug, name)
 values
@@ -141,6 +141,32 @@ select set_config(
 
 set local role authenticated;
 
+SELECT throws_ok(
+  $$
+    insert into public.documents (
+      tenant_id,
+      created_by,
+      filename,
+      mime_type,
+      r2_bucket,
+      r2_key,
+      status
+    )
+    values (
+      '00000000-0000-0000-0000-000000000701',
+      '00000000-0000-0000-0000-000000000801',
+      'Direct Insert.pdf',
+      'application/pdf',
+      'documents',
+      '00000000-0000-0000-0000-000000000701/direct-insert.pdf',
+      'uploaded'
+    )
+  $$,
+  '42501',
+  null,
+  'Authenticated clients cannot insert documents directly'
+);
+
 create temporary table created_document on commit drop as
 select *
 from public.create_document_upload(
@@ -169,6 +195,17 @@ SELECT ok(
     from created_document
   ),
   'Document storage key is tenant-scoped and filename-safe'
+);
+
+SELECT throws_ok(
+  $$
+    update public.documents
+    set status = 'indexed'
+    where id = (select document_id from created_document)
+  $$,
+  '42501',
+  null,
+  'Authenticated clients cannot update documents directly'
 );
 
 insert into storage.objects (bucket_id, name, owner, metadata)

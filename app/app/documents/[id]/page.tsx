@@ -38,6 +38,12 @@ import {
   type TreeRow
 } from "@/lib/document-detail-cache";
 import {
+  documentPipelineVersions,
+  isPipelineVersionStale,
+  latestVersionMap,
+  pipelineVersionState
+} from "@/lib/indexing-versions";
+import {
   compactId,
   formatDateTime,
   getClaimValue,
@@ -154,49 +160,22 @@ export default async function DocumentDetailPage({
   }
 
   const { chunks, componentVersions, document, indexingEvents, latestRun, tree } = snapshot;
-  const latestVersions = new Map(
-    (componentVersions ?? []).map((row) => [row.component, row.version])
-  );
-  const documentVersions = {
-    embedding_pipeline:
-      document.embedding_pipeline_version ?? latestRun?.embedding_pipeline_version ?? null,
-    extraction_pipeline:
-      document.extraction_pipeline_version ?? latestRun?.extraction_pipeline_version ?? null,
-    indexing_pipeline:
-      document.indexing_pipeline_version ??
-      tree?.indexing_pipeline_version ??
-      latestRun?.indexing_pipeline_version ??
-      null,
-    tree_indexer:
-      document.tree_indexer_version ??
-      tree?.tree_indexer_version ??
-      latestRun?.tree_indexer_version ??
-      null,
-    tree_prompt: tree?.tree_prompt_version ?? null
-  };
-  const versionChecks = [
-    ["indexing_pipeline", documentVersions.indexing_pipeline],
-    ["extraction_pipeline", documentVersions.extraction_pipeline],
-    ["tree_indexer_python", documentVersions.tree_indexer],
-    ["tree_prompt", documentVersions.tree_prompt],
-    ["embedding_pipeline", documentVersions.embedding_pipeline]
-  ] as const;
-  const staleVersions =
-    document.status === "indexed" &&
-    versionChecks.some(([component, current]) => {
-      const latest = latestVersions.get(component);
-
-      return Boolean(current && latest && current !== latest);
-    });
+  const latestVersions = latestVersionMap(componentVersions ?? []);
+  const documentVersions = documentPipelineVersions({ document, latestRun, tree });
+  const staleVersions = isPipelineVersionStale({
+    documentStatus: document.status,
+    latestVersions,
+    versions: documentVersions
+  });
 
   function versionBadge(component: string, current: string | null) {
-    const latest = latestVersions.get(component);
+    const state = pipelineVersionState(latestVersions, component, current);
 
-    if (!current || !latest) {
+    if (state === "missing") {
       return <Badge tone="neutral">Sin dato</Badge>;
     }
 
-    return current === latest ? (
+    return state === "current" ? (
       <Badge tone="success">Actual</Badge>
     ) : (
       <Badge tone="warning">Anterior</Badge>

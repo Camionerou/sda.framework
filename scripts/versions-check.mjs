@@ -26,7 +26,6 @@ const COMPONENT_RULES = [
       /^app\/api\/documents\/.+\/indexing\/request\/route\.ts$/,
       /^inngest\/functions\/process-document-index\.ts$/,
       /^inngest\/functions\/reconcile-document-indexing\.ts$/,
-      /^lib\/tree-indexer\//,
       /^workers\/compute-gateway\//,
       /^workers\/tree-indexer-python\//,
       /^supabase\/migrations\/.*indexing/
@@ -41,12 +40,8 @@ const COMPONENT_RULES = [
     paths: [/^workers\/tree-indexer-python\//]
   },
   {
-    component: "tree_indexer_typescript",
-    paths: [/^lib\/tree-indexer\//]
-  },
-  {
     component: "tree_prompt",
-    paths: [/^workers\/tree-indexer-python\/app\/tree_graph\.py$/, /^lib\/tree-indexer\/graph\.ts$/]
+    paths: [/^workers\/tree-indexer-python\/app\/tree_graph\.py$/]
   }
 ];
 

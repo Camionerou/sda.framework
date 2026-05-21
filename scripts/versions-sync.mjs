@@ -15,7 +15,6 @@ const DESCRIPTIONS = {
   indexing_pipeline: "End-to-end document indexing pipeline.",
   inngest_indexing_workflow: "Inngest orchestration for document indexing.",
   tree_indexer_python: "Python PageIndex-style Tree Indexer worker.",
-  tree_indexer_typescript: "TypeScript PageIndex-style Tree Indexer.",
   tree_prompt: "Tree Indexer prompt contract."
 };
 

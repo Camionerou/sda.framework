@@ -1,6 +1,6 @@
 {
   "name": "sda-framework",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -27,8 +27,6 @@
     "@fontsource-variable/bricolage-grotesque": "^5.2.10",
     "@fontsource-variable/hanken-grotesk": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@langchain/core": "^1.1.47",
-    "@langchain/langgraph": "^1.3.2",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.1",
     "@upstash/ratelimit": "^2.0.8",

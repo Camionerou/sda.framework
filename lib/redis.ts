@@ -1,5 +1,12 @@
 import { Redis } from "@upstash/redis";
 
+import {
+  cleanProviderKeyPart,
+  defaultUpstashRedisKeyPrefix,
+  getUpstashRedisConfig,
+  positiveIntegerEnv
+} from "@/lib/platform/server";
+
 export type RedisConfig = {
   keyPrefix: string;
   token: string;
@@ -16,28 +23,10 @@ export type RedisLock = {
 
 let redisClient: Redis | null | undefined;
 
-function cleanKeyPart(value: string) {
-  return value.replace(/[^a-zA-Z0-9._:-]+/g, "-").slice(0, 180) || "unknown";
-}
-
-function defaultKeyPrefix() {
-  const env = process.env.VERCEL_ENV || process.env.NODE_ENV || "local";
-  return `sda:${cleanKeyPart(env)}`;
-}
+export { positiveIntegerEnv };
 
 export function getRedisConfig(): RedisConfig | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
-
-  if (!url || !token) {
-    return null;
-  }
-
-  return {
-    keyPrefix: process.env.UPSTASH_REDIS_KEY_PREFIX?.trim() || defaultKeyPrefix(),
-    token,
-    url
-  };
+  return getUpstashRedisConfig();
 }
 
 export function isRedisConfigured() {
@@ -66,15 +55,9 @@ export function getRedis() {
 
 export function redisKey(...parts: string[]) {
   const config = getRedisConfig();
-  const prefix = config?.keyPrefix ?? defaultKeyPrefix();
+  const prefix = config?.keyPrefix ?? defaultUpstashRedisKeyPrefix();
 
-  return [prefix, ...parts.map(cleanKeyPart)].join(":");
-}
-
-export function positiveIntegerEnv(name: string, fallback: number) {
-  const value = Number(process.env[name]);
-
-  return Number.isInteger(value) && value > 0 ? value : fallback;
+  return [prefix, ...parts.map(cleanProviderKeyPart)].join(":");
 }
 
 export async function pingRedis() {

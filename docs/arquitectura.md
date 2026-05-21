@@ -282,7 +282,7 @@ normalizan rangos y persisten.
 
 Implementacion inicial:
 
-- TypeScript/Inngest en `lib/tree-indexer` como control-plane integrado a la app.
+- Tree Indexer Python como runtime unico para PageIndex/LLM.
 - Python/FastAPI en `workers/tree-indexer-python` para correr en `srv-ia-01`
   cuando pasemos el trabajo estructural pesado al servidor privado.
 - Ambos mantienen la misma regla: sin LLM configurado, no se crea arbol fake.

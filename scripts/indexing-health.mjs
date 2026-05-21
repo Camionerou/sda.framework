@@ -234,6 +234,11 @@ const latestVersions = Object.fromEntries(
 const activeRuns = runs.filter((run) => ["queued", "running"].includes(run.status));
 const activeRunKeys = new Set(activeRuns.map((run) => `${run.tenant_id}:${run.document_id}`));
 const treeKeys = new Set(trees.map((tree) => `${tree.tenant_id}:${tree.document_id}`));
+const REINDEX_REQUIRED_COMPONENTS = new Set([
+  "extraction_pipeline",
+  "indexing_pipeline",
+  "tree_indexer_python"
+]);
 const chunksByDocument = chunks.reduce((acc, chunk) => {
   const key = `${chunk.tenant_id}:${chunk.document_id}`;
   acc[key] = (acc[key] ?? 0) + 1;
@@ -268,7 +273,8 @@ function versionDrift(document) {
     .map(([component, current]) => ({
       component,
       current: current ?? null,
-      latest: latestVersions[component] ?? null
+      latest: latestVersions[component] ?? null,
+      requires_reindex: REINDEX_REQUIRED_COMPONENTS.has(component)
     }))
     .filter((check) => check.current && check.latest && check.current !== check.latest);
 }
@@ -331,6 +337,9 @@ const anomalies = {
 };
 const recentErrorEvents = events.filter((event) => event.severity === "error");
 const versionDriftDocuments = documents.filter((document) => versionDrift(document).length > 0);
+const reindexRequiredDocuments = versionDriftDocuments.filter((document) =>
+  versionDrift(document).some((drift) => drift.requires_reindex)
+);
 const redis = await redisOperationalState([
   ...documents.map((document) => document.tenant_id),
   ...runs.map((run) => run.tenant_id)
@@ -349,7 +358,7 @@ const strictFailures = [
   env.admin_public_url_mismatch ? "admin_public_url_mismatch" : null,
   !env.compute_gateway_configured ? "compute_gateway_not_configured" : null,
   !env.inngest_event_key_configured ? "inngest_event_key_not_configured" : null,
-  requireFreshIndexes && versionDriftDocuments.length > 0 ? "stale_indexed_documents" : null
+  requireFreshIndexes && reindexRequiredDocuments.length > 0 ? "stale_indexed_documents" : null
 ].filter(Boolean);
 
 const output = {
@@ -372,6 +381,8 @@ const output = {
   versions: {
     indexed_document_version_drift: sampleVersionDrift(versionDriftDocuments),
     indexed_document_version_drift_count: versionDriftDocuments.length,
+    indexed_document_reindex_required: sampleVersionDrift(reindexRequiredDocuments),
+    indexed_document_reindex_required_count: reindexRequiredDocuments.length,
     latest: latestVersions,
   },
   anomalies: {
