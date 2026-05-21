@@ -89,6 +89,7 @@ def _is_large_leaf(node: TreeNode) -> bool:
 
 
 from .events import context_for_send as _context_for_send, emit_tree_node_event
+from .nodes.degrade_mode import degrade_mode, fail_verification
 from .nodes.detect_document_type import detect_document_type
 
 
@@ -269,38 +270,6 @@ async def repair_sections(state: TreeState) -> dict[str, Any]:
         "repair_attempts": state.get("repair_attempts", 0) + 1,
         "verified_sections": [],
     }
-
-
-async def degrade_mode(state: TreeState) -> dict[str, Any]:
-    await emit_tree_node_event(
-        state,
-        message="Degradando extraccion a modo no_toc.",
-        node="degrade_mode",
-        progress=68,
-        status="completed",
-    )
-    return {
-        "candidate_sections": [],
-        "invalid_sections": [],
-        "metrics": {
-            **state["metrics"],
-            "degrade_attempts": state["metrics"].get("degrade_attempts", 0) + 1,
-            "repair_attempts": 0,
-            "tree_mode": "no_toc",
-        },
-        "repair_attempts": 0,
-        "tree_mode": "no_toc",
-        "verified_sections": [],
-    }
-
-
-def fail_verification(state: TreeState) -> dict[str, Any]:
-    accuracy = state["metrics"].get("verification_accuracy")
-    invalid_count = len(state.get("invalid_sections", []))
-    raise RuntimeError(
-        f"Tree verifier rechazo la estructura candidata: accuracy {accuracy}, "
-        f"invalid_sections {invalid_count}."
-    )
 
 
 async def post_process_tree(state: TreeState) -> dict[str, Any]:
