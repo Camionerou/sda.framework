@@ -10,9 +10,9 @@ import { promisify } from "node:util";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const DATA_DIR = process.env.SDA_COMPUTE_GATEWAY_DATA_DIR ?? "/var/lib/sda-compute-gateway";
-const COMPUTE_GATEWAY_VERSION = process.env.SDA_COMPUTE_GATEWAY_VERSION ?? "0.1.2";
-const EXTRACTION_PIPELINE_VERSION = process.env.SDA_EXTRACTION_PIPELINE_VERSION ?? "0.1.3";
-const INDEXING_PIPELINE_VERSION = process.env.SDA_INDEXING_PIPELINE_VERSION ?? "0.1.3";
+const COMPUTE_GATEWAY_VERSION = process.env.SDA_COMPUTE_GATEWAY_VERSION ?? "0.1.3";
+const EXTRACTION_PIPELINE_VERSION = process.env.SDA_EXTRACTION_PIPELINE_VERSION ?? "0.1.6";
+const INDEXING_PIPELINE_VERSION = process.env.SDA_INDEXING_PIPELINE_VERSION ?? "0.1.7";
 const MAX_CONCURRENT_JOBS = positiveInteger(process.env.SDA_COMPUTE_GATEWAY_CONCURRENCY, 1);
 const MAX_REQUEST_BODY_BYTES = positiveInteger(
   process.env.SDA_COMPUTE_GATEWAY_MAX_BODY_BYTES,

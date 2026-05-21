@@ -8,14 +8,14 @@ def _version(name: str, fallback: str) -> str:
 
 
 SYSTEM_COMPONENT_VERSIONS = {
-    "app": "0.1.3",
+    "app": "0.1.6",
     "chat_agent": "0.0.0",
-    "compute_gateway_extraction": "0.1.2",
+    "compute_gateway_extraction": "0.1.3",
     "embedding_pipeline": "0.0.0",
-    "extraction_pipeline": "0.1.3",
-    "indexing_pipeline": "0.1.3",
-    "inngest_indexing_workflow": "0.1.2",
-    "tree_indexer_python": _version("SDA_TREE_INDEXER_VERSION", "0.1.2"),
+    "extraction_pipeline": "0.1.6",
+    "indexing_pipeline": "0.1.7",
+    "inngest_indexing_workflow": "0.1.5",
+    "tree_indexer_python": _version("SDA_TREE_INDEXER_VERSION", "0.1.3"),
     "tree_prompt": _version("SDA_TREE_PROMPT_VERSION", "0.1.1"),
 }
 

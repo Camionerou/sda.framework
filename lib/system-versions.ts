@@ -1,12 +1,12 @@
 export const SYSTEM_COMPONENT_VERSIONS = {
   app: "0.1.6",
   chat_agent: "0.0.0",
-  compute_gateway_extraction: "0.1.2",
+  compute_gateway_extraction: "0.1.3",
   embedding_pipeline: "0.0.0",
-  extraction_pipeline: "0.1.5",
-  indexing_pipeline: "0.1.6",
+  extraction_pipeline: "0.1.6",
+  indexing_pipeline: "0.1.7",
   inngest_indexing_workflow: "0.1.5",
-  tree_indexer_python: "0.1.2",
+  tree_indexer_python: "0.1.3",
   tree_prompt: "0.1.1"
 } as const;
 

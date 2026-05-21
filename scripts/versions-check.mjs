@@ -66,6 +66,10 @@ function show(ref, path) {
   }
 }
 
+function fileSource(path, head) {
+  return head ? show(head, path) : readFileSync(path, "utf8");
+}
+
 function parseVersions(source) {
   const versions = {};
   const match = source.match(/SYSTEM_COMPONENT_VERSIONS\s*=\s*{([\s\S]*?)}\s*as const/);
@@ -79,6 +83,109 @@ function parseVersions(source) {
   }
 
   return versions;
+}
+
+function expectedRuntimeDefaultFailures(versions, head) {
+  const failures = [];
+
+  function expect(source, pattern, expected, label) {
+    const match = source.match(pattern);
+
+    if (!match) {
+      failures.push(`${label} no se pudo leer.`);
+      return;
+    }
+
+    if (match[1] !== expected) {
+      failures.push(`${label}=${match[1]} pero ${VERSION_FILE}=${expected}.`);
+    }
+  }
+
+  const computeGatewayServer = fileSource("workers/compute-gateway/server.mjs", head);
+  expect(
+    computeGatewayServer,
+    /COMPUTE_GATEWAY_VERSION\s*=\s*process\.env\.SDA_COMPUTE_GATEWAY_VERSION\s*\?\?\s*"([^"]+)"/,
+    versions.compute_gateway_extraction,
+    "workers/compute-gateway/server.mjs SDA_COMPUTE_GATEWAY_VERSION"
+  );
+  expect(
+    computeGatewayServer,
+    /EXTRACTION_PIPELINE_VERSION\s*=\s*process\.env\.SDA_EXTRACTION_PIPELINE_VERSION\s*\?\?\s*"([^"]+)"/,
+    versions.extraction_pipeline,
+    "workers/compute-gateway/server.mjs SDA_EXTRACTION_PIPELINE_VERSION"
+  );
+  expect(
+    computeGatewayServer,
+    /INDEXING_PIPELINE_VERSION\s*=\s*process\.env\.SDA_INDEXING_PIPELINE_VERSION\s*\?\?\s*"([^"]+)"/,
+    versions.indexing_pipeline,
+    "workers/compute-gateway/server.mjs SDA_INDEXING_PIPELINE_VERSION"
+  );
+
+  const computeGatewayDeploy = fileSource("workers/compute-gateway/deploy.sh", head);
+  expect(
+    computeGatewayDeploy,
+    /SDA_COMPUTE_GATEWAY_VERSION=\$\{SDA_COMPUTE_GATEWAY_VERSION:-([^}]+)\}/,
+    versions.compute_gateway_extraction,
+    "workers/compute-gateway/deploy.sh SDA_COMPUTE_GATEWAY_VERSION"
+  );
+  expect(
+    computeGatewayDeploy,
+    /SDA_EXTRACTION_PIPELINE_VERSION=\$\{SDA_EXTRACTION_PIPELINE_VERSION:-([^}]+)\}/,
+    versions.extraction_pipeline,
+    "workers/compute-gateway/deploy.sh SDA_EXTRACTION_PIPELINE_VERSION"
+  );
+  expect(
+    computeGatewayDeploy,
+    /SDA_INDEXING_PIPELINE_VERSION=\$\{SDA_INDEXING_PIPELINE_VERSION:-([^}]+)\}/,
+    versions.indexing_pipeline,
+    "workers/compute-gateway/deploy.sh SDA_INDEXING_PIPELINE_VERSION"
+  );
+
+  const treeVersions = fileSource("workers/tree-indexer-python/app/versions.py", head);
+  for (const component of [
+    "app",
+    "chat_agent",
+    "compute_gateway_extraction",
+    "embedding_pipeline",
+    "extraction_pipeline",
+    "indexing_pipeline",
+    "inngest_indexing_workflow"
+  ]) {
+    expect(
+      treeVersions,
+      new RegExp(`"${component}":\\s*"([^"]+)"`),
+      versions[component],
+      `workers/tree-indexer-python/app/versions.py ${component}`
+    );
+  }
+  expect(
+    treeVersions,
+    /"tree_indexer_python":\s*_version\("SDA_TREE_INDEXER_VERSION",\s*"([^"]+)"\)/,
+    versions.tree_indexer_python,
+    "workers/tree-indexer-python/app/versions.py tree_indexer_python"
+  );
+  expect(
+    treeVersions,
+    /"tree_prompt":\s*_version\("SDA_TREE_PROMPT_VERSION",\s*"([^"]+)"\)/,
+    versions.tree_prompt,
+    "workers/tree-indexer-python/app/versions.py tree_prompt"
+  );
+
+  const treeDeploy = fileSource("workers/tree-indexer-python/deploy.sh", head);
+  expect(
+    treeDeploy,
+    /SDA_TREE_INDEXER_VERSION=\$\{SDA_TREE_INDEXER_VERSION:-([^}]+)\}/,
+    versions.tree_indexer_python,
+    "workers/tree-indexer-python/deploy.sh SDA_TREE_INDEXER_VERSION"
+  );
+  expect(
+    treeDeploy,
+    /SDA_TREE_PROMPT_VERSION=\$\{SDA_TREE_PROMPT_VERSION:-([^}]+)\}/,
+    versions.tree_prompt,
+    "workers/tree-indexer-python/deploy.sh SDA_TREE_PROMPT_VERSION"
+  );
+
+  return failures;
 }
 
 function changedFiles(base, head) {
@@ -98,18 +205,31 @@ const base = argValue("--base", process.env.VERSION_CHECK_BASE ?? "HEAD");
 const head = argValue("--head", process.env.VERSION_CHECK_HEAD ?? null);
 const diffArgs = head ? [base, head] : [base];
 const files = changedFiles(...diffArgs);
+const currentVersions = parseVersions(fileSource(VERSION_FILE, head));
+
+if (Object.keys(currentVersions).length === 0) {
+  console.log("Version registry not present; skipping version check.");
+  process.exit(0);
+}
+
+const runtimeDefaultFailures = expectedRuntimeDefaultFailures(currentVersions, head);
+
+if (runtimeDefaultFailures.length > 0) {
+  console.error("Runtime version defaults drifted from lib/system-versions.ts:");
+  for (const failure of runtimeDefaultFailures) {
+    console.error(`- ${failure}`);
+  }
+  process.exit(1);
+}
 
 if (files.length === 0) {
-  console.log("No changed files to check.");
+  console.log("No changed files to check. Runtime version defaults aligned.");
   process.exit(0);
 }
 
 const previousVersions = parseVersions(show(base, VERSION_FILE));
-const currentVersions = parseVersions(
-  head ? show(head, VERSION_FILE) : readFileSync(VERSION_FILE, "utf8")
-);
 
-if (Object.keys(previousVersions).length === 0 || Object.keys(currentVersions).length === 0) {
+if (Object.keys(previousVersions).length === 0) {
   console.log("Version registry not present on both sides; skipping bump check.");
   process.exit(0);
 }
