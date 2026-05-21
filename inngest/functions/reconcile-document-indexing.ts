@@ -269,7 +269,7 @@ async function completeRunsWithPersistedTree(limit: number): Promise<number> {
             indexing_pipeline_version:
               tree?.indexing_pipeline_version ?? run.indexing_pipeline_version,
             status: "indexed",
-            status_reason: "Tree Index listo; embeddings jerarquicos pendientes",
+            status_reason: "Tree Index y chunks persistidos",
             tree_indexer_version: tree?.tree_indexer_version ?? run.tree_indexer_version
           })
           .eq("id", run.document_id)

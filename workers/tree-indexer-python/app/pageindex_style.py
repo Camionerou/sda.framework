@@ -29,6 +29,7 @@ class TreeNode(TypedDict, total=False):
     end_index: int
     node_id: str
     nodes: list["TreeNode"]
+    routing_summary: str
     source_blocks: list[SourceBlock]
     start_index: int
     summary: str
@@ -39,13 +40,19 @@ class TreeNode(TypedDict, total=False):
 class TreeChunk(TypedDict):
     chunk_index: int
     content: str
+    embedding: list[float] | None
+    embedding_model: str | None
     metadata: dict[str, Any]
     node_id: str
     node_path: list[str]
     page_end: int
     page_start: int
+    routing_summary: str | None
     summary: str | None
     token_count: int
+
+
+DocumentType = str
 
 
 SOURCE_BLOCKS_COORDINATE_SYSTEM = "normalized_page_bbox_top_left_v1"
@@ -447,7 +454,11 @@ def flatten_tree(nodes: list[TreeNode]) -> list[tuple[TreeNode, list[str]]]:
     return flattened
 
 
-def build_chunks_from_tree(nodes: list[TreeNode]) -> list[TreeChunk]:
+def build_chunks_from_tree(
+    nodes: list[TreeNode],
+    *,
+    document_type: DocumentType | None = None,
+) -> list[TreeChunk]:
     chunks: list[TreeChunk] = []
     for index, (node, path) in enumerate(flatten_tree(nodes)):
         content = node.get("text", "").strip() or node["title"]
@@ -455,6 +466,8 @@ def build_chunks_from_tree(nodes: list[TreeNode]) -> list[TreeChunk]:
             "page_range": [node["start_index"], node["end_index"]],
             "source": "pageindex_style_python_tree",
         }
+        if document_type:
+            metadata["document_type"] = document_type
         if node.get("source_blocks"):
             metadata["source_blocks"] = node["source_blocks"]
             metadata["source_blocks_coordinate_system"] = SOURCE_BLOCKS_COORDINATE_SYSTEM
@@ -463,11 +476,14 @@ def build_chunks_from_tree(nodes: list[TreeNode]) -> list[TreeChunk]:
             {
                 "chunk_index": index,
                 "content": content,
+                "embedding": None,
+                "embedding_model": None,
                 "metadata": metadata,
                 "node_id": node["node_id"],
                 "node_path": path,
                 "page_end": node["end_index"],
                 "page_start": node["start_index"],
+                "routing_summary": node.get("routing_summary"),
                 "summary": node.get("summary"),
                 "token_count": estimate_tokens(content),
             }
@@ -486,6 +502,8 @@ def remove_node_text(nodes: list[TreeNode]) -> list[TreeNode]:
         }
         if node.get("summary"):
             clean_node["summary"] = node["summary"]
+        if node.get("routing_summary"):
+            clean_node["routing_summary"] = node["routing_summary"]
         if node.get("source_blocks"):
             clean_node["source_blocks"] = node["source_blocks"]
         if node.get("nodes"):

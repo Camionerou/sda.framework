@@ -2,6 +2,7 @@ import { serve } from "inngest/next";
 
 import { inngest } from "@/inngest/client";
 import { processDocumentIndex } from "@/inngest/functions/process-document-index";
+import { recordTreeGraphEvent } from "@/inngest/functions/record-tree-graph-event";
 import { reconcileDocumentIndexing } from "@/inngest/functions/reconcile-document-indexing";
 
 export const runtime = "nodejs";
@@ -9,6 +10,6 @@ export const maxDuration = 60;
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [processDocumentIndex, reconcileDocumentIndexing],
+  functions: [processDocumentIndex, reconcileDocumentIndexing, recordTreeGraphEvent],
   streaming: true
 });

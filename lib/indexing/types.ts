@@ -90,6 +90,9 @@ export type ComputeGatewayTreeIndexJobStatus = {
   created_at: string;
   doc_summary?: string;
   document_id: string;
+  document_type?: string;
+  embedding_count?: number;
+  embedding_model?: string;
   error?: string;
   failed_at?: string;
   extraction_id: string;
@@ -101,6 +104,7 @@ export type ComputeGatewayTreeIndexJobStatus = {
   persisted_at?: string;
   progress: number;
   provider?: string;
+  routing_summary?: string;
   run_id: string;
   source: string;
   stage: string;

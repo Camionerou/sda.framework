@@ -10,8 +10,25 @@ export type DocumentIndexRequestedEvent = {
   tenant_id: string;
 };
 
+export type TreeGraphNodeEvent = {
+  document_id: string;
+  job_id: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+  node: string;
+  progress: number;
+  run_id: string;
+  stage: string;
+  status: string;
+  tenant_id: string;
+};
+
 export const documentIndexRequested = eventType("document/index.requested", {
   schema: staticSchema<DocumentIndexRequestedEvent>()
+});
+
+export const treeGraphNodeEvent = eventType("indexing/tree.node", {
+  schema: staticSchema<TreeGraphNodeEvent>()
 });
 
 const inngestConfig = getInngestRuntimeConfig();

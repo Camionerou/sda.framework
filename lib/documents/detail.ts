@@ -8,6 +8,7 @@ export type TreeRow = {
   created_at: string;
   indexing_pipeline_version: string | null;
   model: string | null;
+  routing_summary: string | null;
   summary: string | null;
   tree_indexer_version: string | null;
   tree_prompt_version: string | null;
@@ -78,7 +79,7 @@ async function fetchDocumentDetailSnapshot(
     supabase
       .from("doc_tree")
       .select(
-        "summary, model, version, created_at, indexing_pipeline_version, tree_indexer_version, tree_prompt_version"
+        "summary, routing_summary, model, version, created_at, indexing_pipeline_version, tree_indexer_version, tree_prompt_version"
       )
       .eq("document_id", document.id)
       .eq("tenant_id", tenantId)

@@ -41,6 +41,22 @@ SDA_TREE_LLM_TIMEOUT_MS=
 SDA_TREE_LLM_JSON_MODE=
 SDA_TREE_MAX_PROMPT_CHARS=60000
 SDA_TREE_SUMMARY_CONCURRENCY=3
+SDA_TREE_REFINE_MAX_PAGES=10
+SDA_TREE_REFINE_MAX_TOKENS=20000
+SDA_TREE_REFINE_MAX_ITERATIONS=3
+SDA_TREE_CHECKPOINTING=0
+SDA_TREE_CHECKPOINT_DSN=
+SDA_TREE_CHECKPOINT_SETUP=0
+
+SDA_EMBEDDING_PROVIDER=openrouter
+SDA_EMBEDDING_BASE_URL=https://openrouter.ai/api/v1
+SDA_EMBEDDING_API_KEY=
+SDA_EMBEDDING_MODEL=google/gemini-embedding-2-preview
+SDA_EMBEDDING_DIMENSIONS=1536
+SDA_EMBEDDING_BATCH_SIZE=96
+SDA_EMBEDDING_MAX_INPUT_CHARS=8000
+SDA_EMBEDDING_PROVIDER_ORDER=
+SDA_EMBEDDING_TIMEOUT_SECONDS=120
 ```
 
 `SDA_TREE_INDEXER_TOKEN` es obligatorio por defecto. Para desarrollo local sin
@@ -74,7 +90,13 @@ cd workers/tree-indexer-python
 El script reutiliza `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y el token del
 Compute Gateway remoto si ya existen. Las variables de LLM se conservan desde
 un `.env` remoto previo o se toman del entorno local si se exportan antes de
-correr el deploy.
+correr el deploy. Los embeddings usan `SDA_EMBEDDING_API_KEY`; si no esta
+definida y `SDA_EMBEDDING_PROVIDER=openrouter`, usan `OPENROUTER_API_KEY`.
+Checkpointing queda apagado por defecto; para activarlo, definir
+`SDA_TREE_CHECKPOINTING=1` y `SDA_TREE_CHECKPOINT_DSN` con un Postgres DSN
+compatible con `langgraph-checkpoint-postgres`. Usar
+`SDA_TREE_CHECKPOINT_SETUP=1` solo para inicializar tablas administradas por la
+libreria.
 
 ## Crear job
 

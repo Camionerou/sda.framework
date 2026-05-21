@@ -291,7 +291,7 @@ export async function recordTreeIndexerSucceeded(input: {
         indexed_at: now,
         indexing_pipeline_version: INDEXING_VERSION_COLUMNS.indexing_pipeline_version,
         status: "indexed",
-        status_reason: "Tree Index listo; embeddings jerarquicos pendientes",
+        status_reason: "Tree Index y embeddings jerarquicos listos",
         tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version
       },
       metadata: {
@@ -305,6 +305,9 @@ export async function recordTreeIndexerSucceeded(input: {
         page_count: terminalTreeJob.page_count,
         persisted_at: terminalTreeJob.persisted_at,
         provider: terminalTreeJob.provider,
+        document_type: terminalTreeJob.document_type,
+        embedding_count: terminalTreeJob.embedding_count,
+        embedding_model: terminalTreeJob.embedding_model,
         tree_indexer_version: INDEXING_VERSION_COLUMNS.tree_indexer_version,
         tree_job_id: terminalTreeJob.job_id,
         version: terminalTreeJob.version

@@ -694,17 +694,31 @@ funcionalidad.
 
 ## 3. Mejoras de ingestado e indexado (con LangGraph)
 
-Condicion: usar LangGraph. Hoy ya se usa en
-`workers/tree-indexer-python/app/tree_graph.py`. El grafo actual tiene **4
-nodos** lineales:
+Condicion: usar LangGraph. Ya se usa en
+`workers/tree-indexer-python/app/tree_graph.py`. Al inicio de esta seccion el
+grafo tenia **4 nodos** lineales:
 
 ```text
 START -> build_candidate_tree -> verify_tree -> post_process_tree -> summarize_tree -> END
 ```
 
-Esto cubre el camino feliz pero deja sobre la mesa varias mejoras documentadas
-en `docs/sda-tree-index-live-architecture.md:176-205,231-272,344-372` que
-nunca se implementaron.
+Ese camino feliz fue ampliado con deteccion de tipo documental, reparacion y
+degradacion, refinamiento recursivo, summaries de routing, embeddings,
+checkpointing opcional, fan-out `Send` y eventos live por nodo.
+
+### Estado de ejecucion — 2026-05-21
+
+| Punto | Estado | Nota |
+|---|---|---|
+| 3.1 | implementado | `detect_document_type` corre como primer nodo y parametriza el prompt de candidato. |
+| 3.2 | implementado | `refine_large_nodes` divide hojas grandes antes de summaries/embeddings, con limites por paginas/tokens/iteraciones. |
+| 3.3 | implementado | `verify_tree` routea a aceptar, reparar, degradar a `no_toc` o fallar con limite configurable. |
+| 3.4 | implementado | `routing_summary` agregado a DB, nodos del grafo, chunks y persistencia. |
+| 3.5 | implementado | Checkpointing Postgres queda soportado via `langgraph-checkpoint-postgres`, activable con DSN/env y thread_id por job. |
+| 3.6 | implementado | `embed_hierarchy` genera vectores 1536 sobre `routing_summary` y los persiste en `chunks.embedding`. |
+| 3.7 | implementado | Summaries y routing summaries usan fan-out LangGraph `Send` con nodos `summarize_one_*` y collectors. |
+| 3.8 | implementado | Worker Python emite eventos `indexing/tree.node` por nodo del grafo y una funcion Inngest los persiste como `indexing_events`. |
+| 3.9 | implementado | `document_type` se persiste en `documents.metadata`, `doc_tree` y `chunks.metadata`. |
 
 ### 3.1 Agregar `detect_document_type` como primer nodo
 
@@ -895,8 +909,9 @@ grandes con verify+refine multiples iteraciones, mas.
 
 ### 3.6 Embeddings jerarquicos como nodo del grafo
 
-`lib/system-versions.ts:6` tiene `embedding_pipeline: "0.0.0"`. No esta
-implementado. Hoy retrieval no funciona porque no hay vectores.
+`lib/system-versions.json` ahora versiona `embedding_pipeline`. La primera
+implementacion real genera vectores jerarquicos al final del grafo, usando
+`routing_summary` como texto principal de embedding.
 
 Propuesta: nuevo nodo final del grafo `embed_hierarchy`.
 

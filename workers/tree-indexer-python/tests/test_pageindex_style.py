@@ -77,6 +77,17 @@ class PageIndexStyleTests(unittest.TestCase):
         self.assertEqual([chunk["node_id"] for chunk in chunks], ["0000", "0001", "0002"])
         self.assertIsNone(remove_node_text(tree)[0].get("text"))
 
+        typed_chunks = build_chunks_from_tree(tree, document_type="contract")
+        self.assertEqual(typed_chunks[0]["metadata"]["document_type"], "contract")
+
+        tree[0]["routing_summary"] = "Questions about the intro."
+        routed_chunks = build_chunks_from_tree(tree, document_type="contract")
+        self.assertEqual(routed_chunks[0]["routing_summary"], "Questions about the intro.")
+        self.assertEqual(
+            remove_node_text(tree)[0]["routing_summary"],
+            "Questions about the intro.",
+        )
+
     def test_title_near_page_start_prevents_next_page_contamination(self) -> None:
         pages = [
             {"page": 1, "text": "LOGO AriesTruck specs"},
