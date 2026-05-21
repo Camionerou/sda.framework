@@ -1,15 +1,6 @@
-import { ShieldCheck } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { GoogleLoginButton } from "@/components/auth/google-login-button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -42,63 +33,49 @@ export default async function LoginPage({
   }
 
   return (
-    <main className="auth-page">
-      <div className="auth-panel">
-        <div className="auth-brand">
-          <div className="brand-mark">
-            <ShieldCheck aria-hidden="true" size={20} strokeWidth={2.2} />
+    <div className="ws">
+      <div className="ws-auth">
+        <div className="glass auth-card">
+          <div className="auth-brand">
+            <span className="brand" aria-hidden="true">
+              S
+            </span>
+            <div>
+              <div className="kicker">Workspace privado</div>
+              <h1>SDA</h1>
+              <p>Acceso seguro a documentos, indexación y memoria semántica, aislados por tenant.</p>
+            </div>
           </div>
-          <div>
-            <div className="kicker">Workspace privado</div>
-            <h1>SDA Ops</h1>
-            <p>
-              Entrada segura para operar documentos, invitaciones y sesiones aisladas por tenant.
-            </p>
-          </div>
+
+          {params.invite_token ? (
+            <div className="alert alert-success">
+              <strong>Invitación detectada.</strong>
+              <span>Después del login se activa tu usuario y se refrescan los claims.</span>
+            </div>
+          ) : (
+            <div className="alert alert-warning">
+              <strong>Invite-only activo.</strong>
+              <span>Sin link de invitación, el login no asigna tenant automáticamente.</span>
+            </div>
+          )}
+
+          {params.error ? (
+            <div className="alert alert-danger" role="alert">
+              <strong>{params.error}</strong>
+              <span>{params.message ?? "Reintentá con el link de invitación correcto."}</span>
+            </div>
+          ) : null}
+
+          {configError ? (
+            <div className="alert alert-danger" role="alert">
+              <strong>Falta configuración local.</strong>
+              <span>{configError}</span>
+            </div>
+          ) : (
+            <GoogleLoginButton inviteToken={params.invite_token} />
+          )}
         </div>
-
-        <Card className="auth-card">
-          <CardHeader>
-            <CardTitle>Acceso al workspace</CardTitle>
-            <CardDescription>
-              Usá la cuenta de Google asociada a tu invitación.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {params.invite_token ? (
-              <div className="alert alert-success">
-                <strong>Invitación detectada.</strong>
-                <span>Después del login se activa tu usuario y se refrescan los claims.</span>
-              </div>
-            ) : (
-              <div className="alert">
-                <strong>Invite-only activo.</strong>
-                <span>Sin link de invitación, el login no asigna tenant automáticamente.</span>
-              </div>
-            )}
-
-            {params.error ? (
-              <div className="alert alert-danger" role="alert">
-                <strong>{params.error}</strong>
-                <span>{params.message ?? "Reintentá con el link de invitación correcto."}</span>
-              </div>
-            ) : null}
-
-            {configError ? (
-              <div className="alert alert-danger" role="alert">
-                <strong>Falta configuración local.</strong>
-                <span>{configError}</span>
-              </div>
-            ) : (
-              <GoogleLoginButton inviteToken={params.invite_token} />
-            )}
-
-            <Badge tone={params.invite_token ? "success" : "warning"}>
-              {params.invite_token ? "Invite token listo" : "Requiere invitación"}
-            </Badge>
-          </CardContent>
-        </Card>
       </div>
-    </main>
+    </div>
   );
 }

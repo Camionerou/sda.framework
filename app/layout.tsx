@@ -5,6 +5,7 @@ import "@fontsource-variable/bricolage-grotesque/index.css";
 import "@fontsource-variable/hanken-grotesk/index.css";
 import "@fontsource-variable/jetbrains-mono/index.css";
 import "./globals.css";
+import "./workspace.css";
 
 export const metadata: Metadata = {
   title: "SDA Ops",
