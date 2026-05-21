@@ -93,6 +93,7 @@ from .nodes.degrade_mode import degrade_mode, fail_verification
 from .nodes.detect_document_type import detect_document_type
 from .nodes.post_process_tree import post_process_tree
 from .nodes.repair_sections import repair_sections
+from .nodes.verify_tree import verify_tree
 from .nodes.routing_summary import collect_routing_summaries, summarize_one_routing
 from .nodes.summarize_node import collect_summaries, prepare_summaries, summarize_one_node
 
@@ -154,64 +155,6 @@ async def build_candidate_tree(state: TreeState) -> dict[str, Any]:
         "metrics": metrics,
         "provider": provider or "",
         "version": TREE_INDEXER_VERSION,
-    }
-
-
-async def verify_tree(state: TreeState) -> dict[str, Any]:
-    await emit_tree_node_event(
-        state,
-        message="Verificando arbol candidato.",
-        node="verify_tree",
-        progress=58,
-        status="started",
-    )
-    response = await call_tree_llm_json(
-        verification_prompt(state["candidate_sections"], state["prompt_pages"]),
-        "structure",
-    )
-    checked_sections = _assert_sections(response["json"])
-    verified = [
-        section
-        for section in checked_sections
-        if section.get("valid") is not False
-    ]
-    invalid = [
-        section
-        for section in checked_sections
-        if section.get("valid") is False
-    ]
-    checked_identities = {_section_identity(section) for section in checked_sections}
-    invalid.extend(
-        {
-            **section,
-            "reason": "Verifier omitted this candidate section.",
-            "valid": False,
-        }
-        for section in state["candidate_sections"]
-        if _section_identity(section) not in checked_identities
-    )
-    accuracy = len(verified) / len(state["candidate_sections"])
-    await emit_tree_node_event(
-        state,
-        message=f"Verificacion completada con accuracy {accuracy:.2f}.",
-        metadata={
-            "invalid_section_count": len(invalid),
-            "verification_accuracy": accuracy,
-            "verified_section_count": len(verified),
-        },
-        node="verify_tree",
-        progress=62,
-        status="completed",
-    )
-    return {
-        "invalid_sections": invalid,
-        "metrics": {
-            **state["metrics"],
-            "invalid_section_count": len(invalid),
-            "verification_accuracy": accuracy,
-            "verified_section_count": len(verified),
-        },
-        "verified_sections": verified,
     }
 
 
