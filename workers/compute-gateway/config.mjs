@@ -57,6 +57,7 @@ export const MINERU_BIN =
 export const MINERU_LANG = process.env.SDA_MINERU_LANG ?? "latin";
 export const MINERU_PDF_RENDER_TIMEOUT = process.env.SDA_MINERU_PDF_RENDER_TIMEOUT ?? "600";
 export const MINERU_TASK_RESULT_TIMEOUT = process.env.SDA_MINERU_TASK_RESULT_TIMEOUT ?? "1800";
+export const MINERU_API_URL = process.env.SDA_MINERU_API_URL ?? "http://127.0.0.1:8765";
 export const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY;
 export const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/+$/, "");
