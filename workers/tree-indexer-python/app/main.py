@@ -15,6 +15,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .embeddings import is_embedding_configured
 from .events import publish_inngest_event
+from .http_client import close_clients
 from .llm import is_tree_llm_configured
 from .pageindex_style import content_list_to_labeled_pages, source_blocks_from_mineru_middle
 from .supabase_io import download_storage_json, list_extraction_artifacts, persist_tree_index
@@ -95,6 +96,11 @@ class RequestBodyLimitMiddleware:
 app = FastAPI(title="SDA Tree Indexer", version=TREE_INDEXER_VERSION)
 app.add_middleware(RequestBodyLimitMiddleware, max_body_bytes=MAX_REQUEST_BODY_BYTES)
 job_semaphore = asyncio.Semaphore(MAX_CONCURRENT_JOBS if MAX_CONCURRENT_JOBS > 0 else 1)
+
+
+@app.on_event("shutdown")
+async def _on_shutdown() -> None:
+    await close_clients()
 
 
 class TreeIndexJobRequest(BaseModel):
