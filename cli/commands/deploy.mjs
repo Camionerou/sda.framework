@@ -1,6 +1,6 @@
 import { confirm, isCancel } from "@clack/prompts";
 import { defineCommand } from "citty";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 import { loadSdaEnv, mergedEnv } from "../shared/env.mjs";
 import { run, runInherited } from "../shared/process.mjs";
@@ -67,10 +67,18 @@ export const deployCommand = defineCommand({
     smoke: {
       type: "boolean",
       description: "Tras el deploy, hace health check end-to-end de gateway+tree+mineru con latencia"
+    },
+    rollback: {
+      type: "boolean",
+      description: "Revertir lib/system-versions.json al commit anterior y redeployar el target"
     }
   },
   async run({ args }) {
     loadSdaEnv();
+
+    if (args.rollback) {
+      await applyRollback(args.target);
+    }
 
     const targets = resolveTargets(args.target);
 
@@ -209,6 +217,44 @@ async function showDiff(target) {
     "workers/tree-indexer-python/",
     "sistemas@srv-ia-01:/home/sistemas/sda-tree-indexer-python/"
   ]);
+}
+
+async function applyRollback(rawTarget) {
+  const versionsPath = "lib/system-versions.json";
+
+  const accepted = await confirm({
+    message: `Esto revertirá \`${versionsPath}\` al HEAD~ anterior y redeployará ${rawTarget}. Continuar?`,
+    initialValue: false
+  });
+
+  if (isCancel(accepted) || !accepted) {
+    throw new Error("rollback cancelado.");
+  }
+
+  const prevResult = await run("git", ["show", `HEAD~1:${versionsPath}`], { allowFailure: true });
+
+  if (prevResult.code !== 0) {
+    throw new Error(`rollback: no se pudo leer HEAD~1:${versionsPath}.\n${prevResult.stderr}`);
+  }
+
+  const prevContent = prevResult.stdout;
+  const currentContent = readFileSync(versionsPath, "utf8");
+
+  if (prevContent.trim() === currentContent.trim()) {
+    throw new Error(`rollback: no hay cambios entre HEAD y HEAD~1 en ${versionsPath}.`);
+  }
+
+  writeFileSync(versionsPath, prevContent, "utf8");
+  console.log(`rollback: ${versionsPath} revertido a HEAD~1.`);
+
+  await run("git", ["add", versionsPath], {});
+  await run(
+    "git",
+    ["commit", "-m", `chore(versions): rollback ${rawTarget} via sda deploy --rollback`],
+    {}
+  );
+
+  console.log("rollback: commit creado. Continuando con deploy...");
 }
 
 async function runEndToEndSmoke() {
