@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..pageindex_style import CandidateSection, LabeledPage, SourceBlock, TreeNode
+from ..pageindex_style import CandidateSection, LabeledPage, TreeNode
 from .state import NodeTask
 
 

@@ -5,7 +5,6 @@ from typing import Any
 from ...llm import call_tree_llm_json
 from ...pageindex_style import (
     CandidateSection,
-    LabeledPage,
     TreeNode,
     candidate_sections_to_tree,
     flatten_tree,
