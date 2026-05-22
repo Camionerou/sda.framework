@@ -9,7 +9,7 @@ from .config import (
 )
 from .events import context_for_send
 from .helpers import node_task
-from .nodes.refine_large_nodes import flatten_tree  # re-exported from pageindex_style
+from ..pageindex_style import flatten_tree
 from .state import TreeState
 
 
