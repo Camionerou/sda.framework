@@ -18,6 +18,14 @@ const TARGETS = {
     service: "compute-gateway",
     tokenKey: "SDA_COMPUTE_GATEWAY_TOKEN"
   },
+  mineru: {
+    component: null,
+    healthPath: "/docs",
+    name: "mineru",
+    remoteDir: "/home/sistemas/sda-mineru",
+    service: "mineru-api.service",
+    tokenKey: null
+  },
   tree: {
     component: "tree_indexer_python",
     healthPath: "/v1/health",
@@ -69,7 +77,12 @@ export const deployCommand = defineCommand({
         continue;
       }
 
-      await runInherited("bash", [target.script], { env: mergedEnv() });
+      if (target.name === "mineru") {
+        await deployMineruApi();
+      } else {
+        await runInherited("bash", [target.script], { env: mergedEnv() });
+      }
+
       await healthCheck(target);
     }
   }
@@ -98,14 +111,23 @@ function resolveTargets(rawTarget) {
     return [TARGETS.tree];
   }
 
+  if (target === "m" || target === "mineru-api") {
+    return [TARGETS.mineru];
+  }
+
   if (TARGETS[target]) {
     return [TARGETS[target]];
   }
 
-  throw new Error("Target invalido. Usa gateway, tree o all.");
+  throw new Error("Target invalido. Usa gateway, tree, mineru o all.");
 }
 
 async function prepareTarget(target, args) {
+  if (target.component === null) {
+    console.log(`${target.name}: systemd reapply`);
+    return;
+  }
+
   const localVersions = JSON.parse(readFileSync("lib/system-versions.json", "utf8"));
   const remoteVersions = await readRemoteVersions(target);
   const localVersion = localVersions[target.component];
@@ -181,7 +203,75 @@ async function showDiff(target) {
   ]);
 }
 
+async function deployMineruApi() {
+  const unitContent = `[Unit]
+Description=MinerU FastAPI server (hot models, GPU)
+After=network.target
+
+[Service]
+Type=simple
+User=sistemas
+Group=sistemas
+WorkingDirectory=/home/sistemas/sda-mineru
+Environment=PATH=/home/sistemas/sda-mineru/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=CUDA_VISIBLE_DEVICES=0
+Environment=MINERU_DEVICE_MODE=cuda
+ExecStart=/home/sistemas/sda-mineru/.venv/bin/mineru-api --host 127.0.0.1 --port 8765 --enable-vlm-preload True
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=65536
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
+`;
+
+  await runInherited("ssh", [
+    "sistemas@srv-ia-01",
+    `sudo tee /etc/systemd/system/mineru-api.service > /dev/null <<'UNITEOF'\n${unitContent}\nUNITEOF`
+  ]);
+
+  await runInherited("ssh", [
+    "sistemas@srv-ia-01",
+    "sudo systemctl daemon-reload && sudo systemctl enable mineru-api.service && sudo systemctl restart mineru-api.service"
+  ]);
+
+  console.log("mineru-api: waiting for VLM preload (hasta 240s)...");
+  const pollScript = `for i in $(seq 1 48); do
+  if curl -sf http://127.0.0.1:8765/docs > /dev/null 2>&1; then
+    echo READY
+    exit 0
+  fi
+  sleep 5
+done
+echo TIMEOUT
+exit 1`;
+
+  const result = await run("ssh", ["sistemas@srv-ia-01", pollScript], { allowFailure: true });
+
+  if (result.code !== 0 || !result.stdout.includes("READY")) {
+    throw new Error(`mineru-api: readiness timeout. Output: ${result.stdout}`);
+  }
+
+  console.log("mineru-api: ready.");
+}
+
 async function healthCheck(target) {
+  if (target.name === "mineru") {
+    const health = await run(
+      "ssh",
+      ["sistemas@srv-ia-01", `curl -fsS http://127.0.0.1:8765${target.healthPath}`],
+      { allowFailure: true }
+    );
+
+    if (health.code !== 0) {
+      throw new Error(`${target.name}: healthcheck fallo.\n${health.stderr || health.stdout}`);
+    }
+
+    console.log(`${target.name}: OK`);
+    return;
+  }
+
   const port = target.name === "gateway" ? "8787" : "8790";
   const health = await run(
     "ssh",
