@@ -7,8 +7,7 @@ import uuid
 from typing import Any
 from urllib.parse import quote
 
-import httpx
-
+from .http_client import get_supabase_client
 from .versions import INDEXING_VERSION_COLUMNS, TREE_PROMPT_VERSION, version_value
 from .pageindex_style import SOURCE_BLOCKS_COORDINATE_SYSTEM
 
@@ -179,12 +178,13 @@ async def list_extraction_artifacts(
         "select": "artifact_type,storage_bucket,storage_path,byte_size,content_type,metadata",
         "tenant_id": f"eq.{tenant_id}",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.get(
-            f"{url}/rest/v1/document_extraction_artifacts",
-            headers=_headers(key),
-            params=params,
-        )
+    client = get_supabase_client()
+    response = await client.get(
+        f"{url}/rest/v1/document_extraction_artifacts",
+        headers=_headers(key),
+        params=params,
+        timeout=60,
+    )
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase artifact query fallo {response.status_code}: {response.text}")
     data = response.json()
@@ -197,11 +197,12 @@ async def download_storage_json(bucket: str, path: str) -> Any:
     url, key = _supabase_config()
     encoded_bucket = quote(bucket, safe="")
     encoded_path = "/".join(quote(part, safe="") for part in path.split("/"))
-    async with httpx.AsyncClient(timeout=120) as client:
-        response = await client.get(
-            f"{url}/storage/v1/object/{encoded_bucket}/{encoded_path}",
-            headers=_headers(key),
-        )
+    client = get_supabase_client()
+    response = await client.get(
+        f"{url}/storage/v1/object/{encoded_bucket}/{encoded_path}",
+        headers=_headers(key),
+        timeout=120,
+    )
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase Storage download fallo {response.status_code}: {response.text}")
     return response.json()
@@ -213,12 +214,13 @@ async def delete_document_chunks(*, tenant_id: str, document_id: str) -> None:
         "document_id": f"eq.{document_id}",
         "tenant_id": f"eq.{tenant_id}",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.delete(
-            f"{url}/rest/v1/chunks",
-            headers=_json_headers(key, "return=minimal"),
-            params=params,
-        )
+    client = get_supabase_client()
+    response = await client.delete(
+        f"{url}/rest/v1/chunks",
+        headers=_json_headers(key, "return=minimal"),
+        params=params,
+        timeout=60,
+    )
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase chunks delete fallo {response.status_code}: {response.text}")
 
@@ -229,25 +231,27 @@ async def delete_document_tree_nodes(*, tenant_id: str, document_id: str) -> Non
         "document_id": f"eq.{document_id}",
         "tenant_id": f"eq.{tenant_id}",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.delete(
-            f"{url}/rest/v1/doc_tree_nodes",
-            headers=_json_headers(key, "return=minimal"),
-            params=params,
-        )
+    client = get_supabase_client()
+    response = await client.delete(
+        f"{url}/rest/v1/doc_tree_nodes",
+        headers=_json_headers(key, "return=minimal"),
+        params=params,
+        timeout=60,
+    )
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase doc_tree_nodes delete fallo {response.status_code}: {response.text}")
 
 
 async def upsert_document_tree(row: dict[str, Any]) -> None:
     url, key = _supabase_config()
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            f"{url}/rest/v1/doc_tree",
-            headers=_json_headers(key, "resolution=merge-duplicates,return=minimal"),
-            json=row,
-            params={"on_conflict": "document_id"},
-        )
+    client = get_supabase_client()
+    response = await client.post(
+        f"{url}/rest/v1/doc_tree",
+        headers=_json_headers(key, "resolution=merge-duplicates,return=minimal"),
+        json=row,
+        params={"on_conflict": "document_id"},
+        timeout=60,
+    )
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase doc_tree upsert fallo {response.status_code}: {response.text}")
 
@@ -259,12 +263,13 @@ async def document_metadata(*, tenant_id: str, document_id: str) -> dict[str, An
         "select": "metadata",
         "tenant_id": f"eq.{tenant_id}",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.get(
-            f"{url}/rest/v1/documents",
-            headers=_headers(key),
-            params=params,
-        )
+    client = get_supabase_client()
+    response = await client.get(
+        f"{url}/rest/v1/documents",
+        headers=_headers(key),
+        params=params,
+        timeout=60,
+    )
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase document metadata query fallo {response.status_code}: {response.text}")
     data = response.json()
@@ -285,13 +290,14 @@ async def update_document_metadata(
         "id": f"eq.{document_id}",
         "tenant_id": f"eq.{tenant_id}",
     }
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.patch(
-            f"{url}/rest/v1/documents",
-            headers=_json_headers(key, "return=minimal"),
-            json={"metadata": metadata},
-            params=params,
-        )
+    client = get_supabase_client()
+    response = await client.patch(
+        f"{url}/rest/v1/documents",
+        headers=_json_headers(key, "return=minimal"),
+        json={"metadata": metadata},
+        params=params,
+        timeout=60,
+    )
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase document metadata update fallo {response.status_code}: {response.text}")
 
@@ -301,18 +307,19 @@ async def insert_chunks(rows: list[dict[str, Any]], batch_size: int = 500) -> No
         raise RuntimeError("Tree Indexer no genero chunks/nodos recuperables.")
 
     url, key = _supabase_config()
-    async with httpx.AsyncClient(timeout=120) as client:
-        for start in range(0, len(rows), batch_size):
-            batch = rows[start : start + batch_size]
-            response = await client.post(
-                f"{url}/rest/v1/chunks",
-                headers=_json_headers(key, "return=minimal"),
-                json=batch,
+    client = get_supabase_client()
+    for start in range(0, len(rows), batch_size):
+        batch = rows[start : start + batch_size]
+        response = await client.post(
+            f"{url}/rest/v1/chunks",
+            headers=_json_headers(key, "return=minimal"),
+            json=batch,
+            timeout=120,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"Supabase chunks insert fallo {response.status_code}: {response.text}"
             )
-            if response.status_code >= 400:
-                raise RuntimeError(
-                    f"Supabase chunks insert fallo {response.status_code}: {response.text}"
-                )
 
 
 async def insert_document_tree_nodes(rows: list[dict[str, Any]], batch_size: int = 500) -> None:
@@ -320,18 +327,19 @@ async def insert_document_tree_nodes(rows: list[dict[str, Any]], batch_size: int
         raise RuntimeError("Tree Indexer no genero doc_tree_nodes recuperables.")
 
     url, key = _supabase_config()
-    async with httpx.AsyncClient(timeout=120) as client:
-        for start in range(0, len(rows), batch_size):
-            batch = rows[start : start + batch_size]
-            response = await client.post(
-                f"{url}/rest/v1/doc_tree_nodes",
-                headers=_json_headers(key, "return=minimal"),
-                json=batch,
+    client = get_supabase_client()
+    for start in range(0, len(rows), batch_size):
+        batch = rows[start : start + batch_size]
+        response = await client.post(
+            f"{url}/rest/v1/doc_tree_nodes",
+            headers=_json_headers(key, "return=minimal"),
+            json=batch,
+            timeout=120,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"Supabase doc_tree_nodes insert fallo {response.status_code}: {response.text}"
             )
-            if response.status_code >= 400:
-                raise RuntimeError(
-                    f"Supabase doc_tree_nodes insert fallo {response.status_code}: {response.text}"
-                )
 
 
 async def persist_tree_index(

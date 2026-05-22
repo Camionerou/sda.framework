@@ -4,8 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
+from .http_client import get_supabase_client
 from .llm import TRANSIENT_STATUS, TreeLlmPermanentError, TreeLlmTransientError
 from .pageindex_style import TreeChunk
 
@@ -145,51 +144,52 @@ async def embed_texts(texts: list[str]) -> tuple[list[list[float]], EmbeddingCon
         headers["HTTP-Referer"] = os.getenv("APP_ORIGIN", "https://sda-framework.vercel.app")
         headers["X-Title"] = "SDA Framework"
 
-    async with httpx.AsyncClient(timeout=config.timeout_seconds) as client:
-        for start in range(0, len(texts), config.batch_size):
-            batch = [text[: config.max_input_chars] for text in texts[start : start + config.batch_size]]
-            payload: dict[str, Any] = {
-                "encoding_format": "float",
-                "dimensions": config.dimensions,
-                "input": batch,
-                "model": config.model,
+    client = get_supabase_client()
+    for start in range(0, len(texts), config.batch_size):
+        batch = [text[: config.max_input_chars] for text in texts[start : start + config.batch_size]]
+        payload: dict[str, Any] = {
+            "encoding_format": "float",
+            "dimensions": config.dimensions,
+            "input": batch,
+            "model": config.model,
+        }
+        if config.provider == "openrouter" and config.provider_order:
+            payload["provider"] = {
+                "allow_fallbacks": True,
+                "order": config.provider_order,
             }
-            if config.provider == "openrouter" and config.provider_order:
-                payload["provider"] = {
-                    "allow_fallbacks": True,
-                    "order": config.provider_order,
-                }
-            response = await client.post(
-                f"{config.base_url}/embeddings",
-                headers=headers,
-                json=payload,
-            )
+        response = await client.post(
+            f"{config.base_url}/embeddings",
+            headers=headers,
+            json=payload,
+            timeout=config.timeout_seconds,
+        )
 
-            try:
-                data = response.json()
-            except ValueError as error:
-                raise RuntimeError(
-                    f"Embedding API devolvio respuesta no JSON: HTTP {response.status_code}"
-                ) from error
+        try:
+            data = response.json()
+        except ValueError as error:
+            raise RuntimeError(
+                f"Embedding API devolvio respuesta no JSON: HTTP {response.status_code}"
+            ) from error
 
-            if response.status_code >= 400:
-                message = (
-                    data.get("error", {}).get("message") if isinstance(data, dict) else None
-                ) or f"Embedding API fallo con HTTP {response.status_code}."
-                if response.status_code in TRANSIENT_STATUS:
-                    raise TreeLlmTransientError(response.status_code, message)
-                raise TreeLlmPermanentError(response.status_code, message)
+        if response.status_code >= 400:
+            message = (
+                data.get("error", {}).get("message") if isinstance(data, dict) else None
+            ) or f"Embedding API fallo con HTTP {response.status_code}."
+            if response.status_code in TRANSIENT_STATUS:
+                raise TreeLlmTransientError(response.status_code, message)
+            raise TreeLlmPermanentError(response.status_code, message)
 
-            items = data.get("data") if isinstance(data, dict) else None
-            if not isinstance(items, list) or len(items) != len(batch):
-                raise RuntimeError("Embedding API devolvio una cantidad inesperada de embeddings.")
+        items = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(items, list) or len(items) != len(batch):
+            raise RuntimeError("Embedding API devolvio una cantidad inesperada de embeddings.")
 
-            for offset, item in enumerate(items):
-                index = item.get("index") if isinstance(item, dict) else None
-                target_index = start + (index if isinstance(index, int) else offset)
-                if target_index < start or target_index >= start + len(batch):
-                    raise RuntimeError("Embedding API devolvio un indice fuera del batch.")
-                embeddings[target_index] = _embedding_from_response(item, config.dimensions)
+        for offset, item in enumerate(items):
+            index = item.get("index") if isinstance(item, dict) else None
+            target_index = start + (index if isinstance(index, int) else offset)
+            if target_index < start or target_index >= start + len(batch):
+                raise RuntimeError("Embedding API devolvio un indice fuera del batch.")
+            embeddings[target_index] = _embedding_from_response(item, config.dimensions)
 
     if any(embedding is None for embedding in embeddings):
         raise RuntimeError("Embedding API no devolvio todos los embeddings esperados.")
