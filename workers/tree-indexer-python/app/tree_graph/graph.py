@@ -17,6 +17,7 @@ from ..pageindex_style import (
 from ..versions import TREE_INDEXER_PYTHON_VERSION
 from .checkpoint import run_graph_with_optional_checkpoint
 from .nodes.build_candidate_tree import build_candidate_tree
+from .nodes.coverage_check import coverage_check
 from .nodes.degrade_mode import degrade_mode, fail_verification
 from .nodes.detect_document_type import detect_document_type
 from .nodes.detect_toc import detect_toc
@@ -65,6 +66,7 @@ def build_graph(checkpointer: Any | None = None):
     graph.add_node("collect_refined_results", collect_refined_results)
     graph.add_node("collect_routing_summaries", collect_routing_summaries)
     graph.add_node("collect_summaries", collect_summaries)
+    graph.add_node("coverage_check", coverage_check)
     graph.add_node("detect_document_type", detect_document_type, retry_policy=LLM_RETRY)
     graph.add_node("detect_toc", detect_toc)
     graph.add_node("build_candidate_tree", build_candidate_tree, retry_policy=LLM_RETRY)
@@ -100,7 +102,8 @@ def build_graph(checkpointer: Any | None = None):
     )
     graph.add_edge("repair_sections", "verify_tree")
     graph.add_edge("degrade_mode", "build_candidate_tree")
-    graph.add_edge("post_process_tree", "select_refine_targets")
+    graph.add_edge("post_process_tree", "coverage_check")
+    graph.add_edge("coverage_check", "select_refine_targets")
     graph.add_conditional_edges(
         "select_refine_targets",
         fan_out_refine_targets,
