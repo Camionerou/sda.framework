@@ -8,6 +8,8 @@ from typing import Any, Literal, TypeVar
 
 import httpx
 
+from .http_client import get_llm_client, get_llm_semaphore
+
 Purpose = Literal["structure", "summary"]
 T = TypeVar("T")
 
@@ -198,11 +200,14 @@ async def call_tree_llm(prompt: str, purpose: Purpose, expect_json: bool) -> dic
     if expect_json and os.getenv("SDA_TREE_LLM_JSON_MODE") == "1":
         payload["response_format"] = {"type": "json_object"}
 
-    async with httpx.AsyncClient(timeout=config.timeout_seconds) as client:
+    client = get_llm_client()
+    sem = get_llm_semaphore()
+    async with sem:
         response = await client.post(
             f"{config.base_url}/chat/completions",
             headers=headers,
             json=payload,
+            timeout=config.timeout_seconds,
         )
 
     try:
