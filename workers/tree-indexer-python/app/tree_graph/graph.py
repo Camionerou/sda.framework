@@ -20,16 +20,21 @@ from .nodes.build_candidate_tree import build_candidate_tree
 from .nodes.degrade_mode import degrade_mode, fail_verification
 from .nodes.detect_document_type import detect_document_type
 from .nodes.embed_hierarchy import embed_hierarchy
+from .nodes.collect_refined_results import collect_refined_results
+from .nodes.collect_summaries import collect_summaries
 from .nodes.post_process_tree import post_process_tree
-from .nodes.refine_large_nodes import refine_large_nodes
+from .nodes.prepare_summaries import prepare_summaries
+from .nodes.refine_one_node import refine_one_node
 from .nodes.repair_sections import repair_sections
 from .nodes.routing_summary import collect_routing_summaries, summarize_one_routing
-from .nodes.summarize_node import collect_summaries, prepare_summaries, summarize_one_node
+from .nodes.summarize_node import summarize_one_node
 from .nodes.verify_tree import verify_tree
 from .routing import (
+    fan_out_refine_targets,
     fan_out_routing_summaries,
     fan_out_summaries,
     route_after_refine,
+    route_after_refine_collect,
     route_after_verify,
 )
 from .state import TreeState
@@ -50,8 +55,13 @@ LLM_RETRY = RetryPolicy(
 TREE_INDEXER_VERSION = TREE_INDEXER_PYTHON_VERSION
 
 
+def _select_refine_targets(state: TreeState) -> dict:
+    return {}
+
+
 def build_graph(checkpointer: Any | None = None):
     graph = StateGraph(TreeState)
+    graph.add_node("collect_refined_results", collect_refined_results)
     graph.add_node("collect_routing_summaries", collect_routing_summaries)
     graph.add_node("collect_summaries", collect_summaries)
     graph.add_node("detect_document_type", detect_document_type, retry_policy=LLM_RETRY)
@@ -60,8 +70,9 @@ def build_graph(checkpointer: Any | None = None):
     graph.add_node("embed_hierarchy", embed_hierarchy, retry_policy=LLM_RETRY)
     graph.add_node("fail_verification", fail_verification)
     graph.add_node("prepare_summaries", prepare_summaries)
-    graph.add_node("refine_large_nodes", refine_large_nodes, retry_policy=LLM_RETRY)
+    graph.add_node("refine_one_node", refine_one_node, retry_policy=LLM_RETRY)
     graph.add_node("repair_sections", repair_sections, retry_policy=LLM_RETRY)
+    graph.add_node("select_refine_targets", _select_refine_targets)
     graph.add_node("summarize_one_node", summarize_one_node, retry_policy=LLM_RETRY)
     graph.add_node("summarize_one_routing", summarize_one_routing, retry_policy=LLM_RETRY)
     graph.add_node("verify_tree", verify_tree, retry_policy=LLM_RETRY)
@@ -81,13 +92,15 @@ def build_graph(checkpointer: Any | None = None):
     )
     graph.add_edge("repair_sections", "verify_tree")
     graph.add_edge("degrade_mode", "build_candidate_tree")
-    graph.add_edge("post_process_tree", "refine_large_nodes")
+    graph.add_edge("post_process_tree", "select_refine_targets")
+    graph.add_conditional_edges("select_refine_targets", fan_out_refine_targets, ["refine_one_node"])
+    graph.add_edge("refine_one_node", "collect_refined_results")
     graph.add_conditional_edges(
-        "refine_large_nodes",
-        route_after_refine,
+        "collect_refined_results",
+        route_after_refine_collect,
         {
+            "select_refine_targets": "select_refine_targets",
             "prepare_summaries": "prepare_summaries",
-            "refine_large_nodes": "refine_large_nodes",
         },
     )
     graph.add_conditional_edges("prepare_summaries", fan_out_summaries, ["summarize_one_node"])
