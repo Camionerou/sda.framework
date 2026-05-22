@@ -2,7 +2,24 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import RetryPolicy
+
+from ..llm import TreeLlmTransientError
+
+LLM_RETRY = RetryPolicy(
+    max_attempts=3,
+    initial_interval=2.0,
+    backoff_factor=2.0,
+    retry_on=(
+        TreeLlmTransientError,
+        httpx.TimeoutException,
+        httpx.ReadError,
+        httpx.RemoteProtocolError,
+        httpx.ConnectError,
+    ),
+)
 
 from ..pageindex_style import (
     SOURCE_BLOCKS_COORDINATE_SYSTEM,
@@ -38,17 +55,17 @@ def build_graph(checkpointer: Any | None = None):
     graph = StateGraph(TreeState)
     graph.add_node("collect_routing_summaries", collect_routing_summaries)
     graph.add_node("collect_summaries", collect_summaries)
-    graph.add_node("detect_document_type", detect_document_type)
-    graph.add_node("build_candidate_tree", build_candidate_tree)
+    graph.add_node("detect_document_type", detect_document_type, retry_policy=LLM_RETRY)
+    graph.add_node("build_candidate_tree", build_candidate_tree, retry_policy=LLM_RETRY)
     graph.add_node("degrade_mode", degrade_mode)
-    graph.add_node("embed_hierarchy", embed_hierarchy)
+    graph.add_node("embed_hierarchy", embed_hierarchy, retry_policy=LLM_RETRY)
     graph.add_node("fail_verification", fail_verification)
     graph.add_node("prepare_summaries", prepare_summaries)
-    graph.add_node("refine_large_nodes", refine_large_nodes)
-    graph.add_node("repair_sections", repair_sections)
-    graph.add_node("summarize_one_node", summarize_one_node)
-    graph.add_node("summarize_one_routing", summarize_one_routing)
-    graph.add_node("verify_tree", verify_tree)
+    graph.add_node("refine_large_nodes", refine_large_nodes, retry_policy=LLM_RETRY)
+    graph.add_node("repair_sections", repair_sections, retry_policy=LLM_RETRY)
+    graph.add_node("summarize_one_node", summarize_one_node, retry_policy=LLM_RETRY)
+    graph.add_node("summarize_one_routing", summarize_one_routing, retry_policy=LLM_RETRY)
+    graph.add_node("verify_tree", verify_tree, retry_policy=LLM_RETRY)
     graph.add_node("post_process_tree", post_process_tree)
     graph.add_edge(START, "detect_document_type")
     graph.add_edge("detect_document_type", "build_candidate_tree")
