@@ -30,23 +30,22 @@ async def coverage_check(state: TreeState) -> dict[str, Any]:
 
     # Agrupar paginas faltantes en rangos contiguos -> nodos huerfanos.
     orphan_nodes: list[TreeNode] = []
-    if missing:
-        groups: list[list[int]] = [[missing[0]]]
-        for page in missing[1:]:
-            if page == groups[-1][-1] + 1:
-                groups[-1].append(page)
-            else:
-                groups.append([page])
-        for index, group in enumerate(groups):
-            orphan_nodes.append({
-                "node_id": f"orphan-{index:03d}",
-                "title": f"Paginas no clasificadas {group[0]}-{group[-1]}",
-                "start_index": group[0],
-                "end_index": group[-1],
-                "summary": "",
-                "confidence": 0.0,
-                "nodes": [],
-            })
+    groups: list[list[int]] = [[missing[0]]]
+    for page in missing[1:]:
+        if page == groups[-1][-1] + 1:
+            groups[-1].append(page)
+        else:
+            groups.append([page])
+    for index, group in enumerate(groups):
+        orphan_nodes.append({
+            "node_id": f"orphan-{index:03d}",
+            "title": f"Paginas no clasificadas {group[0]}-{group[-1]}",
+            "start_index": group[0],
+            "end_index": group[-1],
+            "summary": "",
+            "confidence": 0.0,
+            "nodes": [],
+        })
 
     updated_tree = [*tree, *orphan_nodes]
     metrics["coverage_gap"] = True
