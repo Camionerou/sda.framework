@@ -33,7 +33,7 @@
 - `INNGEST_EVENT_KEY` lets the app send events to Inngest. `INNGEST_SIGNING_KEY` protects `/api/inngest` and lets Inngest identify the correct environment.
 - Do not set `INNGEST_DEV=1` in production. That flag is only for local Dev Server mode.
 - Keys alone are not enough for cloud execution. Inngest Cloud also needs a public HTTPS URL for the serve endpoint, for example `https://app.example.com/api/inngest`.
-- A Cloudflare quick tunnel can expose localhost for a temporary test, but it is not production hosting. The final setup needs a stable deploy URL.
+- A quick tunnel (e.g. `npx cloudflared tunnel --url` as `sda dev --tunnel` does, or `ngrok`) can expose localhost for a temporary Inngest webhook test, but it is not production hosting. The final setup needs a stable deploy URL.
 - If keys are pasted in chat, rotate them after validation from Inngest Cloud.
 - Inngest Cloud app sync can be triggered programmatically against `https://api.inngest.com/v2/apps/<app-id>/syncs` using an Inngest API key. The event key is for sending events, and the signing key secures app/server communication; do not assume either one replaces the REST API key.
 

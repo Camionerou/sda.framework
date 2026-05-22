@@ -90,8 +90,9 @@ La arquitectura combina:
                         │ HTTPS + service token
                         ▼
               ┌─────────────────────────────┐
-              │ CLOUDFLARE TUNNEL + ACCESS  │
+              │ TAILSCALE FUNNEL             │
               │ sin inbound abierto          │
+              │ srv-ia-01.taileb1b9c.ts.net  │
               └─────────┬───────────────────┘
                         │
                         ▼
