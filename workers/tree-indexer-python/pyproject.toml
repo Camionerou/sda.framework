@@ -5,3 +5,7 @@ requires-python = ">=3.11,<3.14"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "integration: marks tests as integration (require external services, skipped by default)",
+]
+addopts = "-m 'not integration'"
