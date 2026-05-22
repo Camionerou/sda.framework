@@ -22,6 +22,25 @@ class TreeLlmJsonParseError(RuntimeError):
         self.raw_content = raw_content
 
 
+TRANSIENT_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+class TreeLlmTransientError(RuntimeError):
+    """HTTP transient (408, 425, 429, 5xx). Reintentable."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class TreeLlmPermanentError(RuntimeError):
+    """HTTP permanente (400, 401, 403, 404, 422). NO reintentar."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 @dataclass(frozen=True)
 class TreeLlmConfig:
     api_key: str
@@ -192,8 +211,12 @@ async def call_tree_llm(prompt: str, purpose: Purpose, expect_json: bool) -> dic
         raise RuntimeError(f"Tree LLM devolvio respuesta no JSON: HTTP {response.status_code}") from error
 
     if response.status_code >= 400:
-        message = data.get("error", {}).get("message") if isinstance(data, dict) else None
-        raise RuntimeError(message or f"Tree LLM fallo con HTTP {response.status_code}.")
+        message = (
+            data.get("error", {}).get("message") if isinstance(data, dict) else None
+        ) or f"Tree LLM fallo con HTTP {response.status_code}."
+        if response.status_code in TRANSIENT_STATUS:
+            raise TreeLlmTransientError(response.status_code, message)
+        raise TreeLlmPermanentError(response.status_code, message)
 
     content = _message_content(data)
     if not content:
