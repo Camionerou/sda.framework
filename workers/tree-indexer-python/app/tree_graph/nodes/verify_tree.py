@@ -6,23 +6,8 @@ from ...llm import call_tree_llm_json
 from ...pageindex_style import CandidateSection
 from ...prompts import verification_prompt
 from ..events import emit_tree_node_event
-from ..helpers import section_identity
+from ..helpers import assert_sections as _assert_sections, section_identity
 from ..state import TreeState
-
-
-def _assert_sections(value: Any) -> list[CandidateSection]:
-    if not isinstance(value, dict) or not isinstance(value.get("sections"), list):
-        raise RuntimeError("El LLM no devolvio una lista de secciones.")
-    sections: list[CandidateSection] = []
-    for section in value["sections"]:
-        if (
-            isinstance(section, dict)
-            and isinstance(section.get("structure"), str)
-            and isinstance(section.get("title"), str)
-            and "physical_index" in section
-        ):
-            sections.append(section)
-    return sections
 
 
 async def verify_tree(state: TreeState) -> dict[str, Any]:

@@ -8,24 +8,10 @@ from ...prompts import candidate_prompt
 from ...versions import TREE_INDEXER_PYTHON_VERSION
 from ..config import max_prompt_chars
 from ..events import emit_tree_node_event
+from ..helpers import assert_sections as _assert_sections
 from ..state import TreeState
 
 TREE_INDEXER_VERSION = TREE_INDEXER_PYTHON_VERSION
-
-
-def _assert_sections(value: Any) -> list[CandidateSection]:
-    if not isinstance(value, dict) or not isinstance(value.get("sections"), list):
-        raise RuntimeError("El LLM no devolvio una lista de secciones.")
-    sections: list[CandidateSection] = []
-    for section in value["sections"]:
-        if (
-            isinstance(section, dict)
-            and isinstance(section.get("structure"), str)
-            and isinstance(section.get("title"), str)
-            and "physical_index" in section
-        ):
-            sections.append(section)
-    return sections
 
 
 async def build_candidate_tree(state: TreeState) -> dict[str, Any]:

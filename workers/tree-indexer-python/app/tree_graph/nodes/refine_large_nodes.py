@@ -15,6 +15,7 @@ from ...prompts import candidate_prompt, verification_prompt
 from ..config import refine_max_pages, refine_max_tokens
 from ..events import emit_tree_node_event
 from ..helpers import (
+    assert_sections as _assert_sections,
     is_large_leaf,
     renumber_tree,
     shift_tree_pages,
@@ -22,20 +23,6 @@ from ..helpers import (
     visit_tree,
 )
 from ..state import TreeState
-
-def _assert_sections(value: Any) -> list[CandidateSection]:
-    if not isinstance(value, dict) or not isinstance(value.get("sections"), list):
-        raise RuntimeError("El LLM no devolvio una lista de secciones.")
-    sections: list[CandidateSection] = []
-    for section in value["sections"]:
-        if (
-            isinstance(section, dict)
-            and isinstance(section.get("structure"), str)
-            and isinstance(section.get("title"), str)
-            and "physical_index" in section
-        ):
-            sections.append(section)
-    return sections
 
 
 async def _refined_subtree_for_node(state: TreeState, node: TreeNode) -> list[TreeNode] | None:

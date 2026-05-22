@@ -6,6 +6,21 @@ from ..pageindex_style import CandidateSection, LabeledPage, SourceBlock, TreeNo
 from .state import NodeTask
 
 
+def assert_sections(value: Any) -> list[CandidateSection]:
+    if not isinstance(value, dict) or not isinstance(value.get("sections"), list):
+        raise RuntimeError("El LLM no devolvio una lista de secciones.")
+    sections: list[CandidateSection] = []
+    for section in value["sections"]:
+        if (
+            isinstance(section, dict)
+            and isinstance(section.get("structure"), str)
+            and isinstance(section.get("title"), str)
+            and "physical_index" in section
+        ):
+            sections.append(section)
+    return sections
+
+
 def visit_tree(nodes: list[TreeNode]) -> list[TreeNode]:
     visited: list[TreeNode] = []
 
