@@ -506,6 +506,8 @@ def remove_node_text(nodes: list[TreeNode]) -> list[TreeNode]:
             clean_node["routing_summary"] = node["routing_summary"]
         if node.get("source_blocks"):
             clean_node["source_blocks"] = node["source_blocks"]
+        if node.get("confidence") is not None:
+            clean_node["confidence"] = node["confidence"]
         if node.get("nodes"):
             clean_node["nodes"] = remove_node_text(node["nodes"])
         clean_nodes.append(clean_node)

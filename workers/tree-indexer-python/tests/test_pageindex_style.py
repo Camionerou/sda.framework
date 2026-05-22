@@ -199,6 +199,24 @@ class PageIndexStyleTests(unittest.TestCase):
         pages = [{"page": 1, "text": "single\npage\ndoc"}]
         assert strip_repeated_headers_footers(pages) == pages
 
+    def test_remove_node_text_preserves_confidence(self):
+        nodes = [
+            {
+                "node_id": "0000",
+                "title": "A",
+                "start_index": 1,
+                "end_index": 5,
+                "summary": "x",
+                "routing_summary": "y",
+                "text": "long text to remove",
+                "confidence": 0.85,
+                "nodes": [],
+            }
+        ]
+        cleaned = remove_node_text(nodes)
+        assert cleaned[0]["confidence"] == 0.85
+        assert "text" not in cleaned[0]
+
 
 if __name__ == "__main__":
     unittest.main()
