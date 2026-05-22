@@ -29,6 +29,7 @@ def get_llm_client() -> httpx.AsyncClient:
 
 @lru_cache(maxsize=1)
 def get_supabase_client() -> httpx.AsyncClient:
+    """Pool genérico HTTP/1.1: Supabase REST + embeddings providers."""
     return httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=5.0),
         limits=httpx.Limits(
