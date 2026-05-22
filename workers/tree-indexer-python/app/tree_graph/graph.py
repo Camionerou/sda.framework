@@ -19,6 +19,7 @@ from .checkpoint import run_graph_with_optional_checkpoint
 from .nodes.build_candidate_tree import build_candidate_tree
 from .nodes.degrade_mode import degrade_mode, fail_verification
 from .nodes.detect_document_type import detect_document_type
+from .nodes.detect_toc import detect_toc
 from .nodes.embed_hierarchy import embed_hierarchy
 from .nodes.collect_refined_results import collect_refined_results
 from .nodes.collect_summaries import collect_summaries
@@ -33,6 +34,7 @@ from .routing import (
     fan_out_refine_targets,
     fan_out_routing_summaries,
     fan_out_summaries,
+    route_after_detect_toc,
     route_after_refine_collect,
     route_after_verify,
 )
@@ -64,6 +66,7 @@ def build_graph(checkpointer: Any | None = None):
     graph.add_node("collect_routing_summaries", collect_routing_summaries)
     graph.add_node("collect_summaries", collect_summaries)
     graph.add_node("detect_document_type", detect_document_type, retry_policy=LLM_RETRY)
+    graph.add_node("detect_toc", detect_toc)
     graph.add_node("build_candidate_tree", build_candidate_tree, retry_policy=LLM_RETRY)
     graph.add_node("degrade_mode", degrade_mode)
     graph.add_node("embed_hierarchy", embed_hierarchy, retry_policy=LLM_RETRY)
@@ -77,12 +80,18 @@ def build_graph(checkpointer: Any | None = None):
     graph.add_node("verify_tree", verify_tree, retry_policy=LLM_RETRY)
     graph.add_node("post_process_tree", post_process_tree)
     graph.add_edge(START, "detect_document_type")
-    graph.add_edge("detect_document_type", "build_candidate_tree")
+    graph.add_edge("detect_document_type", "detect_toc")
+    graph.add_conditional_edges(
+        "detect_toc",
+        route_after_detect_toc,
+        {"verify_tree": "verify_tree", "build_candidate_tree": "build_candidate_tree"},
+    )
     graph.add_edge("build_candidate_tree", "verify_tree")
     graph.add_conditional_edges(
         "verify_tree",
         route_after_verify,
         {
+            "build_candidate_tree": "build_candidate_tree",
             "degrade_mode": "degrade_mode",
             "fail_verification": "fail_verification",
             "post_process_tree": "post_process_tree",

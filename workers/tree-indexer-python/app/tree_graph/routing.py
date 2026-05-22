@@ -15,8 +15,16 @@ from ..pageindex_style import flatten_tree
 from .state import TreeState
 
 
+def route_after_detect_toc(state: TreeState) -> str:
+    if state.get("tree_mode") == "toc_heuristic" and state.get("candidate_sections"):
+        return "verify_tree"  # atajo, valida anclas reales
+    return "build_candidate_tree"  # flujo LLM normal (secuencial)
+
+
 def route_after_verify(state: TreeState) -> str:
     accuracy = float(state["metrics"].get("verification_accuracy") or 0)
+    if state.get("tree_mode") == "toc_heuristic" and accuracy < 0.7:
+        return "build_candidate_tree"
     degrade_attempts = int(state["metrics"].get("degrade_attempts") or 0)
     invalid_count = len(state.get("invalid_sections", []))
     can_degrade = state["tree_mode"] != "no_toc" and degrade_attempts < degrade_attempt_limit()
