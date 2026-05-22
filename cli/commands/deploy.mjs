@@ -63,6 +63,10 @@ export const deployCommand = defineCommand({
       type: "boolean",
       alias: "y",
       description: "No pedir confirmacion si la version es igual"
+    },
+    smoke: {
+      type: "boolean",
+      description: "Tras el deploy, hace health check end-to-end de gateway+tree+mineru con latencia"
     }
   },
   async run({ args }) {
@@ -84,6 +88,10 @@ export const deployCommand = defineCommand({
       }
 
       await healthCheck(target);
+    }
+
+    if (args.smoke) {
+      await runEndToEndSmoke();
     }
   }
 });
@@ -201,6 +209,90 @@ async function showDiff(target) {
     "workers/tree-indexer-python/",
     "sistemas@srv-ia-01:/home/sistemas/sda-tree-indexer-python/"
   ]);
+}
+
+async function runEndToEndSmoke() {
+  console.log("\n=== smoke test ===");
+
+  const checks = [
+    {
+      label: "gateway",
+      fn: async () => {
+        const remoteVersions = await run(
+          "ssh",
+          [
+            "sistemas@srv-ia-01",
+            [
+              `token=$(grep -m1 '^${TARGETS.gateway.tokenKey}=' '${TARGETS.gateway.remoteDir}/.env' | cut -d= -f2-)`,
+              'test -n "$token"',
+              `curl -fsS -H "authorization: Bearer $token" http://127.0.0.1:8787${TARGETS.gateway.healthPath}`
+            ].join(" && ")
+          ],
+          { allowFailure: true }
+        );
+        return remoteVersions.code === 0;
+      }
+    },
+    {
+      label: "tree",
+      fn: async () => {
+        const result = await run(
+          "ssh",
+          [
+            "sistemas@srv-ia-01",
+            [
+              `token=$(grep -m1 '^${TARGETS.tree.tokenKey}=' '${TARGETS.tree.remoteDir}/.env' | cut -d= -f2-)`,
+              'test -n "$token"',
+              `curl -fsS -H "authorization: Bearer $token" http://127.0.0.1:8790${TARGETS.tree.healthPath}`
+            ].join(" && ")
+          ],
+          { allowFailure: true }
+        );
+        return result.code === 0;
+      }
+    },
+    {
+      label: "mineru",
+      fn: async () => {
+        const result = await run(
+          "ssh",
+          ["sistemas@srv-ia-01", `curl -fsS http://127.0.0.1:8765${TARGETS.mineru.healthPath}`],
+          { allowFailure: true }
+        );
+        return result.code === 0;
+      }
+    }
+  ];
+
+  const rows = [];
+
+  for (const check of checks) {
+    const t0 = Date.now();
+    const ok = await check.fn();
+    const latencyMs = Date.now() - t0;
+    rows.push({ label: check.label, ok, latencyMs });
+  }
+
+  const labelW = 10;
+  const okW = 6;
+  const latW = 12;
+  const header = `${"service".padEnd(labelW)}${"ok?".padEnd(okW)}${"latency ms".padStart(latW)}`;
+  const divider = "-".repeat(header.length);
+  console.log(header);
+  console.log(divider);
+
+  for (const row of rows) {
+    const line = `${row.label.padEnd(labelW)}${(row.ok ? "yes" : "NO").padEnd(okW)}${String(row.latencyMs).padStart(latW)}`;
+    console.log(line);
+  }
+
+  const failed = rows.filter((r) => !r.ok);
+
+  if (failed.length > 0) {
+    throw new Error(`smoke: ${failed.map((r) => r.label).join(", ")} fallo.`);
+  }
+
+  console.log("smoke: all OK\n");
 }
 
 async function deployMineruApi() {
