@@ -111,6 +111,8 @@ def _doc_tree_node_rows(
         if node.get("source_blocks"):
             metadata["source_blocks"] = node["source_blocks"]
             metadata["source_blocks_coordinate_system"] = SOURCE_BLOCKS_COORDINATE_SYSTEM
+        if "confidence" in node:
+            metadata["confidence"] = node["confidence"]
 
         row_id = _stable_node_uuid(
             tenant_id=tenant_id,
