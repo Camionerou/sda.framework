@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from app.tree_graph import route_after_refine, route_after_refine_collect, route_after_verify
+from app.tree_graph import route_after_refine_collect, route_after_verify
 
 
 def _state(
@@ -47,28 +47,6 @@ class TreeGraphRoutingTests(unittest.TestCase):
                 route_after_verify(_state(accuracy=0.4, invalid_count=5, tree_mode="no_toc")),
                 "fail_verification",
             )
-
-    def test_route_after_refine_repeats_until_limit(self) -> None:
-        with patch.dict("os.environ", {"SDA_TREE_REFINE_MAX_ITERATIONS": "3"}):
-            self.assertEqual(
-                route_after_refine(
-                    {
-                        "metrics": {"last_refined_node_count": 2},
-                        "refinement_iteration": 1,
-                    }
-                ),
-                "refine_large_nodes",
-            )
-            self.assertEqual(
-                route_after_refine(
-                    {
-                        "metrics": {"last_refined_node_count": 2},
-                        "refinement_iteration": 3,
-                    }
-                ),
-                "prepare_summaries",
-            )
-
 
 def _refine_state(*, last_refined: int, iteration: int) -> dict:
     return {

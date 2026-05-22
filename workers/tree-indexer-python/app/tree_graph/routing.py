@@ -31,14 +31,6 @@ def route_after_verify(state: TreeState) -> str:
     return "fail_verification"
 
 
-def route_after_refine(state: TreeState) -> str:
-    refined = int(state["metrics"].get("last_refined_node_count") or 0)
-    iteration = int(state.get("refinement_iteration", 0))
-    if refined > 0 and iteration < refine_iteration_limit():
-        return "refine_large_nodes"
-    return "prepare_summaries"
-
-
 def fan_out_summaries(state: TreeState) -> list[Send]:
     context = context_for_send(state)
     return [
