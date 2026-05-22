@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..pageindex_style import CandidateSection, LabeledPage, TreeNode
+from ..pageindex_style import CandidateSection, LabeledPage, SourceBlock, TreeNode
 from .state import NodeTask
 
 
@@ -129,3 +129,39 @@ def is_large_leaf(node: TreeNode, *, max_pages: int, max_tokens: int) -> bool:
         return False
     page_count = node["end_index"] - node["start_index"] + 1
     return page_count > max_pages or estimate_tokens(node.get("text", "")) > max_tokens
+
+
+def compute_node_confidence(
+    *,
+    node: TreeNode,
+    pages: list[LabeledPage],
+    source_blocks: list[SourceBlock],
+    verifier_says_valid: bool | None,
+) -> float:
+    score = 0.0
+    if verifier_says_valid is True:
+        score += 0.5
+    elif verifier_says_valid is None:
+        score += 0.25
+
+    start_text = next(
+        (page["text"] for page in pages if page["page"] == node["start_index"]),
+        "",
+    )
+    title = node.get("title", "").strip().casefold()
+    if title and title in start_text.casefold()[:600]:
+        score += 0.3
+
+    block_pages = {
+        block["page"]
+        for block in source_blocks
+        if node["start_index"] <= block["page"] <= node["end_index"]
+    }
+    range_size = max(node["end_index"] - node["start_index"] + 1, 1)
+    overlap = len(block_pages) / range_size
+    if overlap >= 0.5:
+        score += 0.2
+    elif overlap >= 0.2:
+        score += 0.1
+
+    return round(min(score, 1.0), 3)
