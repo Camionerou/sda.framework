@@ -30,7 +30,7 @@ def _resolve_logical_to_physical(
 
     # 2) Buscar el titulo a partir del primer match razonable, desde la
     # mitad del documento hacia adelante (saltea ToC).
-    skip = max(1, len(pages) // 10)
+    skip = max(1, int(len(pages) * TOC_DETECTION_RANGE) + 1)
     for physical in range(skip, len(pages) + 1):
         text = pages[physical - 1]["text"].casefold()
         if needle in text[:1000]:
