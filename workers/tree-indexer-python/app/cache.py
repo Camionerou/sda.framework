@@ -47,7 +47,7 @@ async def get_cached(key: str) -> str | None:
         data = resp.json()
         result = data.get("result")
         return result if isinstance(result, str) else None
-    except (httpx.TimeoutException, httpx.HTTPError):
+    except (httpx.RequestError, httpx.HTTPError):
         return None
 
 
@@ -63,5 +63,5 @@ async def set_cached(key: str, value: str, ttl: int = DEFAULT_TTL_SECONDS) -> No
             headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
             timeout=_TIMEOUT,
         )
-    except (httpx.TimeoutException, httpx.HTTPError):
+    except (httpx.RequestError, httpx.HTTPError):
         pass
