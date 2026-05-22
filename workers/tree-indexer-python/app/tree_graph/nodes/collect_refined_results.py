@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..events import emit_tree_node_event
-from ..helpers import renumber_tree, visit_tree
+from ..helpers import compute_node_confidence, renumber_tree, visit_tree
 from ..state import TreeState
 
 
@@ -19,6 +19,14 @@ async def collect_refined_results(state: TreeState) -> dict[str, Any]:
             subtree = refined_by_id.get(node["node_id"])
             if subtree:
                 node["nodes"] = subtree
+                for child in visit_tree(subtree):
+                    if "confidence" not in child:
+                        child["confidence"] = compute_node_confidence(
+                            node=child,
+                            pages=state["raw_pages"],
+                            source_blocks=state["source_blocks"],
+                            verifier_says_valid=True,
+                        )
         renumber_tree(tree)
 
     iteration = state.get("refinement_iteration", 0) + 1
