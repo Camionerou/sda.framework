@@ -7,20 +7,6 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
 
 from ..llm import TreeLlmTransientError
-
-LLM_RETRY = RetryPolicy(
-    max_attempts=3,
-    initial_interval=2.0,
-    backoff_factor=2.0,
-    retry_on=(
-        TreeLlmTransientError,
-        httpx.TimeoutException,
-        httpx.ReadError,
-        httpx.RemoteProtocolError,
-        httpx.ConnectError,
-    ),
-)
-
 from ..pageindex_style import (
     SOURCE_BLOCKS_COORDINATE_SYSTEM,
     LabeledPage,
@@ -47,6 +33,19 @@ from .routing import (
     route_after_verify,
 )
 from .state import TreeState
+
+LLM_RETRY = RetryPolicy(
+    max_attempts=3,
+    initial_interval=2.0,
+    backoff_factor=2.0,
+    retry_on=(
+        TreeLlmTransientError,
+        httpx.TimeoutException,
+        httpx.ReadError,
+        httpx.RemoteProtocolError,
+        httpx.ConnectError,
+    ),
+)
 
 TREE_INDEXER_VERSION = TREE_INDEXER_PYTHON_VERSION
 
