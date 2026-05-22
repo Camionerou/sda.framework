@@ -37,6 +37,8 @@ async def summarize_one_routing(state: TreeState) -> dict[str, Any]:
 
 
 def collect_routing_summaries(state: TreeState) -> dict[str, Any]:
+    from ...pageindex_style import flatten_tree
+
     by_node_id = {
         result["node_id"]: result["text"]
         for result in state.get("routing_summary_results", [])
@@ -50,12 +52,19 @@ def collect_routing_summaries(state: TreeState) -> dict[str, Any]:
         for node in state["tree"]
         if node.get("routing_summary", "").strip()
     )
+    metrics_update: dict[str, Any] = {
+        "chunk_count": len(chunks),
+        "routing_summary_node_count": len(by_node_id),
+    }
+    confidences = [node.get("confidence", 0.0) for node, _path in flatten_tree(state["tree"])]
+    if confidences:
+        metrics_update["confidence_mean"] = round(sum(confidences) / len(confidences), 3)
+        metrics_update["confidence_min"] = round(min(confidences), 3)
     return {
         "chunks": chunks,
         "metrics": {
             **state["metrics"],
-            "chunk_count": len(chunks),
-            "routing_summary_node_count": len(by_node_id),
+            **metrics_update,
         },
         "routing_summary": root_routing,
     }
