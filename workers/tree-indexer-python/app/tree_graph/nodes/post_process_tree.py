@@ -28,10 +28,11 @@ async def post_process_tree(state: TreeState) -> dict[str, Any]:
             source_blocks=state["source_blocks"],
             verifier_says_valid=True,
         )
+    flat_nodes = flatten_tree(tree)
     await emit_tree_node_event(
         state,
-        message=f"Arbol normalizado con {len(flatten_tree(tree))} nodos.",
-        metadata={"tree_node_count": len(flatten_tree(tree))},
+        message=f"Arbol normalizado con {len(flat_nodes)} nodos.",
+        metadata={"tree_node_count": len(flat_nodes)},
         node="post_process_tree",
         progress=72,
         status="completed",

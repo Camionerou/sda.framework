@@ -27,3 +27,17 @@ class ConfidenceTests(unittest.TestCase):
             node=node, pages=pages, source_blocks=[], verifier_says_valid=None
         )
         self.assertLessEqual(score, 0.5)
+
+    def test_score_with_source_block_overlap(self):
+        node = {"start_index": 1, "end_index": 4, "title": "X"}
+        pages = [{"page": i, "text": ""} for i in range(1, 5)]
+        source_blocks = [
+            {"page": 1, "bbox": [0, 0, 1, 1], "kind": "text"},
+            {"page": 2, "bbox": [0, 0, 1, 1], "kind": "text"},
+            {"page": 3, "bbox": [0, 0, 1, 1], "kind": "text"},
+        ]
+        # verifier=True (+0.5) + no title match (title "X" no aparece) + overlap 3/4=0.75 >= 0.5 (+0.2) = 0.7
+        score = compute_node_confidence(
+            node=node, pages=pages, source_blocks=source_blocks, verifier_says_valid=True
+        )
+        self.assertEqual(score, 0.7)

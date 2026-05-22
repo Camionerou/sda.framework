@@ -5,6 +5,8 @@ from typing import Any
 from ..pageindex_style import CandidateSection, LabeledPage, SourceBlock, TreeNode
 from .state import NodeTask
 
+TITLE_MATCH_WINDOW_CHARS = 600
+
 
 def assert_sections(value: Any) -> list[CandidateSection]:
     if not isinstance(value, dict) or not isinstance(value.get("sections"), list):
@@ -149,7 +151,7 @@ def compute_node_confidence(
         "",
     )
     title = node.get("title", "").strip().casefold()
-    if title and title in start_text.casefold()[:600]:
+    if title and title in start_text.casefold()[:TITLE_MATCH_WINDOW_CHARS]:
         score += 0.3
 
     block_pages = {
