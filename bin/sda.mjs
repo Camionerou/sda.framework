@@ -16,7 +16,8 @@ const commandAliases = new Map([
   ["dep", "deploy"],
   ["v", "invite"],
   ["inv", "invite"],
-  ["sh", "ship"]
+  ["sh", "ship"],
+  ["s", "ssh"]
 ]);
 
 if (!process.argv[2]) {

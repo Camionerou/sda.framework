@@ -26,6 +26,7 @@ export const mainCommand = defineCommand({
     init: () => import("./commands/init.mjs").then((module) => module.initCommand),
     invite: () => import("./commands/invite.mjs").then((module) => module.inviteCommand),
     redis: () => import("./commands/redis.mjs").then((module) => module.redisCommand),
-    ship: () => import("./commands/ship.mjs").then((module) => module.shipCommand)
+    ship: () => import("./commands/ship.mjs").then((module) => module.shipCommand),
+    ssh: () => import("./commands/ssh.mjs").then((module) => module.sshCommand)
   }
 });
