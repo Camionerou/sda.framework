@@ -28,6 +28,10 @@ docs/
 ## Documentos transversales
 
 - [`arquitectura.md`](./arquitectura.md): decision tecnica de alto nivel.
+- [`tree-indexer-pipeline.md`](./tree-indexer-pipeline.md): referencia
+  operativa del pipeline desplegado en `srv-ia-01` (grafo LangGraph
+  detallado, decisiones de paralelizacion, cache Upstash, operacion via
+  `sda` CLI, gotchas vigentes). Estado: 2026-05-22.
 - [`gotchas.md`](./gotchas.md): trampas operativas y decisiones que no conviene
   repetir.
 - [`pageindex-tree-builder-reference.md`](./pageindex-tree-builder-reference.md):

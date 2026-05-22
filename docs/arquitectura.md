@@ -8,6 +8,12 @@ operativa de indexacion estructural vive en
 [`docs/backend/04-indexacion-inngest.md`](./backend/04-indexacion-inngest.md)
 y [`docs/backend/05-workers-compute-tree-indexer.md`](./backend/05-workers-compute-tree-indexer.md).
 
+El detalle del pipeline real corriendo en `srv-ia-01` (grafo LangGraph,
+versiones, operacion via `sda` CLI, gotchas vigentes) vive en
+[`tree-indexer-pipeline.md`](./tree-indexer-pipeline.md). Ultima
+actualizacion mayor: 2026-05-22 (post-migracion MinerU GPU + refactor
+tree_graph).
+
 ---
 
 ## 1. Resumen ejecutivo
@@ -25,10 +31,11 @@ La arquitectura combina:
 - **Upstash Redis** para estado operacional rapido y reconstruible: locks
   efimeros, rate limits, backpressure por tenant, heartbeats, snapshots live y
   caches TTL; no es fuente de verdad.
-- **srv-ia-01** como compute gateway privado para MinerU, LangGraph Tree
-  Indexer y VLM futuro.
-- **Cloudflare Tunnel + Access** para exponer el compute gateway sin abrir
-  puertos inbound.
+- **srv-ia-01** como compute gateway privado para MinerU (hot en GPU via
+  `mineru-api.service`), LangGraph Tree Indexer y VLM futuro.
+- **Tailscale Funnel** para exponer el compute gateway sin abrir
+  puertos inbound. `mineru-api` queda privado en `127.0.0.1:8765`, solo el
+  gateway local lo consume.
 - **OpenRouter/model providers** para chat, summaries, routing summaries y
   embeddings cuando convenga costo/calidad.
 
@@ -191,7 +198,7 @@ ssh sistemas@srv-ia-01
 Uso recomendado:
 
 - Tailscale para administracion y acceso interno.
-- Cloudflare Tunnel + Access para endpoint consumible por Inngest Cloud.
+- Tailscale Funnel para endpoint consumible por Inngest Cloud.
 
 Servicios esperados:
 
@@ -221,6 +228,17 @@ Responsabilidades:
 ### 3.5 MinerU
 
 Primera herramienta de extraccion fiel.
+
+Desde 2026-05-21 corre como `mineru-api.service` (systemd system unit en
+`srv-ia-01`) con modelos VLM precargados en GPU (`--enable-vlm-preload
+True`). Consume ~2.7 GB de VRAM estables. El Compute Gateway invoca
+`mineru` CLI con backend `hybrid-http-client` apuntando a
+`http://127.0.0.1:8765`, evitando el cold-load de modelos por cada PDF.
+
+Pre-cambio: backend `pipeline` corriendo en CPU con cold-load ~30-60s
+por job. Post-cambio: extraccion `<60s` para PDFs medios. Ver
+[`tree-indexer-pipeline.md`](./tree-indexer-pipeline.md) para detalle
+operativo.
 
 Debe producir:
 
@@ -277,10 +295,16 @@ Supabase.
 
 Construye el indice estructural propio.
 
-Referencia operativa: `docs/pageindex-tree-builder-reference.md`. La decision
-central queda fijada ahi: el arbol candidato lo propone un LLM al estilo
-PageIndex; las heuristicas deterministicas solo preparan evidencia, validan,
-normalizan rangos y persisten.
+Referencia teorica: [`pageindex-tree-builder-reference.md`](./pageindex-tree-builder-reference.md).
+La decision central queda fijada ahi: el arbol candidato lo propone un LLM al
+estilo PageIndex; las heuristicas deterministicas solo preparan evidencia,
+validan, normalizan rangos y persisten.
+
+Referencia operativa actual (grafo desplegado, decisiones de
+paralelizacion, cache, retries):
+[`tree-indexer-pipeline.md`](./tree-indexer-pipeline.md). Estado al
+2026-05-22: `tree_indexer_python v0.2.0`, paquete modular en
+`workers/tree-indexer-python/app/tree_graph/`, ningun archivo > 250 LOC.
 
 Implementacion inicial:
 
