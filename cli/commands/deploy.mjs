@@ -104,7 +104,7 @@ export const deployCommand = defineCommand({
   }
 });
 
-function resolveTargets(rawTarget) {
+export function resolveTargets(rawTarget) {
   const target = String(rawTarget).trim();
 
   if (target === "all") {
@@ -431,7 +431,7 @@ async function healthCheck(target) {
   console.log(`${target.name}: ${health.stdout.trim()}`);
 }
 
-function compareSemver(left, right) {
+export function compareSemver(left, right) {
   const a = String(left).split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
   const b = String(right).split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
   const length = Math.max(a.length, b.length);

@@ -26,7 +26,8 @@
     "supabase:auth:health": "node scripts/health/supabase-auth-health.mjs",
     "secrets:scan": "node scripts/ci/secret-scan.mjs",
     "secrets:scan:history": "node scripts/ci/secret-scan.mjs --history",
-    "bootstrap:owner-invite": "node scripts/db/bootstrap-owner-invite.mjs"
+    "bootstrap:owner-invite": "node scripts/db/bootstrap-owner-invite.mjs",
+    "test:cli": "node --test 'cli/__tests__/*.test.mjs'"
   },
   "overrides": {
     "postcss": "^8.5.10"
