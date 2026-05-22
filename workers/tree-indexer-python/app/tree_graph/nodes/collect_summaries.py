@@ -21,5 +21,10 @@ async def collect_summaries(state: TreeState) -> dict[str, Any]:
     )["content"].strip()
     return {
         "doc_summary": doc_summary,
-        "metrics": {**state["metrics"], "summary_node_count": len(by_node_id)},
+        "metrics": {
+            **state["metrics"],
+            "summary_node_count": len(by_node_id),
+            "summary_cache_hits": state.get("summary_cache_hits", 0),
+            "summary_cache_misses": state.get("summary_cache_misses", 0),
+        },
     }
