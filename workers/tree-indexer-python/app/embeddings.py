@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from .llm import TRANSIENT_STATUS, TreeLlmPermanentError, TreeLlmTransientError
 from .pageindex_style import TreeChunk
 
 
@@ -172,8 +173,12 @@ async def embed_texts(texts: list[str]) -> tuple[list[list[float]], EmbeddingCon
                 ) from error
 
             if response.status_code >= 400:
-                message = data.get("error", {}).get("message") if isinstance(data, dict) else None
-                raise RuntimeError(message or f"Embedding API fallo con HTTP {response.status_code}.")
+                message = (
+                    data.get("error", {}).get("message") if isinstance(data, dict) else None
+                ) or f"Embedding API fallo con HTTP {response.status_code}."
+                if response.status_code in TRANSIENT_STATUS:
+                    raise TreeLlmTransientError(response.status_code, message)
+                raise TreeLlmPermanentError(response.status_code, message)
 
             items = data.get("data") if isinstance(data, dict) else None
             if not isinstance(items, list) or len(items) != len(batch):
