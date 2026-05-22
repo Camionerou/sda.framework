@@ -56,7 +56,8 @@ class RefineFanOutTests(unittest.TestCase):
             self.assertIn("refine_target_start_index", send.arg)
 
     def test_emits_no_sends_when_no_large_nodes(self):
-        # Nodes with few pages and short text don't qualify as large
+        # Nodes with few pages and short text don't qualify as large;
+        # now a single Send to collect_refined_results is emitted instead of []
         state = {
             **_state_with_two_large_nodes(),
             "tree": [
@@ -81,7 +82,57 @@ class RefineFanOutTests(unittest.TestCase):
             ],
         }
         sends = fan_out_refine_targets(state)
-        self.assertEqual(sends, [])
+        self.assertEqual(len(sends), 1)
+        self.assertEqual(sends[0].node, "collect_refined_results")
+
+
+def _state_with_only_small_nodes() -> dict:
+    return {
+        "document_id": "doc1",
+        "document_title": "Titulo",
+        "document_type": "report",
+        "job_id": "job1",
+        "metrics": {},
+        "prompt_pages": [
+            {"page": i, "text": f"page {i}"}
+            for i in range(1, 6)
+        ],
+        "raw_pages": [
+            {"page": i, "text": f"page {i}"}
+            for i in range(1, 6)
+        ],
+        "refined_results": [],
+        "refinement_iteration": 0,
+        "run_id": "run1",
+        "tenant_id": "tenant1",
+        "tree": [
+            {
+                "end_index": 2,
+                "node_id": "0000",
+                "nodes": [],
+                "start_index": 1,
+                "summary": "",
+                "text": "short",
+                "title": "Small A",
+            },
+            {
+                "end_index": 5,
+                "node_id": "0001",
+                "nodes": [],
+                "start_index": 3,
+                "summary": "",
+                "text": "short",
+                "title": "Small B",
+            },
+        ],
+    }
+
+
+class RefineFanOutNoCandidatesTests(unittest.TestCase):
+    def test_emits_single_collect_send_when_no_candidates(self):
+        sends = fan_out_refine_targets(_state_with_only_small_nodes())
+        self.assertEqual(len(sends), 1)
+        self.assertEqual(sends[0].node, "collect_refined_results")
 
 
 if __name__ == "__main__":

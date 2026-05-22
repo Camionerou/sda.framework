@@ -55,10 +55,10 @@ def fan_out_refine_targets(state: TreeState) -> list[Send]:
         for node in visit_tree(state["tree"])
         if is_large_leaf(node, max_pages=max_pages, max_tokens=max_tokens)
     ]
-    if not candidates:
-        return []
-    pages = state["prompt_pages"]
     context = context_for_send(state)
+    if not candidates:
+        return [Send("collect_refined_results", context)]
+    pages = state["prompt_pages"]
     return [
         Send(
             "refine_one_node",

@@ -92,7 +92,11 @@ def build_graph(checkpointer: Any | None = None):
     graph.add_edge("repair_sections", "verify_tree")
     graph.add_edge("degrade_mode", "build_candidate_tree")
     graph.add_edge("post_process_tree", "select_refine_targets")
-    graph.add_conditional_edges("select_refine_targets", fan_out_refine_targets, ["refine_one_node"])
+    graph.add_conditional_edges(
+        "select_refine_targets",
+        fan_out_refine_targets,
+        ["refine_one_node", "collect_refined_results"],
+    )
     graph.add_edge("refine_one_node", "collect_refined_results")
     graph.add_conditional_edges(
         "collect_refined_results",
