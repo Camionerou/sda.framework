@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(12);
+SELECT plan(14);
 
 -- Setup: 2 tenants, 2 workspaces, 2 groups
 insert into public.tenants (id, slug, name) values
@@ -68,15 +68,22 @@ select set_config(
 );
 set local role authenticated;
 
+-- Tras 031.b: cada tenant tiene auto-creado un workspace Default
+-- via trigger ensure_default_workspace_for_tenant. RLS sigue acotando por tenant.
 SELECT is(
   (select count(*)::integer from public.workspaces),
-  1,
-  'alpha admin sees only alpha workspace'
+  2,
+  'alpha admin sees only alpha workspaces (default + alpha-ws)'
 );
 SELECT is(
-  (select slug from public.workspaces),
-  'alpha-ws',
+  (select count(*)::integer from public.workspaces where slug = 'alpha-ws'),
+  1,
   'alpha admin sees alpha-ws'
+);
+SELECT is(
+  (select count(*)::integer from public.workspaces where slug = 'default'),
+  1,
+  'alpha admin sees auto-created Default workspace'
 );
 SELECT is(
   (select count(*)::integer from public.groups),
@@ -101,13 +108,18 @@ set local role authenticated;
 
 SELECT is(
   (select count(*)::integer from public.workspaces),
-  1,
-  'beta member sees only beta workspace'
+  2,
+  'beta member sees only beta workspaces (default + beta-ws)'
 );
 SELECT is(
-  (select slug from public.workspaces),
-  'beta-ws',
+  (select count(*)::integer from public.workspaces where slug = 'beta-ws'),
+  1,
   'beta member sees beta-ws'
+);
+SELECT is(
+  (select count(*)::integer from public.workspaces where slug = 'default'),
+  1,
+  'beta member sees auto-created Default workspace'
 );
 SELECT is(
   (select count(*)::integer from public.groups),
