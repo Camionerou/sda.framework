@@ -63,10 +63,11 @@ values
     'active'
   );
 
-insert into public.documents (id, tenant_id, created_by, filename, r2_key, status, uploaded_at)
+insert into public.documents (id, tenant_id, workspace_id, created_by, filename, r2_key, status, uploaded_at)
 values (
   '00000000-0000-0000-0000-000000001521',
   '00000000-0000-0000-0000-000000001501',
+  (select id from public.workspaces where tenant_id = '00000000-0000-0000-0000-000000001501' and slug = 'default'),
   '00000000-0000-0000-0000-000000001511',
   'alpha-cache.pdf',
   '00000000-0000-0000-0000-000000001501/00000000-0000-0000-0000-000000001521/alpha-cache.pdf',

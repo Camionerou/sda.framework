@@ -63,11 +63,12 @@ values
     'active'
   );
 
-insert into public.documents (id, tenant_id, created_by, filename, r2_key, status, uploaded_at)
+insert into public.documents (id, tenant_id, workspace_id, created_by, filename, r2_key, status, uploaded_at)
 values
   (
     '00000000-0000-0000-0000-000000000921',
     '00000000-0000-0000-0000-000000000901',
+    (select id from public.workspaces where tenant_id = '00000000-0000-0000-0000-000000000901' and slug = 'default'),
     '00000000-0000-0000-0000-000000000911',
     'alpha-index.pdf',
     '00000000-0000-0000-0000-000000000901/00000000-0000-0000-0000-000000000921/alpha-index.pdf',
@@ -77,6 +78,7 @@ values
   (
     '00000000-0000-0000-0000-000000000922',
     '00000000-0000-0000-0000-000000000902',
+    (select id from public.workspaces where tenant_id = '00000000-0000-0000-0000-000000000902' and slug = 'default'),
     '00000000-0000-0000-0000-000000000912',
     'beta-index.pdf',
     '00000000-0000-0000-0000-000000000902/00000000-0000-0000-0000-000000000922/beta-index.pdf',

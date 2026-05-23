@@ -1,6 +1,14 @@
 BEGIN;
 SELECT plan(10);
 
+-- Este test verifica el contrato semantico de 031.b (backfill: workspace Default
+-- por tenant + memberships + asignacion workspace_id en documents). El test inserta
+-- documentos con workspace_id NULL para validar que el backfill los rellena. Una vez
+-- aplicada 031.c la columna paso a NOT NULL, por lo que simulamos el estado
+-- pre-031.c dropeando temporalmente el NOT NULL dentro de la transaccion (ROLLBACK
+-- al final restaura el invariante).
+alter table public.documents alter column workspace_id drop not null;
+
 -- Pre-seed: dos tenants, users con distintos roles, un documento sin workspace
 insert into public.tenants (id, slug, name) values
   ('00000000-0000-0000-0000-000000003401', 'bf-alpha', 'BF Alpha'),

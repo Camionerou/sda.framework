@@ -83,11 +83,12 @@ values
     'disabled'
   );
 
-insert into public.documents (id, tenant_id, created_by, filename, r2_key, status)
+insert into public.documents (id, tenant_id, workspace_id, created_by, filename, r2_key, status)
 values
   (
     '00000000-0000-0000-0000-000000000301',
     '00000000-0000-0000-0000-000000000101',
+    (select id from public.workspaces where tenant_id = '00000000-0000-0000-0000-000000000101' and slug = 'default'),
     '00000000-0000-0000-0000-000000000201',
     'alpha.pdf',
     '00000000-0000-0000-0000-000000000101/00000000-0000-0000-0000-000000000301/alpha.pdf',
@@ -96,6 +97,7 @@ values
   (
     '00000000-0000-0000-0000-000000000302',
     '00000000-0000-0000-0000-000000000102',
+    (select id from public.workspaces where tenant_id = '00000000-0000-0000-0000-000000000102' and slug = 'default'),
     '00000000-0000-0000-0000-000000000202',
     'beta.pdf',
     '00000000-0000-0000-0000-000000000102/00000000-0000-0000-0000-000000000302/beta.pdf',

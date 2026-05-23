@@ -1,12 +1,19 @@
 BEGIN;
 SELECT plan(6);
 
+-- Este test verifica el contrato semantico de 031.a (estado intermedio:
+-- columna agregada nullable + FK composite + cols soft-delete). Una vez aplicada
+-- 031.c, la columna pasa a NOT NULL definitivo. Para que este test siga
+-- documentando el contrato historico, simulamos el estado intermedio dropeando
+-- el NOT NULL dentro de la transaccion (ROLLBACK lo restaura).
+alter table public.documents alter column workspace_id drop not null;
+
 SELECT has_column(
   'public', 'documents', 'workspace_id',
   'documents has workspace_id column'
 );
 
--- nullable porque el backfill no ocurrio aun
+-- nullable porque el backfill no ocurrio aun (verificado contra el estado simulado)
 SELECT col_is_null(
   'public', 'documents', 'workspace_id',
   'documents.workspace_id is nullable in 031.a'

@@ -132,6 +132,7 @@ SELECT throws_ok(
     insert into public.documents (
       id,
       tenant_id,
+      workspace_id,
       created_by,
       filename,
       r2_key,
@@ -140,6 +141,7 @@ SELECT throws_ok(
     values (
       '00000000-0000-0000-0000-000000001721',
       '00000000-0000-0000-0000-000000001701',
+      (select id from public.workspaces where tenant_id = '00000000-0000-0000-0000-000000001701' and slug = 'default'),
       '00000000-0000-0000-0000-000000001711',
       'evil.pdf',
       '00000000-0000-0000-0000-000000001701/../00000000-0000-0000-0000-000000001702/evil.pdf',
