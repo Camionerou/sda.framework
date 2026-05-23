@@ -25,12 +25,16 @@ before update on public.groups
 for each row execute function app.set_updated_at();
 
 create table public.group_memberships (
-  group_id uuid not null references public.groups(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  group_id uuid not null,
+  user_id uuid not null,
   tenant_id uuid not null,
   added_by uuid references auth.users(id) on delete set null,
   added_at timestamptz not null default now(),
-  primary key (group_id, user_id)
+  primary key (group_id, user_id),
+  foreign key (tenant_id, group_id)
+    references public.groups(tenant_id, id) on delete cascade,
+  foreign key (tenant_id, user_id)
+    references public.users(tenant_id, id) on delete cascade
 );
 
 create index group_memberships_tenant_user_idx

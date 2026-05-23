@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(10);
+SELECT plan(12);
 
 SELECT has_table('public', 'groups', 'groups table exists');
 SELECT has_table('public', 'group_memberships', 'group_memberships table exists');
@@ -7,6 +7,11 @@ SELECT has_table('public', 'group_memberships', 'group_memberships table exists'
 SELECT col_is_unique(
   'public', 'groups', ARRAY['tenant_id','key'],
   'groups enforces unique key per tenant'
+);
+
+SELECT col_is_unique(
+  'public', 'groups', ARRAY['tenant_id','id'],
+  'groups has composite unique (tenant_id, id) as FK target'
 );
 
 SELECT col_is_pk(
@@ -58,6 +63,33 @@ SELECT lives_ok(
      from public.groups where key = 'legal'
        and tenant_id = '00000000-0000-0000-0000-000000003002' $$,
   'group_memberships accepts (group_id, user_id) insert'
+);
+
+-- Tenant adicional para test cross-tenant
+insert into public.tenants (id, slug, name)
+values ('00000000-0000-0000-0000-000000003003', 'cross-tenant', 'Cross Tenant');
+
+-- User en el tenant cross
+insert into auth.users (id, instance_id, aud, role, email, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+values ('00000000-0000-0000-0000-000000003013',
+  '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+  'crossuser@cross-tenant.test', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
+
+insert into public.users (id, tenant_id, email, role, status)
+values ('00000000-0000-0000-0000-000000003013',
+  '00000000-0000-0000-0000-000000003003',
+  'crossuser@cross-tenant.test', 'member', 'active');
+
+SELECT throws_ok(
+  $$ insert into public.group_memberships (group_id, user_id, tenant_id)
+     select id, '00000000-0000-0000-0000-000000003013',
+            '00000000-0000-0000-0000-000000003003'
+     from public.groups where key = 'legal'
+       and tenant_id = '00000000-0000-0000-0000-000000003002' $$,
+  '23503',
+  NULL,
+  'group_memberships rejects cross-tenant group_id mismatch'
 );
 
 -- group_memberships_tenant_user_idx existe
