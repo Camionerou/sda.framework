@@ -4915,6 +4915,101 @@ git add supabase/migrations/20260801164000_partition_maintenance.sql supabase/te
 git commit -m "feat(db): ensure_future_partitions + daily pg_cron job"
 ```
 
+### Task 6.7: Índices `btree_gin` compuestos en tablas particionadas
+
+**Files:**
+- Create: `supabase/migrations/20260801164500_partition_btree_gin_indexes.sql`
+- Create: `supabase/tests/partition_btree_gin_indexes_test.sql`
+
+**Contexto**: las tablas recién particionadas (`audit_log`, `indexing_events`, `notifications`, `document_views`) reciben queries multi-tenant con predicados sobre jsonb (`payload`, `metadata`, `properties`). Sin `btree_gin`, el planner combina dos índices separados — funcional pero caro. Con esto, un solo índice compuesto cubre el predicado mixto.
+
+Requiere `btree_gin` activo (Tier 2 Paso 0 Task 0.2).
+
+- [ ] **Step 1: Migración**
+
+```sql
+-- supabase/migrations/20260801164500_partition_btree_gin_indexes.sql
+-- Indices compuestos (tenant_id uuid + jsonb_path_ops) en tablas particionadas.
+-- Postgres propaga estos indices a todas las particiones (hijas presentes y futuras).
+
+-- audit_log.payload
+create index concurrently if not exists audit_log_tenant_payload_gin_idx
+  on public.audit_log
+  using gin (tenant_id, payload jsonb_path_ops);
+
+-- indexing_events.payload (asumiendo columna jsonb llamada 'payload')
+create index concurrently if not exists indexing_events_tenant_payload_gin_idx
+  on public.indexing_events
+  using gin (tenant_id, payload jsonb_path_ops);
+
+-- notifications.payload
+create index concurrently if not exists notifications_tenant_payload_gin_idx
+  on public.notifications
+  using gin (tenant_id, payload jsonb_path_ops);
+
+-- document_views.properties
+create index concurrently if not exists document_views_tenant_properties_gin_idx
+  on public.document_views
+  using gin (tenant_id, properties jsonb_path_ops);
+
+comment on index public.audit_log_tenant_payload_gin_idx is
+  'btree_gin: tenant_id + payload jsonb_path_ops para filtros mixtos audit.';
+comment on index public.indexing_events_tenant_payload_gin_idx is
+  'btree_gin: tenant_id + payload jsonb_path_ops para health/analytics queries.';
+comment on index public.notifications_tenant_payload_gin_idx is
+  'btree_gin: tenant_id + payload jsonb_path_ops para filtros de inbox.';
+comment on index public.document_views_tenant_properties_gin_idx is
+  'btree_gin: tenant_id + properties jsonb_path_ops para reporting views.';
+```
+
+> Nombre real de columnas jsonb verificar contra migraciones existentes — `audit_log` usa `payload`, otras pueden usar `metadata` o `properties`. Ajustar si difieren.
+
+- [ ] **Step 2: Test**
+
+```sql
+-- supabase/tests/partition_btree_gin_indexes_test.sql
+BEGIN;
+SELECT plan(4);
+
+SELECT has_index('public','audit_log','audit_log_tenant_payload_gin_idx','indice audit_log existe');
+SELECT has_index('public','indexing_events','indexing_events_tenant_payload_gin_idx','indice indexing_events existe');
+SELECT has_index('public','notifications','notifications_tenant_payload_gin_idx','indice notifications existe');
+SELECT has_index('public','document_views','document_views_tenant_properties_gin_idx','indice document_views existe');
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 3: Aplicar + correr**
+
+```bash
+supabase db push
+npm run test:db -- --test supabase/tests/partition_btree_gin_indexes_test.sql
+```
+
+Expected: 4/4.
+
+- [ ] **Step 4: Verificar planner usa al menos uno**
+
+```bash
+psql "$SUPABASE_DB_URL" <<'SQL'
+explain (format text)
+select count(*)
+from public.audit_log
+where tenant_id = gen_random_uuid()
+  and payload @> '{"action":"document.created"}'::jsonb;
+SQL
+```
+
+Expected: `Bitmap Index Scan on audit_log_tenant_payload_gin_idx`. Si aparece `Seq Scan` puede ser dataset pequeño — re-verificar en staging con dataset real.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/20260801164500_partition_btree_gin_indexes.sql supabase/tests/partition_btree_gin_indexes_test.sql
+git commit -m "feat(db): btree_gin compuestos (tenant_id + jsonb) en tablas particionadas Tier 3"
+```
+
 ---
 
 ## Paso 7 · halfvec migration (dual-write window)
