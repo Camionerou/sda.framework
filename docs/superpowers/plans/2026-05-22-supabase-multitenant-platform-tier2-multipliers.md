@@ -3075,6 +3075,120 @@ git add supabase/migrations/20260601090500_notifications.sql \
 git commit -m "feat(db): tier2 044 notifications + prefs + inbox topic + broadcast trigger"
 ```
 
+### Task 7.3: Validator jsonschema para `notification_preferences.settings`
+
+**Files:**
+- Create: `supabase/migrations/20260601090550_notification_preferences_settings_validator.sql`
+- Create: `supabase/tests/notification_preferences_settings_validator_test.sql`
+
+**Contexto**: el column `settings jsonb` puede contener cualquier basura sin esta validación. Definimos schema explícito y lo aplicamos como CHECK constraint via `app.validate_jsonschema` (Paso 0 Task 0.1).
+
+- [ ] **Step 1: pgTAP test (escribir primero, debe fallar)**
+
+```sql
+-- supabase/tests/notification_preferences_settings_validator_test.sql
+BEGIN;
+SELECT plan(4);
+
+-- Setup tenant + user mínimo
+insert into public.tenants (id, slug, name)
+values ('00000000-0000-0000-0000-000000007301','np-tenant','NP Tenant');
+insert into auth.users (id, instance_id, aud, role, email, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+values ('00000000-0000-0000-0000-000000007311','00000000-0000-0000-0000-000000000000',
+  'authenticated','authenticated','np@np.test',now(),'{}'::jsonb,'{}'::jsonb,now(),now());
+insert into public.users (id, tenant_id, email, role, status)
+values ('00000000-0000-0000-0000-000000007311','00000000-0000-0000-0000-000000007301',
+  'np@np.test','member','active');
+
+-- Caso valido
+SELECT lives_ok(
+  $$ insert into public.notification_preferences (user_id, tenant_id, kind, channel, settings)
+     values ('00000000-0000-0000-0000-000000007311','00000000-0000-0000-0000-000000007301',
+             'mention','in_app',
+             '{"digest_frequency":"daily","muted":false}'::jsonb) $$,
+  'settings con campos validos pasa CHECK');
+
+-- Caso invalido — campo extra no permitido
+SELECT throws_ok(
+  $$ insert into public.notification_preferences (user_id, tenant_id, kind, channel, settings)
+     values ('00000000-0000-0000-0000-000000007311','00000000-0000-0000-0000-000000007301',
+             'mention','in_app',
+             '{"digest_frequency":"daily","extra_field":"x"}'::jsonb) $$,
+  '23514',
+  null,
+  'settings con campo extra falla CHECK');
+
+-- Caso invalido — tipo incorrecto
+SELECT throws_ok(
+  $$ insert into public.notification_preferences (user_id, tenant_id, kind, channel, settings)
+     values ('00000000-0000-0000-0000-000000007311','00000000-0000-0000-0000-000000007301',
+             'mention','in_app',
+             '{"digest_frequency":"daily","muted":"yes"}'::jsonb) $$,
+  '23514',
+  null,
+  'settings con muted no-boolean falla CHECK');
+
+-- Caso null permitido
+SELECT lives_ok(
+  $$ insert into public.notification_preferences (user_id, tenant_id, kind, channel, settings)
+     values ('00000000-0000-0000-0000-000000007311','00000000-0000-0000-0000-000000007301',
+             'access_request','in_app', null) $$,
+  'settings null pasa CHECK');
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 2: Migración**
+
+```sql
+-- supabase/migrations/20260601090550_notification_preferences_settings_validator.sql
+-- CHECK constraint sobre notification_preferences.settings via pg_jsonschema.
+
+alter table public.notification_preferences
+  add constraint notification_preferences_settings_schema_chk
+  check (
+    app.validate_jsonschema(
+      settings,
+      jsonb_build_object(
+        'type', 'object',
+        'additionalProperties', false,
+        'properties', jsonb_build_object(
+          'digest_frequency', jsonb_build_object(
+            'type', 'string',
+            'enum', jsonb_build_array('immediate','hourly','daily','weekly','never')
+          ),
+          'muted', jsonb_build_object('type','boolean'),
+          'muted_until', jsonb_build_object('type','string','format','date-time'),
+          'quiet_hours_start', jsonb_build_object('type','string','pattern','^[0-2][0-9]:[0-5][0-9]$'),
+          'quiet_hours_end', jsonb_build_object('type','string','pattern','^[0-2][0-9]:[0-5][0-9]$')
+        )
+      )
+    )
+  );
+
+comment on constraint notification_preferences_settings_schema_chk
+  on public.notification_preferences is
+  'JSON Schema: digest_frequency enum, muted bool, quiet_hours HH:MM. additionalProperties=false.';
+```
+
+- [ ] **Step 3: Aplicar + correr test**
+
+```bash
+supabase db push
+npm run test:db -- --test supabase/tests/notification_preferences_settings_validator_test.sql
+```
+
+Expected: 4/4 pasan.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260601090550_notification_preferences_settings_validator.sql supabase/tests/notification_preferences_settings_validator_test.sql
+git commit -m "feat(db): jsonschema validator para notification_preferences.settings"
+```
+
 ---
 
 ## Paso 8 · Migracion 045 · `document_views`
