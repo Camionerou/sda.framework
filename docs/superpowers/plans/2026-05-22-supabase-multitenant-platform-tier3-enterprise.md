@@ -88,9 +88,9 @@ Timestamps comprometidos para Tier 3. La ultima migracion conocida al momento de
 | 25 | `20260801181000_cleanup_operational_data_v3.sql` | extender funcion existente | funcion |
 | 26 | `20260801182000_realtime_tier3.sql` | publicar `usage_records`, `data_exports` | publication |
 
-> Nota: la migracion 16 (`halfvec_swap`) NO se aplica el mismo dia que la 15. Se difiere 7 dias en staging y se mergea a `main` con guard `created at` posterior al swap real. Detalle en Task 7.5.
+> Nota: `20260801171000_halfvec_swap.sql` NO se aplica el mismo dia que `20260801170000_halfvec_dual_write.sql`. Se difiere 7 dias en staging y se mergea a `main` con guard `created_at` posterior al swap real. Detalle en Task 7.5.
 
-> Si `pg_partman` esta en allowlist del proyecto Supabase, las migraciones 10-13 pueden usarlo (Task 6.6 cubre ambas ramas).
+> Si `pg_partman` esta en allowlist del proyecto Supabase, las migraciones de particionado (`20260801160000_partition_audit_log.sql` .. `20260801163000_partition_notifications.sql`) pueden usarlo (Task 6.6 cubre ambas ramas).
 
 Cada migracion lleva test pgTAP en `supabase/tests/<nombre>_test.sql`. Cada migracion = 1 commit (excepto migraciones grandes con docs en el mismo commit). RPCs y workers TS llevan tests vitest / node --test.
 
