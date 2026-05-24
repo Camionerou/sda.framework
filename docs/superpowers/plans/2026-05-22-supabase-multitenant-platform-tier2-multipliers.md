@@ -6043,6 +6043,61 @@ git add inngest/functions/run-saved-queries.ts \
 git commit -m "feat(inngest): run-saved-queries worker (cron 10min) + node --test"
 ```
 
+### Task 16.3: Audit uso real de índices `pg_trgm` y FTS (gate para Tier 4)
+
+**Files:**
+- Modify: `docs/superpowers/plans/_evidence/2026-05-24-uuid-ossp-pg-trgm-audit.md`
+
+**Contexto**: después de 2 semanas de Paso 3.b en producción, medir si los índices `chunks_content_trgm_idx` y `chunks_content_tsv_tenant_gin_idx` se usan. Si no, candidatos a remover en Tier 4.
+
+- [ ] **Step 1: Query de uso real**
+
+```bash
+psql "$SUPABASE_DB_URL" <<'SQL'
+select
+  indexrelname as index,
+  idx_scan,
+  pg_size_pretty(pg_relation_size(indexrelid)) as size,
+  case
+    when idx_scan = 0 then 'CANDIDATO_REMOVER'
+    when idx_scan < 100 then 'BAJO_USO'
+    else 'USO_NORMAL'
+  end as status
+from pg_stat_user_indexes
+where indexrelname in (
+  'chunks_content_trgm_idx',
+  'chunks_content_tsv_tenant_gin_idx'
+)
+order by idx_scan asc;
+SQL
+```
+
+Expected: para que sea útil, este step se corre **2+ semanas después** del deploy de Paso 3.b en producción. Antes solo da ruido.
+
+- [ ] **Step 2: Actualizar `2026-05-24-uuid-ossp-pg-trgm-audit.md`**
+
+Agregar sección al final:
+
+```markdown
+## Re-audit post-Tier 2 Paso 16 (fecha: <ISO>)
+
+| Índice | idx_scan | tamaño | status | decisión Tier 4 |
+|---|---:|---|---|---|
+| chunks_content_trgm_idx | <N> | <X> | <status> | <keep/remove> |
+| chunks_content_tsv_tenant_gin_idx | <N> | <X> | <status> | <keep/remove> |
+
+Si CANDIDATO_REMOVER: abrir mini-plan "Tier 4 cleanup pg_trgm/FTS".
+Si BAJO_USO: dejar 2 semanas más y re-medir.
+Si USO_NORMAL: cerrar audit, marcar resolved.
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/superpowers/plans/_evidence/2026-05-24-uuid-ossp-pg-trgm-audit.md
+git commit -m "docs(db): re-audit pg_trgm/FTS index usage post-Tier 2 Paso 16"
+```
+
 ---
 
 ## Paso 17 · Documentacion

@@ -1249,8 +1249,7 @@ select
 from pg_stat_user_indexes
 where indexrelname in (
   'chunks_content_trgm_idx',
-  'chunks_content_tsv_tenant_gin_idx',
-  'documents_full_text_index_tenant_gin_idx'
+  'chunks_content_tsv_tenant_gin_idx'
 )
 order by idx_scan asc;
 SQL
@@ -1269,7 +1268,6 @@ Agregar sección al final:
 |---|---:|---|---|---|
 | chunks_content_trgm_idx | <N> | <X> | <status> | <keep/remove> |
 | chunks_content_tsv_tenant_gin_idx | <N> | <X> | <status> | <keep/remove> |
-| documents_full_text_index_tenant_gin_idx | <N> | <X> | <status> | <keep/remove> |
 
 Si CANDIDATO_REMOVER: abrir mini-plan "Tier 4 cleanup pg_trgm/FTS".
 Si BAJO_USO: dejar 2 semanas más y re-medir.
