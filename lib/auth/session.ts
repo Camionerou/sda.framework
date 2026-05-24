@@ -1,5 +1,7 @@
 export type TenantRole = "owner" | "admin" | "member" | "viewer";
 
+export type WorkspaceRole = "workspace_viewer" | "workspace_editor" | "workspace_admin";
+
 export type AppClaims = {
   sub?: string;
   email?: string;
@@ -10,6 +12,8 @@ export type AppClaims = {
   tenant_status?: string;
   user_status?: string;
   claims_version?: number;
+  active_workspace_id?: string;
+  active_workspace_role?: WorkspaceRole;
   app_metadata?: {
     tenant_id?: string;
     tenant_role?: TenantRole;
@@ -17,6 +21,8 @@ export type AppClaims = {
     tenant_status?: string;
     user_status?: string;
     claims_version?: number;
+    active_workspace_id?: string;
+    active_workspace_role?: WorkspaceRole;
   };
 };
 

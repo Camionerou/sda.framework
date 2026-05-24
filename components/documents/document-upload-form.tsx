@@ -47,7 +47,11 @@ async function markUploadFailed(
   });
 }
 
-export function DocumentUploadForm() {
+type DocumentUploadFormProps = {
+  workspaceId: string;
+};
+
+export function DocumentUploadForm({ workspaceId }: DocumentUploadFormProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<UploadState>({ status: "idle" });
@@ -81,7 +85,8 @@ export function DocumentUploadForm() {
           source: "app/documents"
         },
         _mime_type: file.type || "application/octet-stream",
-        _title: typeof title === "string" && title.trim() ? title.trim() : null
+        _title: typeof title === "string" && title.trim() ? title.trim() : null,
+        _workspace_id: workspaceId
       }
     );
 

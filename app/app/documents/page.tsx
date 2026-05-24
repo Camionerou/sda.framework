@@ -22,8 +22,29 @@ export default async function DocumentsPage() {
   const tenantId = getClaimValue<string>(claims, "tenant_id", "tenant_id");
   const tenantRole = getClaimValue<TenantRole>(claims, "tenant_role", "tenant_role");
   const tenantSlug = getClaimValue<string>(claims, "tenant_slug", "tenant_slug");
+  let activeWorkspaceId = getClaimValue<string>(
+    claims,
+    "active_workspace_id",
+    "active_workspace_id"
+  );
 
   if (!tenantId) {
+    redirect("/app");
+  }
+
+  // Fallback al workspace 'default' del tenant si el JWT no trae active_workspace_id.
+  // El default workspace existe por backfill (tier1 031.b) + trigger en INSERT a tenants.
+  if (!activeWorkspaceId) {
+    const { data: defaultWs } = await supabase
+      .from("workspaces")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("slug", "default")
+      .maybeSingle<{ id: string }>();
+    activeWorkspaceId = defaultWs?.id ?? undefined;
+  }
+
+  if (!activeWorkspaceId) {
     redirect("/app");
   }
 
@@ -63,7 +84,7 @@ export default async function DocumentsPage() {
               <h2 className="gc-title">Nueva carga</h2>
               <p className="gc-desc">El archivo queda en Storage privado bajo el prefijo del tenant.</p>
             </div>
-            <DocumentUploadForm />
+            <DocumentUploadForm workspaceId={activeWorkspaceId} />
           </div>
 
           <div className="glass-card">
