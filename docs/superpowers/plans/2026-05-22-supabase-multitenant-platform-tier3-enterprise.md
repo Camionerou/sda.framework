@@ -4930,39 +4930,42 @@ Requiere `btree_gin` activo (Tier 2 Paso 0 Task 0.2).
 ```sql
 -- supabase/migrations/20260801164500_partition_btree_gin_indexes.sql
 -- Indices compuestos (tenant_id uuid + jsonb_path_ops) en tablas particionadas.
--- Postgres propaga estos indices a todas las particiones (hijas presentes y futuras).
+-- Postgres propaga estos indices a todas las particiones (presentes y futuras).
+-- NOTA: en tablas particionadas NO se usa CONCURRENTLY (Postgres lo prohibe);
+-- el CREATE INDEX no-concurrente toma SHARE lock breve sobre el padre y construye
+-- sin concurrencia en cada particion, aceptable en ventana de deploy.
 
--- audit_log.payload
-create index concurrently if not exists audit_log_tenant_payload_gin_idx
+-- audit_log.metadata
+create index if not exists audit_log_tenant_metadata_gin_idx
   on public.audit_log
-  using gin (tenant_id, payload jsonb_path_ops);
+  using gin (tenant_id, metadata jsonb_path_ops);
 
--- indexing_events.payload (asumiendo columna jsonb llamada 'payload')
-create index concurrently if not exists indexing_events_tenant_payload_gin_idx
+-- indexing_events.payload
+create index if not exists indexing_events_tenant_payload_gin_idx
   on public.indexing_events
   using gin (tenant_id, payload jsonb_path_ops);
 
--- notifications.payload
-create index concurrently if not exists notifications_tenant_payload_gin_idx
+-- notifications.metadata
+create index if not exists notifications_tenant_metadata_gin_idx
   on public.notifications
-  using gin (tenant_id, payload jsonb_path_ops);
+  using gin (tenant_id, metadata jsonb_path_ops);
 
--- document_views.properties
-create index concurrently if not exists document_views_tenant_properties_gin_idx
+-- document_views.metadata
+create index if not exists document_views_tenant_metadata_gin_idx
   on public.document_views
-  using gin (tenant_id, properties jsonb_path_ops);
+  using gin (tenant_id, metadata jsonb_path_ops);
 
-comment on index public.audit_log_tenant_payload_gin_idx is
-  'btree_gin: tenant_id + payload jsonb_path_ops para filtros mixtos audit.';
+comment on index public.audit_log_tenant_metadata_gin_idx is
+  'btree_gin: tenant_id + metadata jsonb_path_ops para filtros mixtos audit.';
 comment on index public.indexing_events_tenant_payload_gin_idx is
   'btree_gin: tenant_id + payload jsonb_path_ops para health/analytics queries.';
-comment on index public.notifications_tenant_payload_gin_idx is
-  'btree_gin: tenant_id + payload jsonb_path_ops para filtros de inbox.';
-comment on index public.document_views_tenant_properties_gin_idx is
-  'btree_gin: tenant_id + properties jsonb_path_ops para reporting views.';
+comment on index public.notifications_tenant_metadata_gin_idx is
+  'btree_gin: tenant_id + metadata jsonb_path_ops para filtros de inbox.';
+comment on index public.document_views_tenant_metadata_gin_idx is
+  'btree_gin: tenant_id + metadata jsonb_path_ops para reporting views.';
 ```
 
-> Nombre real de columnas jsonb verificar contra migraciones existentes — `audit_log` usa `payload`, otras pueden usar `metadata` o `properties`. Ajustar si difieren.
+> Verificado contra Task 6.1-6.5: `audit_log`, `notifications`, `document_views` usan `metadata`; `indexing_events` usa `payload`. Si Tier 1/2 cambia estos nombres, re-verificar antes de mergear.
 
 - [ ] **Step 2: Test**
 
@@ -4971,10 +4974,10 @@ comment on index public.document_views_tenant_properties_gin_idx is
 BEGIN;
 SELECT plan(4);
 
-SELECT has_index('public','audit_log','audit_log_tenant_payload_gin_idx','indice audit_log existe');
+SELECT has_index('public','audit_log','audit_log_tenant_metadata_gin_idx','indice audit_log existe');
 SELECT has_index('public','indexing_events','indexing_events_tenant_payload_gin_idx','indice indexing_events existe');
-SELECT has_index('public','notifications','notifications_tenant_payload_gin_idx','indice notifications existe');
-SELECT has_index('public','document_views','document_views_tenant_properties_gin_idx','indice document_views existe');
+SELECT has_index('public','notifications','notifications_tenant_metadata_gin_idx','indice notifications existe');
+SELECT has_index('public','document_views','document_views_tenant_metadata_gin_idx','indice document_views existe');
 
 SELECT * FROM finish();
 ROLLBACK;
@@ -4997,11 +5000,11 @@ explain (format text)
 select count(*)
 from public.audit_log
 where tenant_id = gen_random_uuid()
-  and payload @> '{"action":"document.created"}'::jsonb;
+  and metadata @> '{"action":"document.created"}'::jsonb;
 SQL
 ```
 
-Expected: `Bitmap Index Scan on audit_log_tenant_payload_gin_idx`. Si aparece `Seq Scan` puede ser dataset pequeño — re-verificar en staging con dataset real.
+Expected: `Bitmap Index Scan on audit_log_tenant_metadata_gin_idx`. Si aparece `Seq Scan` puede ser dataset pequeño — re-verificar en staging con dataset real.
 
 - [ ] **Step 5: Commit**
 
