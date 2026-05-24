@@ -4087,21 +4087,107 @@ git add inngest/functions/process-data-export.ts inngest/functions/__tests__/pro
 git commit -m "feat(inngest): process-data-export cron + event handler with JSONL/ZIP output"
 ```
 
-### Task 5.4: Trigger DB-side que dispara evento Inngest al insertar
+### Task 5.4: Trigger DB-side que dispara evento Inngest al insertar (vía helper Paso 1)
 
-> Patron: usamos `pg_net.http_post` para llamar al endpoint Inngest. Como esto puede no estar disponible, dejamos como FALLBACK el sweep cron del paso anterior. Documentamos.
+> **Refactor 2026-05-24**: ahora consume `app.dispatch_inngest_event` (Tier 3 Paso 1 Task 1.9). El helper centraliza el patrón `pg_net` + outbox fallback, así que esta task ya no inline-ea HTTP. Si pg_net no está disponible, el outbox sweep cron (Paso 1 Task 1.9 — `sda-dispatch-outbox-sweep` cada 1 min) procesa el dispatch en su lugar.
 
-- [ ] **Step 1: Verificar disponibilidad de pg_net**
+**Files:**
+- Create: `supabase/migrations/20260801150500_data_exports_dispatch_trigger.sql`
+- Create: `supabase/tests/data_exports_dispatch_trigger_test.sql`
 
-```bash
-psql "$SUPABASE_DB_URL" -c "select 1 from pg_extension where extname='pg_net'"
+- [ ] **Step 1: Migración del trigger**
+
+```sql
+-- supabase/migrations/20260801150500_data_exports_dispatch_trigger.sql
+
+create or replace function app.dispatch_data_export_requested()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  -- Solo al insertar con status='queued' (estado inicial del RPC request_data_export)
+  if new.status = 'queued' then
+    perform app.dispatch_inngest_event(
+      new.tenant_id,
+      'data_export.requested',
+      jsonb_build_object(
+        'export_id', new.id,
+        'scope', new.scope::text,
+        'requested_by', new.requested_by
+      )
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists data_exports_dispatch_requested on public.data_exports;
+create trigger data_exports_dispatch_requested
+  after insert on public.data_exports
+  for each row
+  execute function app.dispatch_data_export_requested();
+
+comment on trigger data_exports_dispatch_requested on public.data_exports is
+  'Dispatcha data_export.requested al worker Inngest vía dispatch_inngest_event (pg_net + outbox fallback).';
 ```
 
-Expected: 1 si esta. Si esta, agregamos trigger; si no, dependemos solo del cron sweep cada 5 min.
+- [ ] **Step 2: Test**
 
-- [ ] **Step 2 (opcional, solo si pg_net disponible): trigger DB-side**
+```sql
+-- supabase/tests/data_exports_dispatch_trigger_test.sql
+BEGIN;
+SELECT plan(3);
 
-Si pg_net no esta disponible, skipear esta task. El cron del Task 5.3 ya cubre el caso.
+SELECT has_function('app','dispatch_data_export_requested',
+  ARRAY[]::text[], 'function existe');
+SELECT has_trigger('public','data_exports','data_exports_dispatch_requested','trigger existe');
+
+-- Setup GUCs + tenant
+SELECT set_config('app.inngest_endpoint_url','https://example.test/x',true);
+SELECT set_config('app.inngest_signing_key','test-key',true);
+
+insert into public.tenants (id, slug, name)
+values ('00000000-0000-0000-0000-000000054001','de-tenant','DE Tenant');
+insert into auth.users (id, instance_id, aud, role, email, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+values ('00000000-0000-0000-0000-000000054011','00000000-0000-0000-0000-000000000000',
+  'authenticated','authenticated','de@de.test',now(),'{}'::jsonb,'{}'::jsonb,now(),now());
+insert into public.users (id, tenant_id, email, role, status)
+values ('00000000-0000-0000-0000-000000054011','00000000-0000-0000-0000-000000054001',
+  'de@de.test','owner','active');
+
+insert into public.data_exports (id, tenant_id, scope, status, requested_by)
+values (gen_random_uuid(),'00000000-0000-0000-0000-000000054001','user'::public.data_export_scope,
+        'queued','00000000-0000-0000-0000-000000054011');
+
+SELECT is(
+  (select count(*)::int from app.dispatch_outbox
+   where event_name = 'data_export.requested'),
+  1,
+  'inserts con status=queued disparan 1 evento'
+);
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 3: Aplicar + correr**
+
+```bash
+supabase db push
+npm run test:db -- --test supabase/tests/data_exports_dispatch_trigger_test.sql
+```
+
+Expected: 3/3.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260801150500_data_exports_dispatch_trigger.sql supabase/tests/data_exports_dispatch_trigger_test.sql
+git commit -m "feat(db): data_exports trigger via app.dispatch_inngest_event (refactor)"
+```
 
 ### Task 5.5: Test e2e — request -> queued -> verificar columnas
 
