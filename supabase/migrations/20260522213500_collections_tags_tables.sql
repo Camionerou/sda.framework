@@ -81,12 +81,14 @@ for each row execute function app.set_updated_at();
 create table public.document_tags (
   tenant_id uuid not null,
   document_id uuid not null,
-  tag_id uuid not null references public.tags(id) on delete cascade,
+  tag_id uuid not null,
   added_by uuid references auth.users(id) on delete set null,
   added_at timestamptz not null default now(),
   primary key (document_id, tag_id),
   foreign key (tenant_id, document_id)
-    references public.documents(tenant_id, id) on delete cascade
+    references public.documents(tenant_id, id) on delete cascade,
+  foreign key (tenant_id, tag_id)
+    references public.tags(tenant_id, id) on delete cascade
 );
 
 create index document_tags_tag_idx
