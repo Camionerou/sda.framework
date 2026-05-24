@@ -1345,6 +1345,172 @@ git add supabase/migrations/20260801123500_dispatch_inngest_event.sql supabase/t
 git commit -m "feat(db): app.dispatch_inngest_event helper + outbox pattern (pg_net + sweep fallback)"
 ```
 
+### Task 1.10: Validators jsonschema para `tenant_oauth_credentials.config` y `document_sources.config`
+
+**Files:**
+- Create: `supabase/migrations/20260801123600_connectors_jsonschema_validators.sql`
+- Create: `supabase/tests/connectors_jsonschema_validators_test.sql`
+
+**Contexto**: ambas tablas tienen una columna `config jsonb` cuyo contenido depende del provider. Sin validation, un connector mal configurado falla silenciosamente y solo se nota cuando el worker intenta sync. Lock-in del shape.
+
+- [ ] **Step 1: Migración**
+
+```sql
+-- supabase/migrations/20260801123600_connectors_jsonschema_validators.sql
+
+-- Helper para construir el schema de tenant_oauth_credentials.config segun provider
+create or replace function app.oauth_credentials_config_schema()
+returns jsonb
+language sql
+immutable
+parallel safe
+as $$
+  select jsonb_build_object(
+    'type','object',
+    'required', jsonb_build_array('provider'),
+    'oneOf', jsonb_build_array(
+      jsonb_build_object(
+        'properties', jsonb_build_object(
+          'provider', jsonb_build_object('const','google_drive'),
+          'scopes', jsonb_build_object('type','array','items',jsonb_build_object('type','string')),
+          'redirect_uri', jsonb_build_object('type','string','format','uri'),
+          'drive_id', jsonb_build_object('type','string')
+        ),
+        'required', jsonb_build_array('provider','scopes','redirect_uri'),
+        'additionalProperties', false
+      ),
+      jsonb_build_object(
+        'properties', jsonb_build_object(
+          'provider', jsonb_build_object('const','microsoft_365'),
+          'scopes', jsonb_build_object('type','array','items',jsonb_build_object('type','string')),
+          'redirect_uri', jsonb_build_object('type','string','format','uri'),
+          'tenant_id', jsonb_build_object('type','string')
+        ),
+        'required', jsonb_build_array('provider','scopes','redirect_uri'),
+        'additionalProperties', false
+      )
+    )
+  );
+$$;
+
+alter table public.tenant_oauth_credentials
+  add constraint tenant_oauth_credentials_config_schema_chk
+  check (app.validate_jsonschema(config, app.oauth_credentials_config_schema()));
+
+-- Schema de document_sources.config
+create or replace function app.document_sources_config_schema()
+returns jsonb
+language sql
+immutable
+parallel safe
+as $$
+  select jsonb_build_object(
+    'type','object',
+    'additionalProperties', false,
+    'properties', jsonb_build_object(
+      'root_folder_id', jsonb_build_object('type','string'),
+      'include_subfolders', jsonb_build_object('type','boolean'),
+      'mime_filters', jsonb_build_object(
+        'type','array',
+        'items', jsonb_build_object('type','string')
+      ),
+      'max_file_size_mb', jsonb_build_object('type','integer','minimum',1,'maximum',5000),
+      'sync_interval_minutes', jsonb_build_object('type','integer','minimum',5,'maximum',1440)
+    )
+  );
+$$;
+
+alter table public.document_sources
+  add constraint document_sources_config_schema_chk
+  check (app.validate_jsonschema(config, app.document_sources_config_schema()));
+```
+
+- [ ] **Step 2: pgTAP test**
+
+```sql
+-- supabase/tests/connectors_jsonschema_validators_test.sql
+BEGIN;
+SELECT plan(6);
+
+-- Setup minimo
+insert into public.tenants (id, slug, name)
+values ('00000000-0000-0000-0000-000000110001','ck-tenant','CK Tenant');
+
+-- Google Drive valido
+SELECT lives_ok(
+  $$ insert into public.tenant_oauth_credentials
+       (tenant_id, provider, status, config, encrypted_payload_ref)
+     values ('00000000-0000-0000-0000-000000110001','google_drive','pending',
+             '{"provider":"google_drive","scopes":["drive.readonly"],"redirect_uri":"https://app.test/oauth/callback"}'::jsonb,
+             'vault-ref-1') $$,
+  'google_drive config valida pasa');
+
+-- MS 365 valido
+SELECT lives_ok(
+  $$ insert into public.tenant_oauth_credentials
+       (tenant_id, provider, status, config, encrypted_payload_ref)
+     values ('00000000-0000-0000-0000-000000110001','microsoft_365','pending',
+             '{"provider":"microsoft_365","scopes":["Files.Read"],"redirect_uri":"https://app.test/oauth/callback","tenant_id":"common"}'::jsonb,
+             'vault-ref-2') $$,
+  'microsoft_365 config valida pasa');
+
+-- Provider mismatch (config dice google_drive pero falta scopes)
+SELECT throws_ok(
+  $$ insert into public.tenant_oauth_credentials
+       (tenant_id, provider, status, config, encrypted_payload_ref)
+     values ('00000000-0000-0000-0000-000000110001','google_drive','pending',
+             '{"provider":"google_drive","redirect_uri":"https://app.test/cb"}'::jsonb,
+             'vault-ref-3') $$,
+  '23514', null,
+  'config sin scopes falla');
+
+-- document_sources valido
+SELECT lives_ok(
+  $$ insert into public.document_sources
+       (id, tenant_id, source_name, provider, config, status)
+     values (gen_random_uuid(),'00000000-0000-0000-0000-000000110001','Drive Folder X','google_drive',
+             '{"root_folder_id":"abc","include_subfolders":true,"max_file_size_mb":100}'::jsonb,
+             'active') $$,
+  'document_sources config valida pasa');
+
+-- document_sources invalido (sync_interval muy bajo)
+SELECT throws_ok(
+  $$ insert into public.document_sources
+       (id, tenant_id, source_name, provider, config, status)
+     values (gen_random_uuid(),'00000000-0000-0000-0000-000000110001','Bad','google_drive',
+             '{"sync_interval_minutes":1}'::jsonb,'active') $$,
+  '23514', null,
+  'sync_interval_minutes < 5 falla');
+
+-- document_sources invalido (campo extra)
+SELECT throws_ok(
+  $$ insert into public.document_sources
+       (id, tenant_id, source_name, provider, config, status)
+     values (gen_random_uuid(),'00000000-0000-0000-0000-000000110001','Bad2','google_drive',
+             '{"unknown_field":"x"}'::jsonb,'active') $$,
+  '23514', null,
+  'campo extra falla');
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 3: Aplicar + correr test**
+
+```bash
+supabase db push
+npm run test:db -- --test supabase/tests/connectors_jsonschema_validators_test.sql
+```
+
+Expected: 6/6.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260801123600_connectors_jsonschema_validators.sql supabase/tests/connectors_jsonschema_validators_test.sql
+git commit -m "feat(db): jsonschema validators para tenant_oauth_credentials + document_sources configs"
+```
+
 ---
 
 ## Paso 2 · Connectors workers: OAuth callback + sync worker
