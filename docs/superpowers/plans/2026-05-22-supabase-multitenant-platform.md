@@ -26,8 +26,8 @@
 |---|---:|---:|---:|---:|---:|
 | Tier 1 Foundation | 5267 | 22 | ~30 | ~25 | 13 |
 | Tier 2 Multipliers | ~6800 | 19 | ~50 | ~33 | 17 |
-| Tier 3 Enterprise | ~6300 | 8 | ~57 | ~46 | 21 |
-| **Total** | **~18367** | **49** | **~137** | **~104** | **51** |
+| Tier 3 Enterprise | ~6300 | 8 | ~57 | ~46 | 26 |
+| **Total** | **~18367** | **49** | **~137** | **~104** | **56** |
 
 > Cifras actualizadas el 2026-05-24 por el plan `2026-05-24-db-extensions-tier2-tier3-restructure.md`. Tier 2 ganó Paso 0 (DB platform foundation) y 3 migraciones (`pg_jsonschema`, `btree_gin`, search indexes GIN). Tier 3 ganó helper `app.dispatch_inngest_event` + validators jsonschema connectors + btree_gin en particionado + halfvec Task 7.4 reescrita.
 
