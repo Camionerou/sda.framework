@@ -5167,32 +5167,33 @@ git add supabase/migrations/20260801170000_halfvec_dual_write.sql supabase/tests
 git commit -m "feat(db): halfvec dual-write window for chunks + doc_tree_nodes"
 ```
 
-### Task 7.4: Switch RPCs de search a usar `embedding_half`
+### Task 7.4.a: Switch RPC `search_chunks` a leer `embedding_half`
 
 **Files:**
-- Modify: search RPCs en `lib/system-versions.json` o las migraciones que las definieron.
+- Create: `supabase/migrations/20260801170100_search_chunks_use_halfvec.sql`
+- Create: `supabase/tests/search_chunks_use_halfvec_test.sql`
 
-> Decision: durante la ventana, las RPCs de search leen `embedding_half` (FP16). Si no esta seteada todavia (rows viejas pre-backfill), fallback a `embedding`. Tras el swap del Paso 7.5 desaparece el fallback.
+**Contexto**: `search_chunks` (definida en Tier 2 Paso 3 migración 040.b) acepta el modo `embedding` y `hybrid` que leen `chunks.embedding vector(1536)`. Durante la ventana dual-write debe leer `chunks.embedding_half halfvec(1536)` con fallback a `embedding` si halfvec es null (filas pre-backfill).
 
-- [ ] **Step 1: Localizar RPCs de search a actualizar**
-
-```bash
-grep -rn "embedding extensions.vector\|using hnsw" supabase/migrations/ | grep -v halfvec
-```
-
-Expected: lista de migraciones con HNSW sobre `embedding`. Estas funciones (`search_chunks`, `search_tree_nodes_by_embedding`) deben re-escribirse en una migracion incremental:
+- [ ] **Step 1: Migración**
 
 ```sql
--- migracion auxiliar (mismo timestamp +1s del Task 7.3 si conviene):
--- supabase/migrations/20260801170100_search_rpcs_use_halfvec.sql
+-- supabase/migrations/20260801170100_search_chunks_use_halfvec.sql
+-- Re-escribir search_chunks para leer chunks.embedding_half con fallback a embedding.
 
-create or replace function public.search_tree_nodes_by_embedding(
-  _embedding extensions.halfvec,
+create or replace function public.search_chunks(
+  _query text,
+  _query_embedding extensions.halfvec default null,
+  _mode text default 'fts',
   _filters jsonb default '{}'::jsonb,
   _limit int default 10
 )
 returns table (
-  node_id text, document_id uuid, score float8, title text, summary text
+  chunk_id uuid,
+  document_id uuid,
+  content text,
+  score float8,
+  metadata jsonb
 )
 language plpgsql
 security definer
@@ -5203,28 +5204,194 @@ declare
   _tenant uuid := (select app.current_tenant_id());
 begin
   return query
-  select n.node_id, n.document_id,
-         (1 - (n.embedding_half <=> _embedding))::float8 as score,
-         n.title, n.summary
-  from public.doc_tree_nodes n
-  where n.tenant_id = _tenant
-    and n.embedding_half is not null
-  order by n.embedding_half <=> _embedding
+  select
+    c.id as chunk_id,
+    c.document_id,
+    c.content,
+    case _mode
+      when 'fts' then ts_rank(c.content_tsv, websearch_to_tsquery('simple', _query))::float8
+      when 'trigram' then extensions.similarity(c.content, _query)::float8
+      when 'embedding' then (1 - (coalesce(c.embedding_half, c.embedding::extensions.halfvec) <=> _query_embedding))::float8
+      when 'hybrid' then (
+        coalesce(ts_rank(c.content_tsv, websearch_to_tsquery('simple', _query)), 0)
+        + coalesce(extensions.similarity(c.content, _query), 0) * 0.4
+        + case
+            when _query_embedding is not null
+            then (1 - (coalesce(c.embedding_half, c.embedding::extensions.halfvec) <=> _query_embedding)) * 0.6
+            else 0
+          end
+      )::float8
+      else 0::float8
+    end as score,
+    c.metadata
+  from public.chunks c
+  where c.tenant_id = _tenant
+    and (
+      (_mode = 'fts' and c.content_tsv @@ websearch_to_tsquery('simple', _query)) or
+      (_mode = 'trigram' and c.content extensions.% _query) or
+      (_mode in ('embedding','hybrid') and _query_embedding is not null) or
+      (_mode = 'hybrid' and c.content_tsv @@ websearch_to_tsquery('simple', _query))
+    )
+  order by score desc
   limit greatest(coalesce(_limit, 10), 1);
 end;
 $$;
+
+revoke all on function public.search_chunks(text, extensions.halfvec, text, jsonb, int) from public;
+grant execute on function public.search_chunks(text, extensions.halfvec, text, jsonb, int) to authenticated, service_role;
+
+comment on function public.search_chunks(text, extensions.halfvec, text, jsonb, int) is
+  'Multi-mode search (fts/trigram/embedding/hybrid). Lee embedding_half con fallback a embedding durante ventana dual-write.';
 ```
 
-- [ ] **Step 2: Tests para search post-switch**
+- [ ] **Step 2: Test**
 
-Cubierto por tests existentes de search (en `supabase/tests/db_caching_retrieval_ops_test.sql`); validar que no regresionan tras cambiar el parametro a `halfvec`.
+```sql
+-- supabase/tests/search_chunks_use_halfvec_test.sql
+BEGIN;
+SELECT plan(3);
 
-- [ ] **Step 3: Commit**
+-- La firma cambio: 5 argumentos, incluyendo halfvec en posicion 2
+SELECT has_function('public','search_chunks',
+  ARRAY['text','extensions.halfvec','text','jsonb','integer'],
+  'search_chunks acepta halfvec');
+
+-- Verifica que la funcion compila y lee embedding_half (smoke)
+SELECT lives_ok(
+  $$ select * from public.search_chunks('test', null, 'fts', '{}'::jsonb, 5) $$,
+  'invocacion modo fts sin embedding pasa');
+
+SELECT lives_ok(
+  $$ select * from public.search_chunks(
+       'test',
+       array_fill(0.0::real, ARRAY[1536])::extensions.halfvec,
+       'embedding', '{}'::jsonb, 5) $$,
+  'invocacion modo embedding con halfvec pasa');
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 3: Aplicar + correr**
 
 ```bash
-git add supabase/migrations/20260801170100_search_rpcs_use_halfvec.sql
-git commit -m "refactor(db): search RPCs leen embedding_half"
+supabase db push
+npm run test:db -- --test supabase/tests/search_chunks_use_halfvec_test.sql
 ```
+
+Expected: 3/3.
+
+- [ ] **Step 4: Smoke con dataset real (staging)**
+
+```bash
+psql "$STAGING_DB_URL" <<'SQL'
+select chunk_id, score
+from public.search_chunks('contrato fiscal', null, 'fts', '{}'::jsonb, 5);
+SQL
+```
+
+Expected: filas (no error). El modo embedding/hybrid require generar un embedding query del lado del worker.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add supabase/migrations/20260801170100_search_chunks_use_halfvec.sql supabase/tests/search_chunks_use_halfvec_test.sql
+git commit -m "refactor(db): search_chunks lee embedding_half con fallback a embedding (halfvec dual-write)"
+```
+
+### Task 7.4.b: Switch RPC `search_tree_nodes_by_embedding` a leer `embedding_half`
+
+**Files:**
+- Create: `supabase/migrations/20260801170200_search_tree_nodes_use_halfvec.sql`
+- Create: `supabase/tests/search_tree_nodes_use_halfvec_test.sql`
+
+**Contexto**: `search_tree_nodes_by_embedding` (definida en Tier 2 Paso 3) hace KNN sobre `doc_tree_nodes.embedding`. Igual que 7.4.a, lee `embedding_half` con fallback.
+
+- [ ] **Step 1: Migración**
+
+```sql
+-- supabase/migrations/20260801170200_search_tree_nodes_use_halfvec.sql
+
+create or replace function public.search_tree_nodes_by_embedding(
+  _embedding extensions.halfvec,
+  _filters jsonb default '{}'::jsonb,
+  _limit int default 10
+)
+returns table (
+  node_id text,
+  document_id uuid,
+  score float8,
+  title text,
+  summary text
+)
+language plpgsql
+security definer
+stable
+set search_path = ''
+as $$
+declare
+  _tenant uuid := (select app.current_tenant_id());
+begin
+  return query
+  select
+    n.node_id,
+    n.document_id,
+    (1 - (coalesce(n.embedding_half, n.embedding::extensions.halfvec) <=> _embedding))::float8 as score,
+    n.title,
+    n.summary
+  from public.doc_tree_nodes n
+  where n.tenant_id = _tenant
+    and (n.embedding_half is not null or n.embedding is not null)
+  order by coalesce(n.embedding_half, n.embedding::extensions.halfvec) <=> _embedding
+  limit greatest(coalesce(_limit, 10), 1);
+end;
+$$;
+
+revoke all on function public.search_tree_nodes_by_embedding(extensions.halfvec, jsonb, int) from public;
+grant execute on function public.search_tree_nodes_by_embedding(extensions.halfvec, jsonb, int) to authenticated, service_role;
+
+comment on function public.search_tree_nodes_by_embedding(extensions.halfvec, jsonb, int) is
+  'KNN sobre doc_tree_nodes. Lee embedding_half con fallback a embedding durante ventana dual-write.';
+```
+
+- [ ] **Step 2: Test**
+
+```sql
+-- supabase/tests/search_tree_nodes_use_halfvec_test.sql
+BEGIN;
+SELECT plan(2);
+
+SELECT has_function('public','search_tree_nodes_by_embedding',
+  ARRAY['extensions.halfvec','jsonb','integer'],
+  'firma halfvec');
+
+SELECT lives_ok(
+  $$ select * from public.search_tree_nodes_by_embedding(
+       array_fill(0.0::real, ARRAY[1536])::extensions.halfvec,
+       '{}'::jsonb, 5) $$,
+  'invocacion smoke pasa');
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 3: Aplicar + correr**
+
+```bash
+supabase db push
+npm run test:db -- --test supabase/tests/search_tree_nodes_use_halfvec_test.sql
+```
+
+Expected: 2/2.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260801170200_search_tree_nodes_use_halfvec.sql supabase/tests/search_tree_nodes_use_halfvec_test.sql
+git commit -m "refactor(db): search_tree_nodes_by_embedding lee embedding_half con fallback"
+```
+
+> Tras 7.4.a y 7.4.b, las dos RPCs principales de búsqueda vectorial leen halfvec con fallback. Cuando Task 7.5 (+7d) haga el swap final, las RPCs no requieren cambio adicional — el `coalesce(n.embedding_half, n.embedding)` se vuelve no-op una vez que `embedding_half` está poblado en 100% y la columna `embedding` antigua se dropea.
 
 ### Task 7.5: Migracion swap final (programada +7d)
 
