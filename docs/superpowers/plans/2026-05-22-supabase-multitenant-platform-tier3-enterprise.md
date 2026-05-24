@@ -2500,6 +2500,116 @@ git add inngest/functions/sync-document-source.ts inngest/functions/__tests__/sy
 git commit -m "feat(inngest): sync-document-sources cron + ingest-connector-item handler"
 ```
 
+### Task 2.6: Trigger dispatch sync inicial al conectar credentials
+
+**Files:**
+- Create: `supabase/migrations/20260801125000_connector_sync_initial_trigger.sql`
+- Create: `supabase/tests/connector_sync_initial_trigger_test.sql`
+
+**Contexto**: cuando `tenant_oauth_credentials.status` transita a `connected`, queremos disparar `connector.sync_initial` al worker Inngest **inmediatamente** vía `app.dispatch_inngest_event` (Task 1.9). Sin esto, el primer sync espera hasta el próximo tick del cron de Paso 2 Task 2.5.
+
+- [ ] **Step 1: Migración**
+
+```sql
+-- supabase/migrations/20260801125000_connector_sync_initial_trigger.sql
+
+create or replace function app.dispatch_connector_sync_initial()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.status = 'connected' and (old.status is null or old.status <> 'connected') then
+    perform app.dispatch_inngest_event(
+      new.tenant_id,
+      'connector.sync_initial',
+      jsonb_build_object(
+        'credential_id', new.id,
+        'provider', new.provider,
+        'connected_at', extract(epoch from now())::bigint
+      )
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists tenant_oauth_credentials_dispatch_sync_initial
+  on public.tenant_oauth_credentials;
+
+create trigger tenant_oauth_credentials_dispatch_sync_initial
+  after insert or update of status on public.tenant_oauth_credentials
+  for each row
+  execute function app.dispatch_connector_sync_initial();
+
+comment on trigger tenant_oauth_credentials_dispatch_sync_initial
+  on public.tenant_oauth_credentials is
+  'Cuando status pasa a connected, dispara connector.sync_initial vía dispatch_inngest_event (pg_net o outbox fallback).';
+```
+
+- [ ] **Step 2: Test**
+
+```sql
+-- supabase/tests/connector_sync_initial_trigger_test.sql
+BEGIN;
+SELECT plan(4);
+
+SELECT has_function('app','dispatch_connector_sync_initial',
+  ARRAY[]::text[], 'function existe');
+SELECT has_trigger('public','tenant_oauth_credentials',
+  'tenant_oauth_credentials_dispatch_sync_initial','trigger existe');
+
+-- Setup GUCs para que dispatch funcione
+SELECT set_config('app.inngest_endpoint_url','https://example.test/x',true);
+SELECT set_config('app.inngest_signing_key','test-key',true);
+
+insert into public.tenants (id, slug, name)
+values ('00000000-0000-0000-0000-000000026001','st-tenant','ST Tenant');
+
+-- Insert con status='pending' NO dispara
+insert into public.tenant_oauth_credentials
+  (tenant_id, provider, status, config, encrypted_payload_ref)
+values ('00000000-0000-0000-0000-000000026001','google_drive','pending',
+        '{"provider":"google_drive","scopes":["drive.readonly"],"redirect_uri":"https://x.test/cb"}'::jsonb,
+        'vref');
+SELECT is(
+  (select count(*)::int from app.dispatch_outbox where event_name = 'connector.sync_initial'),
+  0,
+  'status=pending no dispara'
+);
+
+-- Update a connected dispara
+update public.tenant_oauth_credentials
+  set status = 'connected'
+  where tenant_id = '00000000-0000-0000-0000-000000026001';
+
+SELECT is(
+  (select count(*)::int from app.dispatch_outbox where event_name = 'connector.sync_initial'),
+  1,
+  'status -> connected dispara 1 evento'
+);
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 3: Aplicar + correr**
+
+```bash
+supabase db push
+npm run test:db -- --test supabase/tests/connector_sync_initial_trigger_test.sql
+```
+
+Expected: 4/4.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260801125000_connector_sync_initial_trigger.sql supabase/tests/connector_sync_initial_trigger_test.sql
+git commit -m "feat(db): trigger connector.sync_initial al transitar credentials a connected"
+```
+
 ---
 
 ## Paso 3 · Usage records + aggregations + threshold notification
