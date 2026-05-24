@@ -65,21 +65,28 @@ Timestamps comprometidos para Tier 3. La ultima migracion conocida al momento de
 | 2 | `20260801121000_tenant_oauth_credentials.sql` | `tenant_oauth_credentials` + enum `connector_provider` + `connector_status` | tabla + RLS + audit triggers |
 | 3 | `20260801122000_document_sources.sql` | `document_sources` + `document_source_cursors` + `document_source_items` | tablas + RLS + composite FKs |
 | 4 | `20260801123000_connectors_rpcs.sql` | RPCs `create_oauth_credential`, `revoke_oauth_credential`, `create_document_source`, ... | RPCs + audits |
-| 5 | `20260801130000_usage_records_partitioned.sql` | `usage_records` particionada + particion mes corriente + 3 premake | tabla + indices + RLS |
-| 6 | `20260801131000_usage_aggregates_daily.sql` | matview `usage_aggregates_daily` + 4 unique idx parciales | matview + indices |
-| 7 | `20260801132000_usage_rpcs_and_threshold.sql` | RPCs `report_usage`, `tenant_usage_summary`, `recompute_usage_aggregates` + trigger threshold | RPCs + trigger + notif kind |
-| 8 | `20260801140000_stripe_mirror.sql` | `stripe_customers` + `stripe_subscriptions` + indices | tablas + RLS read-only |
-| 9 | `20260801150000_data_exports.sql` | `data_exports` + RPCs `request_data_export`, `list_data_exports` | tabla + RPCs + RLS |
-| 10 | `20260801160000_partition_audit_log.sql` | swap `audit_log` -> particionada por `created_at` | swap + FKs/triggers/RLS recreados |
-| 11 | `20260801161000_partition_indexing_events.sql` | swap `indexing_events` | swap |
-| 12 | `20260801162000_partition_document_views.sql` | swap `document_views` (creada en Tier 2) | swap |
-| 13 | `20260801163000_partition_notifications.sql` | swap `notifications` | swap |
-| 14 | `20260801164000_partition_maintenance.sql` | funcion `app.ensure_future_partitions` + cron diario | funcion + job |
-| 15 | `20260801170000_halfvec_dual_write.sql` | `embedding_half` + trigger + HNSW + RPCs leyendo halfvec | dual-write ventana |
-| 16 | `20260801171000_halfvec_swap.sql` (programada +7d) | drop trigger, drop `embedding` antigua, rename | swap final |
-| 17 | `20260801180000_workspace_views.sql` | vistas `workspace_top_documents`, `workspace_recent_activity` | vistas + grants |
-| 18 | `20260801181000_cleanup_operational_data_v3.sql` | extender funcion existente | funcion |
-| 19 | `20260801182000_realtime_tier3.sql` | publicar `usage_records`, `data_exports` | publication |
+| 5 | `20260801123500_dispatch_inngest_event.sql` | helper `app.dispatch_inngest_event` + `app.dispatch_outbox` table + sweep cron | función + tabla + cron job |
+| 6 | `20260801123600_connectors_jsonschema_validators.sql` | validators jsonschema para `tenant_oauth_credentials.config` y `document_sources.config` | CHECK constraints + helper functions |
+| 7 | `20260801125000_connector_sync_initial_trigger.sql` | trigger dispatcha `connector.sync_initial` al transitar credentials a connected | trigger function + trigger |
+| 8 | `20260801130000_usage_records_partitioned.sql` | `usage_records` particionada + particion mes corriente + 3 premake | tabla + indices + RLS |
+| 9 | `20260801131000_usage_aggregates_daily.sql` | matview `usage_aggregates_daily` + 4 unique idx parciales | matview + indices |
+| 10 | `20260801132000_usage_rpcs_and_threshold.sql` | RPCs `report_usage`, `tenant_usage_summary`, `recompute_usage_aggregates` + trigger threshold | RPCs + trigger + notif kind |
+| 11 | `20260801140000_stripe_mirror.sql` | `stripe_customers` + `stripe_subscriptions` + indices | tablas + RLS read-only |
+| 12 | `20260801150000_data_exports.sql` | `data_exports` + RPCs `request_data_export`, `list_data_exports` | tabla + RPCs + RLS |
+| 13 | `20260801150500_data_exports_dispatch_trigger.sql` | trigger DB-side data_exports → `app.dispatch_inngest_event` | trigger + función |
+| 14 | `20260801160000_partition_audit_log.sql` | swap `audit_log` -> particionada por `created_at` | swap + FKs/triggers/RLS recreados |
+| 15 | `20260801161000_partition_indexing_events.sql` | swap `indexing_events` | swap |
+| 16 | `20260801162000_partition_document_views.sql` | swap `document_views` (creada en Tier 2) | swap |
+| 17 | `20260801163000_partition_notifications.sql` | swap `notifications` | swap |
+| 18 | `20260801164000_partition_maintenance.sql` | funcion `app.ensure_future_partitions` + cron diario | funcion + job |
+| 19 | `20260801164500_partition_btree_gin_indexes.sql` | btree_gin compuestos `(tenant_id + jsonb)` en `audit_log`, `indexing_events`, `notifications`, `document_views` | 4 índices GIN multi-tenant |
+| 20 | `20260801170000_halfvec_dual_write.sql` | `embedding_half` + trigger + HNSW + RPCs leyendo halfvec | dual-write ventana |
+| 21 | `20260801170100_search_chunks_use_halfvec.sql` | `search_chunks` RPC lee `embedding_half` con fallback (closes gap) | refactor RPC |
+| 22 | `20260801170200_search_tree_nodes_use_halfvec.sql` | `search_tree_nodes_by_embedding` RPC lee `embedding_half` con fallback (closes gap) | refactor RPC |
+| 23 | `20260801171000_halfvec_swap.sql` (programada +7d) | drop trigger, drop `embedding` antigua, rename | swap final |
+| 24 | `20260801180000_workspace_views.sql` | vistas `workspace_top_documents`, `workspace_recent_activity` | vistas + grants |
+| 25 | `20260801181000_cleanup_operational_data_v3.sql` | extender funcion existente | funcion |
+| 26 | `20260801182000_realtime_tier3.sql` | publicar `usage_records`, `data_exports` | publication |
 
 > Nota: la migracion 16 (`halfvec_swap`) NO se aplica el mismo dia que la 15. Se difiere 7 dias en staging y se mergea a `main` con guard `created at` posterior al swap real. Detalle en Task 7.5.
 
