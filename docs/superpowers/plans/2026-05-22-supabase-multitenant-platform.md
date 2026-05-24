@@ -25,9 +25,11 @@
 | Plan | LOC | Pasos | Tasks | Commits | Migraciones SQL |
 |---|---:|---:|---:|---:|---:|
 | Tier 1 Foundation | 5267 | 22 | ~30 | ~25 | 13 |
-| Tier 2 Multipliers | 6119 | 18 | 44 | 27 | 14 |
-| Tier 3 Enterprise | 5407 | 8 | 51 | 39 | 19 |
-| **Total** | **16960** | **48** | **~125** | **~91** | **46** |
+| Tier 2 Multipliers | ~6800 | 19 | ~50 | ~33 | 17 |
+| Tier 3 Enterprise | ~6300 | 8 | ~57 | ~46 | 21 |
+| **Total** | **~18367** | **49** | **~137** | **~104** | **51** |
+
+> Cifras actualizadas el 2026-05-24 por el plan `2026-05-24-db-extensions-tier2-tier3-restructure.md`. Tier 2 ganó Paso 0 (DB platform foundation) y 3 migraciones (`pg_jsonschema`, `btree_gin`, search indexes GIN). Tier 3 ganó helper `app.dispatch_inngest_event` + validators jsonschema connectors + btree_gin en particionado + halfvec Task 7.4 reescrita.
 
 ### Gaps conocidos documentados en los plans hijos
 
@@ -59,9 +61,10 @@ presentes al arrancar cada tier:
   `listChanges` actual usa changes endpoint global; mejora menor pendiente.
 - `dumpScope` (data export) carga todo a memoria via JSZip; tenants con >1
   GB de data requieren streaming v2.
-- Migracion 7.4 (halfvec) enumera explicitamente solo
-  `search_tree_nodes_by_embedding`; `search_chunks` debe actualizarse en
-  paralelo (inferible pero podria ser mas firme en el plan).
+- ~~Migracion 7.4 (halfvec) enumera explicitamente solo
+  `search_tree_nodes_by_embedding`~~ — **CERRADO 2026-05-24**: Task 7.4 reescrita
+  en 7.4.a (`search_chunks`) + 7.4.b (`search_tree_nodes_by_embedding`),
+  cada una con migración propia y test pgTAP. Ver plan restructure.
 
 ---
 
@@ -94,6 +97,18 @@ Estas vienen del spec y aplican a todos los tiers. Si un plan hijo parece contra
 7. **Connectors**: solo Drive + M365 en este corte. Notion/Slack diferidos.
 8. **API externa**: nada. Sin API keys / webhooks salientes / service accounts.
 9. **`agent_tasks`**: diferido hasta tener journey con pull real.
+
+---
+
+## Tier 4 candidates (no agendados, evaluación futura)
+
+Extensiones / mejoras evaluadas y deliberadamente diferidas. Cada una tiene criterio de activación. Si se gatilla, abrir mini-plan dedicado.
+
+- **`pgmq`** — cola de mensajes nativa Postgres. **Criterio**: costo Inngest mensual supera umbral acordado (definir con datos reales de operación post-Tier 3) o requerimiento de enqueue transaccional (insert + enqueue en misma tx ACID, hoy no satisfacible con Inngest). Hoy Inngest cubre el fan-out con holgura.
+- **Binary quantization (`bit(1536)` prefilter HNSW)** — segundo round de cuantización de embeddings encima de halfvec. **Criterio**: p95 latencia search > 200ms después de Tier 3 Paso 7 halfvec. Implementación: índice `bit(N)` para prefiltro barato + re-rank con halfvec.
+- **`pg_trgm` removal** — si el audit de Tier 2 Paso 16 Task 16.3 confirma que `gin_trgm_ops` no se está usando en producción, removerlo en migración de cleanup.
+- **`uuid-ossp` removal** — si Tier 2 Paso 0 Task 0.3 confirma cero llamadas a `uuid_generate_v4()`, dropear extensión.
+- **`hypopg`/`index_advisor` permanente en staging** — hoy queda como herramienta dev/staging ad-hoc (ver `docs/db-tuning.md`). Si el flujo se vuelve recurrente, formalizar habilitándolo siempre en staging via migración condicional.
 
 ---
 
