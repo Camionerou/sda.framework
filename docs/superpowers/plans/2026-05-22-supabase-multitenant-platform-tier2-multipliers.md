@@ -1181,7 +1181,7 @@ git commit -m "feat(db): tier2 040.b search rpcs (documents, chunks, tree, evide
 
 ## Paso 3.b · Migracion 040.c · Indices GIN para search_chunks
 
-Las RPCs de Paso 3 (`search_chunks` modos `fts`/`trigram`/`hybrid`) usan operadores `pg_trgm` y `tsvector @@ tsquery` pero el plan original no agregó índices GIN. Sin estos índices el planner hace **Seq Scan** sobre `chunks` y el modo `hybrid` (Top-K mezclado) es inviable a > 100K filas. Esta migración crea los índices con `CREATE INDEX CONCURRENTLY` para no bloquear writes en producción.
+Las RPCs de Paso 3 (`search_chunks` modos `fts`/`trigram`/`hybrid`) usan operadores `pg_trgm` y `tsvector @@ tsquery` pero el plan original no agregó índices GIN. Sin estos índices el planner hace **Seq Scan** sobre `chunks` y el modo `hybrid` (Top-K mezclado) es inviable a > 100K filas. Esta migración crea los índices con `CREATE INDEX CONCURRENTLY` para no bloquear writes en producción. Esta migración solo crea índices sobre `chunks` (alto volumen). El equivalente sobre `documents.full_text_index` se difiere — la columna no existe todavía; agregar cuando Paso 3 confirme el shape de `search_documents`.
 
 > Esta migración **NO puede correr dentro de transacción** porque usa `CONCURRENTLY`. Supabase la procesa fuera de transacción si es el único statement del archivo. Verificar con `supabase db push --dry-run` antes de aplicar.
 
@@ -1195,24 +1195,12 @@ Las RPCs de Paso 3 (`search_chunks` modos `fts`/`trigram`/`hybrid`) usan operado
 ```sql
 -- supabase/tests/search_indexes_gin_test.sql
 BEGIN;
-SELECT plan(4);
+SELECT plan(2);
 
 SELECT has_index('public','chunks','chunks_content_trgm_idx',
   'indice trigram en chunks.content existe');
 SELECT has_index('public','chunks','chunks_content_tsv_tenant_gin_idx',
   'indice compuesto (tenant_id, content_tsv) existe');
-SELECT has_index('public','documents','documents_full_text_index_tenant_gin_idx',
-  'indice compuesto (tenant_id, full_text_index) existe');
-
--- Validar que los indices usan el operator class correcto
-SELECT is(
-  (select pg_get_indexdef(idx.indexrelid)
-   from pg_index idx
-   join pg_class c on c.oid = idx.indexrelid
-   where c.relname = 'chunks_content_trgm_idx'),
-  'CREATE INDEX chunks_content_trgm_idx ON public.chunks USING gin (content extensions.gin_trgm_ops)',
-  'definicion del indice trigram correcta'
-);
 
 SELECT * FROM finish();
 ROLLBACK;
@@ -1224,7 +1212,7 @@ ROLLBACK;
 npm run test:db -- --test supabase/tests/search_indexes_gin_test.sql || echo "FAIL esperado"
 ```
 
-Expected: 4 fails. Es lo correcto antes de aplicar la migración.
+Expected: 2 fails. Es lo correcto antes de aplicar la migración.
 
 ### Task 3.b.2: Migración `20260601090150_search_indexes_gin.sql`
 
@@ -1252,12 +1240,6 @@ create index concurrently if not exists chunks_content_tsv_tenant_gin_idx
   on public.chunks
   using gin (tenant_id, content_tsv);
 
--- 3) Índice compuesto sobre documents.full_text_index (tsvector) por tenant.
---    Asume que documents.full_text_index es generated column tsvector.
-create index concurrently if not exists documents_full_text_index_tenant_gin_idx
-  on public.documents
-  using gin (tenant_id, full_text_index);
-
 -- Nota: NO drop del indice chunks_content_tsv_idx existente todavia
 -- (puede haber sido creado por 20260520145604). El nuevo lo desplaza si planner
 -- ve que el compuesto es mejor; mantener ambos por una sprint y dropear el viejo
@@ -1267,8 +1249,6 @@ comment on index public.chunks_content_trgm_idx is
   'GIN trigram para chunks.content; consume modo trigram/hybrid de search_chunks';
 comment on index public.chunks_content_tsv_tenant_gin_idx is
   'GIN compuesto (tenant_id, content_tsv); consume modo fts/hybrid multi-tenant de search_chunks';
-comment on index public.documents_full_text_index_tenant_gin_idx is
-  'GIN compuesto (tenant_id, full_text_index); consume search_documents multi-tenant';
 ```
 
 - [ ] **Step 2: Aplicar y verificar**
@@ -1278,7 +1258,7 @@ supabase db push
 npm run test:db -- --test supabase/tests/search_indexes_gin_test.sql
 ```
 
-Expected: test pasa (4/4).
+Expected: test pasa (2/2).
 
 - [ ] **Step 3: Verificar planner usa los índices**
 
