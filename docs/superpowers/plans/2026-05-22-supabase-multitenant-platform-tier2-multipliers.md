@@ -1179,6 +1179,130 @@ git commit -m "feat(db): tier2 040.b search rpcs (documents, chunks, tree, evide
 
 ---
 
+## Paso 3.b · Migracion 040.c · Indices GIN para search_chunks
+
+Las RPCs de Paso 3 (`search_chunks` modos `fts`/`trigram`/`hybrid`) usan operadores `pg_trgm` y `tsvector @@ tsquery` pero el plan original no agregó índices GIN. Sin estos índices el planner hace **Seq Scan** sobre `chunks` y el modo `hybrid` (Top-K mezclado) es inviable a > 100K filas. Esta migración crea los índices con `CREATE INDEX CONCURRENTLY` para no bloquear writes en producción.
+
+> Esta migración **NO puede correr dentro de transacción** porque usa `CONCURRENTLY`. Supabase la procesa fuera de transacción si es el único statement del archivo. Verificar con `supabase db push --dry-run` antes de aplicar.
+
+### Task 3.b.1: pgTAP test — verificar índices creados
+
+**Files:**
+- Create: `supabase/tests/search_indexes_gin_test.sql`
+
+- [ ] **Step 1: Escribir test (debe FALLAR hasta crear la migración)**
+
+```sql
+-- supabase/tests/search_indexes_gin_test.sql
+BEGIN;
+SELECT plan(4);
+
+SELECT has_index('public','chunks','chunks_content_trgm_idx',
+  'indice trigram en chunks.content existe');
+SELECT has_index('public','chunks','chunks_content_tsv_tenant_gin_idx',
+  'indice compuesto (tenant_id, content_tsv) existe');
+SELECT has_index('public','documents','documents_full_text_index_tenant_gin_idx',
+  'indice compuesto (tenant_id, full_text_index) existe');
+
+-- Validar que los indices usan el operator class correcto
+SELECT is(
+  (select pg_get_indexdef(idx.indexrelid)
+   from pg_index idx
+   join pg_class c on c.oid = idx.indexrelid
+   where c.relname = 'chunks_content_trgm_idx'),
+  'CREATE INDEX chunks_content_trgm_idx ON public.chunks USING gin (content extensions.gin_trgm_ops)',
+  'definicion del indice trigram correcta'
+);
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 2: Verificar que falla (índices aún no existen)**
+
+```bash
+npm run test:db -- --test supabase/tests/search_indexes_gin_test.sql || echo "FAIL esperado"
+```
+
+Expected: 4 fails. Es lo correcto antes de aplicar la migración.
+
+### Task 3.b.2: Migración `20260601090150_search_indexes_gin.sql`
+
+**Files:**
+- Create: `supabase/migrations/20260601090150_search_indexes_gin.sql`
+
+- [ ] **Step 1: Migración**
+
+```sql
+-- supabase/migrations/20260601090150_search_indexes_gin.sql
+-- Índices GIN para que search_chunks y search_documents NO hagan Seq Scan.
+-- Requiere extensiones pg_trgm (ya activa) y btree_gin (activada en Paso 0).
+--
+-- IMPORTANTE: cada CREATE INDEX CONCURRENTLY debe vivir solo en su statement
+-- (no en transacción explicita). Este archivo solo crea índices.
+
+-- 1) Índice trigram puro sobre chunks.content para modo 'trigram' de search_chunks.
+create index concurrently if not exists chunks_content_trgm_idx
+  on public.chunks
+  using gin (content extensions.gin_trgm_ops);
+
+-- 2) Índice compuesto (tenant_id, content_tsv) para FTS multi-tenant.
+--    btree_gin permite mezclar btree (uuid) + GIN (tsvector) en un solo índice.
+create index concurrently if not exists chunks_content_tsv_tenant_gin_idx
+  on public.chunks
+  using gin (tenant_id, content_tsv);
+
+-- 3) Índice compuesto sobre documents.full_text_index (tsvector) por tenant.
+--    Asume que documents.full_text_index es generated column tsvector.
+create index concurrently if not exists documents_full_text_index_tenant_gin_idx
+  on public.documents
+  using gin (tenant_id, full_text_index);
+
+-- Nota: NO drop del indice chunks_content_tsv_idx existente todavia
+-- (puede haber sido creado por 20260520145604). El nuevo lo desplaza si planner
+-- ve que el compuesto es mejor; mantener ambos por una sprint y dropear el viejo
+-- en Paso 16 Task 16.3 si pg_stat_user_indexes confirma idx_scan = 0.
+
+comment on index public.chunks_content_trgm_idx is
+  'GIN trigram para chunks.content; consume modo trigram/hybrid de search_chunks';
+comment on index public.chunks_content_tsv_tenant_gin_idx is
+  'GIN compuesto (tenant_id, content_tsv); consume modo fts/hybrid multi-tenant de search_chunks';
+comment on index public.documents_full_text_index_tenant_gin_idx is
+  'GIN compuesto (tenant_id, full_text_index); consume search_documents multi-tenant';
+```
+
+- [ ] **Step 2: Aplicar y verificar**
+
+```bash
+supabase db push
+npm run test:db -- --test supabase/tests/search_indexes_gin_test.sql
+```
+
+Expected: test pasa (4/4).
+
+- [ ] **Step 3: Verificar planner usa los índices**
+
+```bash
+psql "$SUPABASE_DB_URL" <<'SQL'
+explain (format text)
+select content
+from public.chunks
+where tenant_id = gen_random_uuid()
+  and content_tsv @@ websearch_to_tsquery('simple', 'test');
+SQL
+```
+
+Expected: aparece `Bitmap Index Scan on chunks_content_tsv_tenant_gin_idx`. Si aparece `Seq Scan`, el índice no se usa (puede ser por dataset pequeño en dev — re-verificar en staging con dataset realista).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260601090150_search_indexes_gin.sql supabase/tests/search_indexes_gin_test.sql
+git commit -m "feat(db): GIN indexes para search_chunks/search_documents (trigram + tsvector multi-tenant)"
+```
+
+---
+
 ## Paso 4 · Migracion 041 · `user_bookmarks`
 
 Item 10 del spec.
