@@ -35,13 +35,15 @@ Capacidades de scope (numeradas como en el spec, items 9-19; item 20 `agent_task
 | 10 | `user_bookmarks` | 041 | `create_bookmark`, `delete_bookmark` | — | — |
 | 11 | `shared_links` | 042 | `create_shared_link`, `revoke_shared_link`, `consume_shared_link_token`, `share_conversation` | `notify_shared_link_received` | — |
 | 12 | `document_annotations` + `annotation_replies` | 043 | `create_annotation`, `update_annotation`, `reply_annotation`, `resolve_annotation` | `notify_annotation_reply` | Broadcast workspace |
-| 13 | `notifications` + `notification_preferences` + extension `is_allowed_realtime_topic` | 044 | `mark_notification_read`, `mark_notifications_read_bulk`, `update_notification_preferences` | (consumido por otros) | Broadcast inbox |
+| 13 | `notifications` + `notification_preferences` + extension `is_allowed_realtime_topic` | 044 + Task 7.3 | `mark_notification_read`, `mark_notifications_read_bulk`, `update_notification_preferences` | (consumido por otros) | Broadcast inbox |
 | 14 | `document_views` | 045 | `record_document_view` | — | — |
 | 15 | `document_issues` | 046 | `report_document_issue`, `update_document_issue`, `assign_document_issue`, `resolve_document_issue` | `notify_document_issue_assigned` | publication |
 | 16 | `document_lineage` | 047 | `link_document_version` | — | — |
 | 17 | `access_requests` | 048 | `request_access`, `decide_access_request`, `withdraw_access_request` | `notify_access_request_received`, `notify_access_request_decided` | — |
-| 18 | `saved_queries` + scheduler | 049 | `create_saved_query`, `update_saved_query`, `delete_saved_query`, `run_saved_query` | (consumido por worker) | — |
+| 18 | `saved_queries` + scheduler | 049 + Task 12.3 | `create_saved_query`, `update_saved_query`, `delete_saved_query`, `run_saved_query` | (consumido por worker) | — |
 | 19 | `audit_log` enriquecido (`session_id`, `workspace_id`) | 049 | — | — | — |
+| — | DB platform foundation (`pg_jsonschema`, `btree_gin`) | Paso 0 | — | — | — |
+| — | Search indexes GIN (acelera 040.b modos `fts`/`trigram`/`hybrid`) | 040.c | — | — | — |
 | — | Search RPCs (requeridas para `run_saved_query`) | 040.b | `search_documents`, `search_chunks`, `search_tree_nodes_by_embedding`, `navigate_tree`, `get_document_evidence` | — | — |
 | — | Worker Inngest `run-saved-queries` | — | — | — | cron 10m |
 
