@@ -169,6 +169,225 @@ Notas:
 | `create_tenant_invite` | `app/app/invites/actions.ts` | Server action | Crea invitacion y devuelve token raw una sola vez. |
 | `revoke_tenant_invite` | `app/app/invites/actions.ts` | Server action | Revoca invitacion pendiente. |
 
+## RPCs Tier 1 (workspaces, groups, collections, tags, documents extended)
+
+28 RPCs definidas en migraciones `20260522220000`-`20260522221500`. Todas
+`security definer` con `search_path = ''`. Los servicios TypeScript que las
+envolveran viven en `lib/workspaces/`, `lib/groups/`, `lib/collections/`,
+`lib/tags/` (placeholders). El modelo completo y RLS triple en
+[`11-workspaces-collections-groups.md`](./11-workspaces-collections-groups.md)
+y [`12-rls-patterns.md`](./12-rls-patterns.md).
+
+### Workspaces RPCs (8)
+
+```text
+create_workspace(
+  _name text,
+  _slug text default null,
+  _description text default null,
+  _settings jsonb default '{}',
+  _request_context jsonb default '{}'
+) returns uuid
+
+update_workspace(
+  _workspace_id uuid,
+  _patch jsonb,
+  _request_context jsonb default '{}'
+) returns void
+
+archive_workspace(
+  _workspace_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+
+delete_workspace(
+  _workspace_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+
+add_workspace_member(
+  _workspace_id uuid,
+  _principal_kind public.principal_kind,    -- 'user' | 'group'
+  _principal_id uuid,
+  _role public.workspace_role default 'workspace_viewer',
+  _request_context jsonb default '{}'
+) returns void
+
+remove_workspace_member(
+  _workspace_id uuid,
+  _principal_kind public.principal_kind,
+  _principal_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+
+change_workspace_member_role(
+  _workspace_id uuid,
+  _principal_kind public.principal_kind,
+  _principal_id uuid,
+  _role public.workspace_role,
+  _request_context jsonb default '{}'
+) returns void
+
+set_active_workspace(_workspace_id uuid) returns void
+  -- actualiza user_metadata.active_workspace_id; el hook v2 lo refleja en JWT.
+```
+
+### Groups RPCs (5)
+
+```text
+create_group(
+  _key text,
+  _name text,
+  _description text default null,
+  _metadata jsonb default '{}',
+  _request_context jsonb default '{}'
+) returns uuid
+
+update_group(
+  _group_id uuid,
+  _patch jsonb,
+  _request_context jsonb default '{}'
+) returns void
+
+archive_group(
+  _group_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+
+add_group_member(
+  _group_id uuid,
+  _user_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+
+remove_group_member(
+  _group_id uuid,
+  _user_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+```
+
+### Collections RPCs (6)
+
+```text
+create_collection(
+  _workspace_id uuid,
+  _slug text,
+  _name text,
+  _description text default null,
+  _visibility public.collection_visibility default 'workspace_private',
+  _request_context jsonb default '{}'
+) returns uuid
+
+update_collection(
+  _collection_id uuid,
+  _patch jsonb,
+  _request_context jsonb default '{}'
+) returns void
+
+set_collection_visibility(
+  _collection_id uuid,
+  _visibility public.collection_visibility,   -- 'workspace_private' | 'tenant_public'
+  _request_context jsonb default '{}'
+) returns void
+
+archive_collection(
+  _collection_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+
+add_document_to_collection(
+  _document_id uuid,
+  _collection_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+
+remove_document_from_collection(
+  _document_id uuid,
+  _collection_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+```
+
+### Tags RPCs (4)
+
+```text
+create_tag(
+  _key text,
+  _label text,
+  _color text default null,
+  _description text default null,
+  _request_context jsonb default '{}'
+) returns uuid
+
+update_tag(
+  _tag_id uuid,
+  _patch jsonb,
+  _request_context jsonb default '{}'
+) returns void
+
+tag_document(
+  _document_id uuid,
+  _tag_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+
+untag_document(
+  _document_id uuid,
+  _tag_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+```
+
+### Documents RPCs extendidas (5)
+
+`create_document_upload` cambia firma respecto a la version pre-Tier 1
+(agrega `_workspace_id` requerido y `_collection_id` opcional). Detalle de
+soft-delete y move en [`03-documentos-storage-upload.md`](./03-documentos-storage-upload.md).
+
+```text
+create_document_upload(
+  _filename text,
+  _workspace_id uuid,                       -- nuevo, requerido
+  _mime_type text default 'application/pdf',
+  _byte_size bigint default null,
+  _title text default null,
+  _metadata jsonb default '{}',
+  _checksum_sha256 text default null,
+  _collection_id uuid default null,         -- nuevo, opcional
+  _request_context jsonb default '{}'
+) returns table (
+  document_id uuid,
+  tenant_id uuid,
+  r2_bucket text,
+  r2_key text,
+  ...
+)
+
+archive_document(
+  _document_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+
+restore_document(
+  _document_id uuid,
+  _request_context jsonb default '{}'
+) returns void
+
+move_document(
+  _document_id uuid,
+  _to_workspace_id uuid,
+  _collection_ids uuid[] default null,
+  _request_context jsonb default '{}'
+) returns void
+
+bulk_update_documents(
+  _document_ids uuid[],
+  _patch jsonb,
+  _request_context jsonb default '{}'
+) returns jsonb
+```
+
 ## Tablas Leidas Directamente
 
 Server Components y helpers leen por Supabase con RLS o con admin server-side

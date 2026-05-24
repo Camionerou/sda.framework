@@ -43,6 +43,9 @@ La arquitectura combina:
 
 - **Multitenancy desde el primer dia** via RLS en Postgres con `tenant_id` en
   JWT.
+- **Workspaces como sub-divisiones del tenant**; `collections` publicas como
+  mecanismo de sharing controlado entre workspaces (`workspace_private` vs
+  `tenant_public`).
 - **Live-first**: upload, indexacion, chat, tool calls y errores deben sentirse
   en vivo siempre que sea razonable.
 - **Separacion sync/durable**: la app y el chat son interactivos; la ingesta
@@ -75,10 +78,13 @@ La arquitectura combina:
                 ▼                      ▼                      ▼
       ┌────────────────────────────────────────────────────────────────┐
       │ SUPABASE POSTGRES + PGVECTOR                                  │
-      │ tenants · users · documents · doc_tree · chunks               │
+      │ tenants · users                                                │
+      │ workspaces · workspace_memberships · groups · group_memberships│
+      │ collections · document_collections · tags · document_tags     │
+      │ documents · doc_tree · chunks                                  │
       │ indexing_runs · indexing_events · conversations · messages    │
       │ langgraph_checkpoints · audit_log                             │
-      │ RLS por tenant_id en todas las superficies de datos            │
+      │ RLS por tenant_id + workspace + collection en datos sensibles  │
       └───────────────┬────────────────────────────────────────────────┘
                       │ event/status
                       ▼
@@ -156,6 +162,14 @@ Tablas principales:
 - `tenants`
 - `users`
 - `tenant_invites`
+- `workspaces`
+- `workspace_memberships`
+- `groups`
+- `group_memberships`
+- `collections`
+- `document_collections`
+- `tags`
+- `document_tags`
 - `documents`
 - `document_extractions`
 - `document_extraction_artifacts`
@@ -167,6 +181,12 @@ Tablas principales:
 - `messages`
 - `langgraph_checkpoints`
 - `audit_log`
+
+Visibilidad por collection: `workspace_private` (solo miembros del workspace
+duenio) vs `tenant_public` (cualquier miembro del tenant lee la collection y
+sus documentos). El detalle del modelo y RLS triple vive en
+[`backend/11-workspaces-collections-groups.md`](./backend/11-workspaces-collections-groups.md)
+y [`backend/12-rls-patterns.md`](./backend/12-rls-patterns.md).
 
 Nota de fase: el plan anterior mencionaba Cloudflare R2 como storage principal.
 Hoy usamos Supabase Storage para reducir superficie operativa y mover rapido. R2

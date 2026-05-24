@@ -37,6 +37,19 @@ docs/
 - [`pageindex-tree-builder-reference.md`](./pageindex-tree-builder-reference.md):
   referencia tecnica del arbol PageIndex-style.
 
+## Backend Tier 1 (workspaces, collections, RLS, audit, retencion)
+
+- [`backend/11-workspaces-collections-groups.md`](./backend/11-workspaces-collections-groups.md):
+  modelo de workspaces, memberships polimorficas, groups, collections,
+  visibilidad `workspace_private` vs `tenant_public` y tags.
+- [`backend/12-rls-patterns.md`](./backend/12-rls-patterns.md): helpers
+  `app.*`, visibilidad triple (tenant + workspace + collection), JWT v2 con
+  `active_workspace_id` y guia para nuevas tablas.
+- [`backend/13-audit-log-conventions.md`](./backend/13-audit-log-conventions.md):
+  triggers de auditoria Tier 1 y convenciones de `audit_log`.
+- [`backend/14-retention-and-cleanup.md`](./backend/14-retention-and-cleanup.md):
+  soft-delete, retencion y cleanup de documentos archivados.
+
 ## Archivado
 
 - [`archivado/informe-refactor.md`](./archivado/informe-refactor.md): informe

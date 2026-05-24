@@ -29,6 +29,10 @@ Postgres Changes publicados en `supabase_realtime`:
 - `indexing_events`
 - `document_extractions`
 - `document_extraction_artifacts`
+- `workspaces` (Tier 1, migracion `audit_triggers_tier1`)
+- `collections` (Tier 1)
+- `document_collections` (Tier 1)
+- `document_tags` (Tier 1)
 
 Canales privados autorizados por `realtime.messages`:
 

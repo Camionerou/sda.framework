@@ -1,5 +1,11 @@
 # Auth, Tenants Y RLS
 
+Este doc cubre login, invitaciones y forma del JWT. El detalle de RLS,
+helpers `app.*`, visibilidad por workspace/collection y patrones para nuevas
+tablas vive en [`12-rls-patterns.md`](./12-rls-patterns.md). El modelo de
+workspaces/collections/groups vive en
+[`11-workspaces-collections-groups.md`](./11-workspaces-collections-groups.md).
+
 ## Login
 
 El login usa Supabase Auth con Google OAuth.
@@ -45,39 +51,22 @@ tenant_slug
 tenant_status
 user_status
 claims_version
+active_workspace_id     -- v2, Tier 1
+active_workspace_role   -- v2, Tier 1
 ```
 
 Los claims pueden venir en raiz del JWT o en `app_metadata`. Por eso
-`getClaimValue()` mira ambas ubicaciones.
+`getClaimValue()` mira ambas ubicaciones. El hook v2 (migracion
+`auth_jwt_claims_v2`) inyecta `claims_version=2` y los campos
+`active_workspace_*`. Detalle en
+[`11-workspaces-collections-groups.md`](./11-workspaces-collections-groups.md)
+y [`12-rls-patterns.md`](./12-rls-patterns.md).
 
 ## RLS
 
-Las funciones base viven en las migraciones:
-
-```text
-app.current_tenant_id()
-app.current_tenant_role()
-app.is_tenant_admin()
-```
-
-Las politicas filtran por tenant en:
-
-- `tenants`
-- `roles`
-- `users`
-- `documents`
-- `doc_tree`
-- `chunks`
-- `conversations`
-- `messages`
-- `langgraph_checkpoints`
-- `audit_log`
-- `tenant_invites`
-- `indexing_runs`
-- `indexing_events`
-- `document_extractions`
-- `document_extraction_artifacts`
-- `realtime.messages` para Broadcast/Presence privados
+La frontera de seguridad sigue siendo Postgres RLS. Helpers, politicas,
+patrones de visibilidad triple (tenant + workspace + collection) y guia para
+agregar tablas nuevas viven en [`12-rls-patterns.md`](./12-rls-patterns.md).
 
 ## Frontera de seguridad
 

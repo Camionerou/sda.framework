@@ -83,6 +83,10 @@ lib/
   indexing/
   redis/
   supabase/
+  workspaces/      # placeholder para servicios TypeScript que envolveran las RPCs en proximos releases
+  collections/     # idem
+  groups/          # idem
+  tags/            # idem
   system-versions.json
   system-versions.ts
   utils.ts
