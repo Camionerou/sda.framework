@@ -2420,7 +2420,7 @@ begin
   where c.tenant_id = _tenant
     and (
       (_mode = 'fts' and c.content_tsv @@ websearch_to_tsquery('simple', _query)) or
-      (_mode = 'trigram' and c.content extensions.% _query) or
+      (_mode = 'trigram' and c.content OPERATOR(extensions.%) _query) or
       (_mode in ('embedding','hybrid') and _query_embedding is not null) or
       (_mode = 'hybrid' and c.content_tsv @@ websearch_to_tsquery('simple', _query))
     )
