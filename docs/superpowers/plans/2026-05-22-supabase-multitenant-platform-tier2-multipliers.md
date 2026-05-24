@@ -4959,6 +4959,148 @@ git add supabase/migrations/20260601091000_saved_queries.sql \
 git commit -m "feat(db): tier2 049.a saved_queries + rpcs + run_saved_query"
 ```
 
+### Task 12.3: Validator jsonschema para `saved_queries.filters`
+
+**Files:**
+- Create: `supabase/migrations/20260601091050_saved_queries_filters_validator.sql`
+- Create: `supabase/tests/saved_queries_filters_validator_test.sql`
+
+**Contexto**: `saved_queries.filters jsonb` define el alcance de la búsqueda (workspace_ids, collection_ids, tag slugs, fecha, kinds). Sin schema, un cliente con bug puede meter una lista anidada o un string donde debe ir array de UUIDs y romper `run_saved_query`. JSON Schema lock-in.
+
+- [ ] **Step 1: pgTAP test**
+
+```sql
+-- supabase/tests/saved_queries_filters_validator_test.sql
+BEGIN;
+SELECT plan(5);
+
+insert into public.tenants (id, slug, name)
+values ('00000000-0000-0000-0000-000000012301','sqf-tenant','SQF Tenant');
+insert into auth.users (id, instance_id, aud, role, email, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+values ('00000000-0000-0000-0000-000000012311','00000000-0000-0000-0000-000000000000',
+  'authenticated','authenticated','sqf@sqf.test',now(),'{}'::jsonb,'{}'::jsonb,now(),now());
+insert into public.users (id, tenant_id, email, role, status)
+values ('00000000-0000-0000-0000-000000012311','00000000-0000-0000-0000-000000012301',
+  'sqf@sqf.test','member','active');
+
+-- Valido
+SELECT lives_ok(
+  $$ insert into public.saved_queries
+       (tenant_id, user_id, name, query, filters, notify_on_new_results)
+     values ('00000000-0000-0000-0000-000000012301','00000000-0000-0000-0000-000000012311',
+             'Normativa','normativa fiscal',
+             '{"workspace_ids":["00000000-0000-0000-0000-000000000001"],"kinds":["document"]}'::jsonb,
+             true) $$,
+  'filters con workspace_ids y kinds pasa CHECK');
+
+-- Tipo invalido — workspace_ids debe ser array de strings (UUID format)
+SELECT throws_ok(
+  $$ insert into public.saved_queries
+       (tenant_id, user_id, name, query, filters, notify_on_new_results)
+     values ('00000000-0000-0000-0000-000000012301','00000000-0000-0000-0000-000000012311',
+             'Bad','bad',
+             '{"workspace_ids":"not-an-array"}'::jsonb, true) $$,
+  '23514', null,
+  'workspace_ids como string falla');
+
+-- Campo extra no permitido
+SELECT throws_ok(
+  $$ insert into public.saved_queries
+       (tenant_id, user_id, name, query, filters, notify_on_new_results)
+     values ('00000000-0000-0000-0000-000000012301','00000000-0000-0000-0000-000000012311',
+             'Bad2','bad',
+             '{"unknown_field":"x"}'::jsonb, true) $$,
+  '23514', null,
+  'campo extra falla CHECK');
+
+-- Filters vacio permitido (todos los docs del tenant)
+SELECT lives_ok(
+  $$ insert into public.saved_queries
+       (tenant_id, user_id, name, query, filters, notify_on_new_results)
+     values ('00000000-0000-0000-0000-000000012301','00000000-0000-0000-0000-000000012311',
+             'AllDocs','*', '{}'::jsonb, false) $$,
+  'filters {} pasa CHECK');
+
+-- date_after valido (ISO 8601)
+SELECT lives_ok(
+  $$ insert into public.saved_queries
+       (tenant_id, user_id, name, query, filters, notify_on_new_results)
+     values ('00000000-0000-0000-0000-000000012301','00000000-0000-0000-0000-000000012311',
+             'Recent','recent',
+             '{"date_after":"2026-01-01T00:00:00Z"}'::jsonb, false) $$,
+  'date_after ISO pasa CHECK');
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 2: Migración**
+
+```sql
+-- supabase/migrations/20260601091050_saved_queries_filters_validator.sql
+-- CHECK constraint sobre saved_queries.filters via pg_jsonschema.
+
+alter table public.saved_queries
+  add constraint saved_queries_filters_schema_chk
+  check (
+    app.validate_jsonschema(
+      filters,
+      jsonb_build_object(
+        'type', 'object',
+        'additionalProperties', false,
+        'properties', jsonb_build_object(
+          'workspace_ids', jsonb_build_object(
+            'type','array',
+            'items', jsonb_build_object('type','string','format','uuid')
+          ),
+          'collection_ids', jsonb_build_object(
+            'type','array',
+            'items', jsonb_build_object('type','string','format','uuid')
+          ),
+          'tag_slugs', jsonb_build_object(
+            'type','array',
+            'items', jsonb_build_object('type','string','minLength',1)
+          ),
+          'kinds', jsonb_build_object(
+            'type','array',
+            'items', jsonb_build_object(
+              'type','string',
+              'enum', jsonb_build_array('document','chunk','annotation')
+            )
+          ),
+          'date_after', jsonb_build_object('type','string','format','date-time'),
+          'date_before', jsonb_build_object('type','string','format','date-time'),
+          'mode', jsonb_build_object(
+            'type','string',
+            'enum', jsonb_build_array('fts','trigram','embedding','hybrid')
+          )
+        )
+      )
+    )
+  );
+
+comment on constraint saved_queries_filters_schema_chk
+  on public.saved_queries is
+  'JSON Schema: workspace_ids/collection_ids arrays de UUID, kinds enum, dates ISO 8601, mode enum.';
+```
+
+- [ ] **Step 3: Aplicar + correr test**
+
+```bash
+supabase db push
+npm run test:db -- --test supabase/tests/saved_queries_filters_validator_test.sql
+```
+
+Expected: 5/5 pasan.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260601091050_saved_queries_filters_validator.sql supabase/tests/saved_queries_filters_validator_test.sql
+git commit -m "feat(db): jsonschema validator para saved_queries.filters"
+```
+
 ---
 
 ## Paso 13 · Migracion 049.b · `audit_log` enriquecido
