@@ -1064,6 +1064,287 @@ git add supabase/migrations/20260801123000_connectors_rpcs.sql supabase/tests/co
 git commit -m "feat(db): connectors RPCs (oauth credential + document source CRUD)"
 ```
 
+### Task 1.9: Helper `app.dispatch_inngest_event` + tabla outbox
+
+**Files:**
+- Create: `supabase/migrations/20260801123500_dispatch_inngest_event.sql`
+- Create: `supabase/tests/dispatch_inngest_event_test.sql`
+
+**Contexto**: hoy Task 5.4 inline-ea `pg_net.http_post` con fallback "depender del cron sweep". Lo formalizamos en un helper transversal que: (a) si `pg_net` está disponible hace HTTP POST con HMAC sig; (b) si no, escribe a `app.dispatch_outbox` que un cron sweep consume y reenvía. Consumido por connectors (Task 2.6) y data exports (Task 5.4 refactor).
+
+- [ ] **Step 1: Migración**
+
+```sql
+-- supabase/migrations/20260801123500_dispatch_inngest_event.sql
+-- Helper transversal para disparar eventos Inngest desde Postgres,
+-- con fallback determinista via outbox + cron sweep.
+
+-- Tabla outbox: filas que el sweep cron procesa si pg_net no disponible o falla.
+create table if not exists app.dispatch_outbox (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid,
+  event_name text not null,
+  payload jsonb not null,
+  signature text not null,
+  endpoint_url text not null,
+  attempts int not null default 0,
+  status text not null default 'pending'
+    check (status in ('pending','succeeded','failed','abandoned')),
+  last_error text,
+  created_at timestamptz not null default now(),
+  next_attempt_at timestamptz not null default now(),
+  succeeded_at timestamptz
+);
+
+create index if not exists dispatch_outbox_pending_idx
+  on app.dispatch_outbox (next_attempt_at)
+  where status = 'pending';
+
+create index if not exists dispatch_outbox_tenant_idx
+  on app.dispatch_outbox (tenant_id, status);
+
+revoke all on app.dispatch_outbox from public, authenticated;
+
+-- Helper: compone signature HMAC y dispatcha; si pg_net no esta, inserta a outbox.
+create or replace function app.dispatch_inngest_event(
+  _tenant_id uuid,
+  _event_name text,
+  _payload jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  _endpoint_url text;
+  _signing_key text;
+  _signature text;
+  _outbox_id uuid;
+  _pg_net_available boolean;
+begin
+  -- Config: leer desde GUCs propios (set por bootstrap del proyecto)
+  _endpoint_url := coalesce(current_setting('app.inngest_endpoint_url', true), '');
+  _signing_key  := coalesce(current_setting('app.inngest_signing_key', true), '');
+
+  if _endpoint_url = '' or _signing_key = '' then
+    raise exception 'app.inngest_endpoint_url / app.inngest_signing_key no configurados';
+  end if;
+
+  -- Signature HMAC-SHA256 (hex) del payload con la signing key
+  _signature := encode(
+    extensions.hmac(_payload::text::bytea, _signing_key::bytea, 'sha256'),
+    'hex'
+  );
+
+  -- Outbox row siempre (audit + fallback)
+  insert into app.dispatch_outbox
+    (tenant_id, event_name, payload, signature, endpoint_url)
+  values
+    (_tenant_id, _event_name, _payload, _signature, _endpoint_url)
+  returning id into _outbox_id;
+
+  -- Intentar pg_net si disponible
+  select exists (
+    select 1 from pg_extension where extname = 'pg_net'
+  ) into _pg_net_available;
+
+  if _pg_net_available then
+    begin
+      perform net.http_post(
+        url := _endpoint_url,
+        body := jsonb_build_object(
+          'name', _event_name,
+          'data', _payload,
+          'ts', extract(epoch from now())::bigint
+        ),
+        headers := jsonb_build_object(
+          'content-type', 'application/json',
+          'x-inngest-signature', _signature,
+          'x-dispatch-id', _outbox_id::text
+        ),
+        timeout_milliseconds := 5000
+      );
+      -- Marcar succeeded optimisticamente; el sweep verifica response real
+      update app.dispatch_outbox
+        set status = 'succeeded', succeeded_at = now()
+        where id = _outbox_id;
+    exception
+      when others then
+        update app.dispatch_outbox
+          set last_error = sqlerrm,
+              attempts = attempts + 1
+          where id = _outbox_id;
+        -- No rethrow: el sweep cron retira
+    end;
+  end if;
+
+  return _outbox_id;
+end;
+$$;
+
+revoke all on function app.dispatch_inngest_event(uuid, text, jsonb) from public;
+grant execute on function app.dispatch_inngest_event(uuid, text, jsonb) to service_role;
+
+-- Sweep cron: re-intenta filas pending o failed con next_attempt_at <= now
+create or replace function app.dispatch_outbox_sweep()
+returns int
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  _row record;
+  _processed int := 0;
+  _pg_net_available boolean;
+begin
+  select exists (select 1 from pg_extension where extname = 'pg_net') into _pg_net_available;
+
+  for _row in
+    select * from app.dispatch_outbox
+    where status = 'pending'
+      and next_attempt_at <= now()
+      and attempts < 5
+    order by created_at
+    limit 100
+  loop
+    if _pg_net_available then
+      begin
+        perform net.http_post(
+          url := _row.endpoint_url,
+          body := jsonb_build_object('name', _row.event_name, 'data', _row.payload),
+          headers := jsonb_build_object(
+            'content-type','application/json',
+            'x-inngest-signature', _row.signature,
+            'x-dispatch-id', _row.id::text
+          ),
+          timeout_milliseconds := 5000
+        );
+        update app.dispatch_outbox
+          set status = 'succeeded', succeeded_at = now()
+          where id = _row.id;
+      exception when others then
+        update app.dispatch_outbox
+          set attempts = attempts + 1,
+              last_error = sqlerrm,
+              next_attempt_at = now() + (interval '1 minute' * power(2, attempts))
+          where id = _row.id;
+      end;
+    end if;
+    _processed := _processed + 1;
+  end loop;
+
+  -- Marcar abandoned los que excedieron retries
+  update app.dispatch_outbox
+    set status = 'abandoned'
+    where status = 'pending' and attempts >= 5;
+
+  return _processed;
+end;
+$$;
+
+revoke all on function app.dispatch_outbox_sweep() from public;
+grant execute on function app.dispatch_outbox_sweep() to service_role;
+
+-- Schedule sweep cada 1 min via pg_cron (patrón defensivo idéntico al de
+-- 20260521170000_db_caching_retrieval_ops.sql)
+do $$
+declare
+  cron_schema text;
+begin
+  select namespace.nspname
+  into cron_schema
+  from pg_namespace namespace
+  where namespace.nspname in ('cron', 'extensions', 'pg_catalog')
+    and to_regprocedure(format('%I.schedule(text,text,text)', namespace.nspname)) is not null
+  order by case namespace.nspname when 'cron' then 1 when 'extensions' then 2 else 3 end
+  limit 1;
+
+  if cron_schema is not null then
+    begin
+      execute format('select %I.unschedule(%L)', cron_schema, 'sda-dispatch-outbox-sweep');
+    exception when others then null;
+    end;
+    begin
+      execute format(
+        'select %I.schedule(%L, %L, %L)',
+        cron_schema,
+        'sda-dispatch-outbox-sweep',
+        '*/1 * * * *',
+        'select app.dispatch_outbox_sweep();'
+      );
+    exception when others then
+      raise notice 'No se pudo programar dispatch_outbox_sweep: %', sqlerrm;
+    end;
+  end if;
+end;
+$$;
+```
+
+- [ ] **Step 2: pgTAP test**
+
+```sql
+-- supabase/tests/dispatch_inngest_event_test.sql
+BEGIN;
+SELECT plan(6);
+
+SELECT has_function('app','dispatch_inngest_event',
+  ARRAY['uuid','text','jsonb'], 'helper existe');
+SELECT has_function('app','dispatch_outbox_sweep',
+  ARRAY[]::text[], 'sweep existe');
+SELECT has_table('app','dispatch_outbox','tabla outbox existe');
+
+-- Setup GUCs ficticios
+SELECT set_config('app.inngest_endpoint_url', 'https://example.test/x', true);
+SELECT set_config('app.inngest_signing_key', 'test-key-1234', true);
+SELECT set_config('role', 'service_role', true);
+
+-- Disparar evento
+SELECT isnt(
+  app.dispatch_inngest_event(
+    '00000000-0000-0000-0000-000000019001'::uuid,
+    'test.event',
+    '{"hello":"world"}'::jsonb
+  ),
+  null,
+  'dispatch retorna uuid del outbox row'
+);
+
+SELECT is(
+  (select count(*)::int from app.dispatch_outbox
+   where event_name = 'test.event'),
+  1,
+  'fila escrita a outbox'
+);
+
+-- Verificar signature no vacia
+SELECT isnt(
+  (select signature from app.dispatch_outbox
+   where event_name = 'test.event' limit 1),
+  '',
+  'signature HMAC presente'
+);
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 3: Aplicar + correr test**
+
+```bash
+supabase db push
+npm run test:db -- --test supabase/tests/dispatch_inngest_event_test.sql
+```
+
+Expected: 6/6.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add supabase/migrations/20260801123500_dispatch_inngest_event.sql supabase/tests/dispatch_inngest_event_test.sql
+git commit -m "feat(db): app.dispatch_inngest_event helper + outbox pattern (pg_net + sweep fallback)"
+```
+
 ---
 
 ## Paso 2 · Connectors workers: OAuth callback + sync worker
