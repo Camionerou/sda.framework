@@ -224,7 +224,7 @@ SELECT ok(
 SELECT ok(
   has_function_privilege(
     'service_role',
-    'public.cleanup_operational_data(interval, interval, interval)',
+    'public.cleanup_operational_data(interval, interval, interval, interval)',
     'execute'
   ),
   'Service role can execute operational cleanup'
