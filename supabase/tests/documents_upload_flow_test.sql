@@ -107,7 +107,7 @@ SELECT ok(
 SELECT ok(
   not has_function_privilege(
     'anon',
-    'public.create_document_upload(text, text, bigint, text, jsonb, text)',
+    'public.create_document_upload(text, uuid, text, bigint, text, jsonb, text, uuid, jsonb)',
     'execute'
   ),
   'Anon clients cannot create document uploads'
@@ -170,12 +170,17 @@ SELECT throws_ok(
 create temporary table created_document on commit drop as
 select *
 from public.create_document_upload(
-  'Quarterly Report Final.PDF',
-  'application/pdf',
-  1234,
-  'Quarterly Report',
-  '{"source":"pgtap"}'::jsonb,
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  _filename => 'Quarterly Report Final.PDF',
+  _workspace_id => (
+    select id from public.workspaces
+    where tenant_id = '00000000-0000-0000-0000-000000000701'
+      and slug = 'default'
+  ),
+  _mime_type => 'application/pdf',
+  _byte_size => 1234,
+  _title => 'Quarterly Report',
+  _metadata => '{"source":"pgtap"}'::jsonb,
+  _checksum_sha256 => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 );
 
 SELECT is(
@@ -263,12 +268,17 @@ SELECT is(
 create temporary table duplicate_document on commit drop as
 select *
 from public.create_document_upload(
-  'Quarterly Report Final Copy.PDF',
-  'application/pdf',
-  2048,
-  'Quarterly Report Copy',
-  '{"source":"pgtap"}'::jsonb,
-  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  _filename => 'Quarterly Report Final Copy.PDF',
+  _workspace_id => (
+    select id from public.workspaces
+    where tenant_id = '00000000-0000-0000-0000-000000000701'
+      and slug = 'default'
+  ),
+  _mime_type => 'application/pdf',
+  _byte_size => 2048,
+  _title => 'Quarterly Report Copy',
+  _metadata => '{"source":"pgtap"}'::jsonb,
+  _checksum_sha256 => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 );
 
 SELECT is(
@@ -285,12 +295,17 @@ SELECT ok(
 create temporary table failed_upload on commit drop as
 select *
 from public.create_document_upload(
-  'Broken Upload.PDF',
-  'application/pdf',
-  2048,
-  'Broken Upload',
-  '{"source":"pgtap"}'::jsonb,
-  'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  _filename => 'Broken Upload.PDF',
+  _workspace_id => (
+    select id from public.workspaces
+    where tenant_id = '00000000-0000-0000-0000-000000000701'
+      and slug = 'default'
+  ),
+  _mime_type => 'application/pdf',
+  _byte_size => 2048,
+  _title => 'Broken Upload',
+  _metadata => '{"source":"pgtap"}'::jsonb,
+  _checksum_sha256 => 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 );
 
 create temporary table marked_failed_upload on commit drop as
@@ -378,11 +393,11 @@ do $$
 begin
   perform *
   from public.create_document_upload(
-    'No Tenant.pdf',
-    'application/pdf',
-    1,
-    null,
-    '{}'::jsonb
+    _filename => 'No Tenant.pdf',
+    _workspace_id => '00000000-0000-0000-0000-000000000000'::uuid,
+    _mime_type => 'application/pdf',
+    _byte_size => 1,
+    _metadata => '{}'::jsonb
   );
 exception
   when others then
@@ -393,7 +408,7 @@ $$;
 
 SELECT is(
   (select message from test_errors where label = 'missing_tenant_claim'),
-  'Tenant claim is required',
+  'Tenant claim required',
   'Document upload requires tenant claims'
 );
 

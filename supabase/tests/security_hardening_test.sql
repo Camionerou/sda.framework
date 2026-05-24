@@ -175,12 +175,17 @@ set local role authenticated;
 create temporary table delete_allowed_upload on commit drop as
 select *
 from public.create_document_upload(
-  'Delete Me.pdf',
-  'application/pdf',
-  10,
-  null,
-  '{}'::jsonb,
-  null
+  _filename => 'Delete Me.pdf',
+  _workspace_id => (
+    select id from public.workspaces
+    where tenant_id = '00000000-0000-0000-0000-000000001701'
+      and slug = 'default'
+  ),
+  _mime_type => 'application/pdf',
+  _byte_size => 10,
+  _title => null,
+  _metadata => '{}'::jsonb,
+  _checksum_sha256 => null
 );
 
 delete from public.documents
@@ -199,12 +204,17 @@ SELECT is(
 create temporary table delete_blocked_upload on commit drop as
 select *
 from public.create_document_upload(
-  'Keep Uploaded.pdf',
-  'application/pdf',
-  10,
-  null,
-  '{}'::jsonb,
-  null
+  _filename => 'Keep Uploaded.pdf',
+  _workspace_id => (
+    select id from public.workspaces
+    where tenant_id = '00000000-0000-0000-0000-000000001701'
+      and slug = 'default'
+  ),
+  _mime_type => 'application/pdf',
+  _byte_size => 10,
+  _title => null,
+  _metadata => '{}'::jsonb,
+  _checksum_sha256 => null
 );
 
 create temporary table marked_delete_blocked_upload on commit drop as

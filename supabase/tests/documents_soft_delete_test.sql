@@ -18,7 +18,7 @@ select has_index('public', 'documents', 'documents_deleted_at_idx',
 -- RPCs nuevas declaradas (placeholder; se prueban en Paso 16)
 select has_function('public', 'archive_document', array['uuid','jsonb'],
   'public.archive_document declarada');
-select has_function('public', 'restore_document', array['uuid'],
+select has_function('public', 'restore_document', array['uuid','jsonb'],
   'public.restore_document declarada');
 
 -- cleanup_operational_data acepta nuevo parametro
