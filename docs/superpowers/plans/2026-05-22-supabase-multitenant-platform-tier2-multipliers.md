@@ -54,8 +54,11 @@ Capacidades de scope (numeradas como en el spec, items 9-19; item 20 `agent_task
 Timestamps secuenciales asumiendo arranque del tier en `20260601` (semanas despues de Tier 1). Si Tier 2 arranca en otra fecha, conservar el orden incrementando solo la hora del primer archivo y sumando 1 minuto por migracion subsecuente.
 
 ```text
+20260601085000_enable_pg_jsonschema.sql                 (Paso 0 — platform)
+20260601085100_enable_btree_gin.sql                     (Paso 0 — platform)
 20260601090000_message_feedback_and_citations.sql       (040)
 20260601090100_search_rpcs.sql                          (040.b — search helpers)
+20260601090150_search_indexes_gin.sql                   (040.c — GIN indexes para search_chunks)
 20260601090200_user_bookmarks.sql                       (041)
 20260601090300_shared_links.sql                         (042)
 20260601090400_document_annotations.sql                 (043)
@@ -71,6 +74,182 @@ Timestamps secuenciales asumiendo arranque del tier en `20260601` (semanas despu
 ```
 
 Cada migracion lleva su test pgTAP en `supabase/tests/<basename>_test.sql`.
+
+---
+
+## Paso 0 · DB platform foundation
+
+Habilita extensiones transversales (`pg_jsonschema`, `btree_gin`) que pasos posteriores consumen. Audita `uuid-ossp` y `pg_trgm` para decidir keep/remove en Tier 4. **No depende del Pre-flight Tier 1** y puede mergearse incluso antes de iniciar el resto de Tier 2.
+
+### Task 0.1: Habilitar `pg_jsonschema` + helper `app.validate_jsonschema`
+
+**Files:**
+- Create: `supabase/migrations/20260601085000_enable_pg_jsonschema.sql`
+- Create: `supabase/tests/enable_pg_jsonschema_test.sql`
+
+- [ ] **Step 1: Escribir migración**
+
+```sql
+-- supabase/migrations/20260601085000_enable_pg_jsonschema.sql
+-- Habilita pg_jsonschema para validar columnas jsonb con CHECK constraints.
+
+create extension if not exists "pg_jsonschema" with schema "extensions";
+
+-- Helper estable: validar un valor jsonb contra un schema jsonb.
+-- Wrappea extensions.jsonb_matches_schema(schema, value) y maneja null gracefully.
+create or replace function app.validate_jsonschema(_value jsonb, _schema jsonb)
+returns boolean
+language sql
+immutable
+parallel safe
+set search_path = ''
+as $$
+  select case
+    when _value is null then true
+    else extensions.jsonb_matches_schema(_schema, _value)
+  end;
+$$;
+
+comment on function app.validate_jsonschema(jsonb, jsonb) is
+  'Valida _value contra _schema (JSON Schema draft-07). Null pasa. Usar en CHECK constraints.';
+
+revoke all on function app.validate_jsonschema(jsonb, jsonb) from public;
+grant execute on function app.validate_jsonschema(jsonb, jsonb) to authenticated, service_role;
+```
+
+- [ ] **Step 2: Escribir test pgTAP**
+
+```sql
+-- supabase/tests/enable_pg_jsonschema_test.sql
+BEGIN;
+SELECT plan(5);
+
+SELECT has_extension('pg_jsonschema', 'pg_jsonschema instalada');
+SELECT has_function('app','validate_jsonschema', ARRAY['jsonb','jsonb'], 'helper existe');
+
+SELECT is(
+  app.validate_jsonschema(
+    '{"foo":"bar"}'::jsonb,
+    '{"type":"object","required":["foo"]}'::jsonb
+  ),
+  true,
+  'objeto valido pasa'
+);
+
+SELECT is(
+  app.validate_jsonschema(
+    '{}'::jsonb,
+    '{"type":"object","required":["foo"]}'::jsonb
+  ),
+  false,
+  'objeto sin required field falla'
+);
+
+SELECT is(
+  app.validate_jsonschema(null, '{"type":"object"}'::jsonb),
+  true,
+  'null pasa siempre'
+);
+
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 3: Correr test + commit**
+
+```bash
+npm run test:db -- --test supabase/tests/enable_pg_jsonschema_test.sql
+git add supabase/migrations/20260601085000_enable_pg_jsonschema.sql supabase/tests/enable_pg_jsonschema_test.sql
+git commit -m "feat(db): enable pg_jsonschema + app.validate_jsonschema helper"
+```
+
+### Task 0.2: Habilitar `btree_gin`
+
+**Files:**
+- Create: `supabase/migrations/20260601085100_enable_btree_gin.sql`
+- Create: `supabase/tests/enable_btree_gin_test.sql`
+
+- [ ] **Step 1: Migración**
+
+```sql
+-- supabase/migrations/20260601085100_enable_btree_gin.sql
+-- Habilita btree_gin para indices compuestos (tenant_id uuid + jsonb / tsvector / etc.)
+create extension if not exists "btree_gin" with schema "extensions";
+```
+
+- [ ] **Step 2: Test**
+
+```sql
+-- supabase/tests/enable_btree_gin_test.sql
+BEGIN;
+SELECT plan(1);
+SELECT has_extension('btree_gin', 'btree_gin instalada');
+SELECT * FROM finish();
+ROLLBACK;
+```
+
+- [ ] **Step 3: Correr + commit**
+
+```bash
+npm run test:db -- --test supabase/tests/enable_btree_gin_test.sql
+git add supabase/migrations/20260601085100_enable_btree_gin.sql supabase/tests/enable_btree_gin_test.sql
+git commit -m "feat(db): enable btree_gin extension"
+```
+
+### Task 0.3: Audit `uuid-ossp` y `pg_trgm` (decisión Tier 4)
+
+**Files:**
+- Create: `docs/superpowers/plans/_evidence/2026-05-24-uuid-ossp-pg-trgm-audit.md`
+
+- [ ] **Step 1: Audit `uuid-ossp` usage**
+
+```bash
+grep -rn "uuid_generate_v" supabase/ workers/ inngest/ lib/ app/ cli/ \
+  --include='*.sql' --include='*.ts' --include='*.py' 2>/dev/null \
+  | tee /tmp/uuid-ossp-audit.txt
+wc -l /tmp/uuid-ossp-audit.txt
+```
+
+Expected: idealmente 0 matches. Si hay matches, listar y planificar reemplazo a `gen_random_uuid()` en Tier 4.
+
+- [ ] **Step 2: Audit `pg_trgm` usage**
+
+```bash
+grep -rn "gin_trgm_ops\|similarity(\|word_similarity\| % " supabase/ \
+  --include='*.sql' 2>/dev/null \
+  | tee /tmp/pg-trgm-audit.txt
+wc -l /tmp/pg-trgm-audit.txt
+```
+
+Expected: matches en `search_rpcs.sql` (Tier 2 Paso 3) y en `db_caching_retrieval_ops`. Si solo aparece en RPCs y el índice GIN trgm de Paso 3.b no se usa después en producción, candidato a remover en Tier 4.
+
+- [ ] **Step 3: Escribir evidence doc**
+
+```markdown
+# Audit: uuid-ossp + pg_trgm — 2026-05-24
+
+## uuid-ossp
+- Matches encontrados: <N>
+- Detalle (paste output de /tmp/uuid-ossp-audit.txt o "ninguno"):
+  ```
+  <paste>
+  ```
+- Decisión: <keep / remove en Tier 4>
+
+## pg_trgm
+- Matches en SQL: <N>
+- Operadores usados: <%, similarity, word_similarity, etc.>
+- Índices que lo respaldan: poblar después de Tier 2 Paso 3.b
+- Decisión inicial: keep — usado en `search_chunks` modos `trigram`/`hybrid`.
+- Re-evaluar: después de Tier 2 Paso 16 Task 16.3 (audit de uso de índice GIN trgm).
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/superpowers/plans/_evidence/2026-05-24-uuid-ossp-pg-trgm-audit.md
+git commit -m "docs(db): audit uuid-ossp + pg_trgm usage (Tier 2 Paso 0 Task 0.3)"
+```
 
 ---
 
