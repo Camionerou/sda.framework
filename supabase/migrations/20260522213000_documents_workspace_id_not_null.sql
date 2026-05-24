@@ -217,8 +217,8 @@ begin
 end;
 $$;
 
--- Mantener boundary write-only (definido en 022): la funcion sigue siendo
--- security invoker y restringida a authenticated.
+-- Mantener boundary write-only (definido en 20260521120000): la funcion es
+-- security definer y restringida a authenticated (anon/public sin execute).
 revoke execute on function public.create_document_upload(text, text, bigint, text, jsonb, text)
   from anon, public;
 grant execute on function public.create_document_upload(text, text, bigint, text, jsonb, text)
