@@ -34,6 +34,32 @@ insert into public.groups (id, tenant_id, key, name) values
   ('00000000-0000-0000-0000-000000003232',
    '00000000-0000-0000-0000-000000003202', 'beta-grp', 'Beta Group');
 
+-- Beta (member) necesita membership explicita para que las nuevas policies
+-- (workspaces_select_member / workspace_memberships_select_member /
+-- group_memberships_select_own_or_admin) la dejen ver beta-ws y group_memberships.
+-- El trigger ensure_default_workspace_for_tenant solo crea el workspace; no
+-- agrega memberships. Agregamos beta a beta-ws y al Default de beta tenant.
+insert into public.workspace_memberships
+  (workspace_id, tenant_id, principal_kind, principal_id, role)
+values
+  ('00000000-0000-0000-0000-000000003222',
+   '00000000-0000-0000-0000-000000003202',
+   'user', '00000000-0000-0000-0000-000000003212',
+   'workspace_editor');
+
+insert into public.workspace_memberships
+  (workspace_id, tenant_id, principal_kind, principal_id, role)
+select w.id, w.tenant_id, 'user', '00000000-0000-0000-0000-000000003212',
+  'workspace_editor'
+from public.workspaces w
+where w.tenant_id = '00000000-0000-0000-0000-000000003202'
+  and w.slug = 'default';
+
+insert into public.group_memberships (group_id, user_id, tenant_id)
+values ('00000000-0000-0000-0000-000000003232',
+  '00000000-0000-0000-0000-000000003212',
+  '00000000-0000-0000-0000-000000003202');
+
 -- Tablas con RLS habilitada
 SELECT is(
   (select relrowsecurity from pg_class where oid = 'public.workspaces'::regclass),
@@ -128,13 +154,13 @@ SELECT is(
 );
 SELECT is(
   (select count(*)::integer from public.workspace_memberships),
-  0,
-  'beta member sees zero memberships when no row matches tenant'
+  2,
+  'beta member sees own memberships (beta-ws + default)'
 );
 SELECT is(
   (select count(*)::integer from public.group_memberships),
-  0,
-  'beta member sees zero group_memberships baseline'
+  1,
+  'beta member sees own group_memberships row (beta in beta-grp)'
 );
 
 reset role;
