@@ -4,6 +4,58 @@ Historial consolidado desde `docs/progreso/`. Las entradas mantienen el nombre
 del archivo original como referencia historica, pero el historial incremental ya
 no vive como carpeta navegable del repo.
 
+## 0.2.0 - 2026-05-23 (Tier 1 Foundation)
+
+### Added
+
+- Jerarquia `tenant -> workspaces -> collections` con visibility
+  `workspace_private` / `tenant_public`.
+- Groups a nivel tenant con membership directa o via group en
+  `workspace_memberships` (principal_kind polimorfico user|group).
+- Tags y `document_tags` para taxonomia transversal por tenant.
+- Soft-delete pattern (`deleted_at` + retention 30d via
+  `cleanup_operational_data`) aplicado a documents/workspaces/collections/
+  groups/tags.
+- RLS helpers en schema `app.*`: `user_can_read_document`,
+  `user_can_edit_document`, `user_workspace_role`, `user_belongs_to_workspace`,
+  `user_shares_group`, `current_workspace_id`, `audit_with_context`.
+- JWT hook v2 con `claims_version=2`, `active_workspace_id` y
+  `active_workspace_role` como hints UI (RLS sigue siendo autoridad).
+- RPCs CRUD security definer: workspaces (8), groups (5), collections (6),
+  tags (4).
+- RPCs documents extendidas: `archive_document`, `restore_document`,
+  `move_document`, `bulk_update_documents`. `create_document_upload` cambia
+  firma para requerir `_workspace_id` (acepta `_collection_id` opcional).
+- Triggers audit `collection.visibility_changed` y `workspace.membership_*`.
+- Realtime publication extendida con `workspaces`, `collections`,
+  `document_collections`, `document_tags`.
+- 4 docs nuevos: `11-workspaces-collections-groups`, `12-rls-patterns`,
+  `13-audit-log-conventions`, `14-retention-and-cleanup`.
+
+### Changed
+
+- Documentos legacy migrados a workspace `Default` por tenant (backfill no
+  destructivo 031.b). Trigger `ensure_default_workspace_for_tenant` garantiza
+  que cada tenant nuevo tenga workspace default.
+- `documents.workspace_id` ahora NOT NULL + composite FK validated.
+- Policy `documents_select_tenant` reemplazada por `documents_select_visible`
+  usando helper `app.user_can_read_document` (admin OR workspace member OR
+  collection tenant_public).
+- 7 docs actualizados: `arquitectura.md`, `backend/01-mapa-del-backend.md`,
+  `backend/02-auth-tenants-rls.md`, `backend/03-documentos-storage-upload.md`,
+  `backend/09-catalogo-api-rutas.md`, `backend/10-supabase-realtime.md`,
+  `docs/README.md`.
+- `cleanup_operational_data` bumpeada de 3 a 4 intervals (suma
+  `_soft_delete_retention default '30 days'`).
+
+### Internal
+
+- 13 nuevas migraciones SQL (030.a-d, 031.a-c, 032-041) + 13 tests pgTAP.
+- Suite test:db total: 25 archivos / 298 tests verdes.
+- Composite FK pattern reforzado: `group_memberships` y `document_tags`
+  recibieron composite FK retroactivamente para cerrar gaps cross-tenant
+  detectados en review.
+
 ## 0.1.6 - 2026-05-21
 
 - `2026-05-21-46-indexing-state-machine-centralizada.md`: centralizacion de la
