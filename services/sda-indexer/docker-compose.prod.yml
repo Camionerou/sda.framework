@@ -1,0 +1,34 @@
+# docker-compose.prod.yml — overrides para producción en srv-ia-01.
+#
+# Usage en srv-ia-01:
+#   cd /opt/sda-framework/services/sda-indexer
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Diferencias vs docker-compose.yml (local):
+# - env_file apunta a /etc/sda-indexer.env (no a ../../.env.local)
+# - sin extra_hosts (no host.docker.internal — Supabase remoto se accede directo)
+# - log limits para no llenar disco
+# - restart policy más estricta
+
+services:
+  sda-indexer:
+    container_name: sda-indexer-prod
+    env_file:
+      - /etc/sda-indexer.env
+    # Removed extra_hosts del local — producción habla con Supabase remoto público
+    extra_hosts: !reset []
+    environment:
+      - SDA_ENV=production
+      - SDA_LOG_LEVEL=INFO
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
