@@ -17,7 +17,7 @@ class State(TypedDict, total=False):
     total_cost_cents: float
 
 
-def build_graph(db: DB):
+def build_graph(db: DB, checkpointer=None):
 
     async def verify_all_ready(s: State) -> dict:
         async with db.pool.acquire() as conn:
@@ -65,11 +65,12 @@ def build_graph(db: DB):
     g.add_edge("verify", "cost")
     g.add_edge("cost", "mark")
     g.add_edge("mark", END)
-    return g.compile()
+    return g.compile(checkpointer=checkpointer)
 
 
 async def run_finalize(graph, *, document_id: str) -> dict:
-    final = await graph.ainvoke({"document_id": document_id})
+    config = {"configurable": {"thread_id": f"finalize:{document_id}"}}
+    final = await graph.ainvoke({"document_id": document_id}, config=config)
     return {
         "status": "ready",
         "node_count": final.get("node_count", 0),

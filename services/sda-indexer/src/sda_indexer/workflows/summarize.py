@@ -31,7 +31,13 @@ class State(TypedDict, total=False):
     cached_tokens: int
 
 
-def build_graph(db: DB, settings: SettingsClient, llm: LLMClient, prompts: dict | None = None):
+def build_graph(
+    db: DB,
+    settings: SettingsClient,
+    llm: LLMClient,
+    prompts: dict | None = None,
+    checkpointer=None,
+):
     prompts = prompts or load_prompt_files()
 
     async def load_node_text(s: State) -> dict:
@@ -131,8 +137,11 @@ def build_graph(db: DB, settings: SettingsClient, llm: LLMClient, prompts: dict 
     g.add_edge("select_model", "call_llm")
     g.add_edge("call_llm", "persist")
     g.add_edge("persist", END)
-    return g.compile()
+    return g.compile(checkpointer=checkpointer)
 
 
 async def run_summarize(graph, *, node_id: str, document_id: str) -> dict:
-    return await graph.ainvoke({"node_id": node_id, "document_id": document_id})
+    config = {"configurable": {"thread_id": f"summarize:{node_id}"}}
+    return await graph.ainvoke(
+        {"node_id": node_id, "document_id": document_id}, config=config,
+    )

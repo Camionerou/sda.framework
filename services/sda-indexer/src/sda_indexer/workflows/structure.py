@@ -24,7 +24,7 @@ class State(TypedDict, total=False):
     aborted: bool
 
 
-def build_graph(db: DB, supabase):
+def build_graph(db: DB, supabase, checkpointer=None):
 
     async def load_from_storage(s: State) -> dict:
         doc = await documents.get_document(db.pool, s["document_id"])
@@ -107,9 +107,10 @@ def build_graph(db: DB, supabase):
     g.add_edge("parse_md", "build_and_persist")
     g.add_edge("build_and_persist", "mark_summarizing")
     g.add_edge("mark_summarizing", END)
-    return g.compile()
+    return g.compile(checkpointer=checkpointer)
 
 
 async def run_structure(graph, *, document_id: str) -> dict:
-    final = await graph.ainvoke({"document_id": document_id})
+    config = {"configurable": {"thread_id": f"structure:{document_id}"}}
+    final = await graph.ainvoke({"document_id": document_id}, config=config)
     return {"node_count": final.get("node_count", 0), "aborted": final.get("aborted", False)}
