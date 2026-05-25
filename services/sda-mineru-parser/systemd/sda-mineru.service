@@ -1,0 +1,32 @@
+[Unit]
+Description=SDA MinerU PDF parser
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=enzo
+WorkingDirectory=/home/enzo/sda-mineru-parser
+EnvironmentFile=/etc/sda-mineru/env
+ExecStart=/home/enzo/.local/bin/uv run --no-sync uvicorn sda_mineru.main:app \
+    --host 127.0.0.1 \
+    --port 8001 \
+    --workers 1 \
+    --log-level info
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+
+# Cache dir y disk usage
+ReadWritePaths=/var/cache/sda-mineru
+StateDirectory=sda-mineru
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

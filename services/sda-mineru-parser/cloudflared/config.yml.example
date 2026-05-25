@@ -1,0 +1,12 @@
+# /etc/cloudflared/config.yml (en srv-ia-01)
+# Tunnel: mineru-prod (UUID asignado por `cloudflared tunnel create`)
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /etc/cloudflared/REPLACE_WITH_TUNNEL_UUID.json
+
+ingress:
+  - hostname: mineru.sdaframework.com
+    service: http://127.0.0.1:8001
+    originRequest:
+      connectTimeout: 30s
+      noTLSVerify: false
+  - service: http_status:404
