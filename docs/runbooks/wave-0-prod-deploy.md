@@ -1,160 +1,157 @@
-# Runbook — Wave 0 Production Deploy
+# Runbook — Wave 0 + Wave 1 prod deploy (Fly.io indexer + srv-ia-01 MinerU)
 
-> **Objetivo:** deployar sda-indexer a srv-ia-01 detrás de **Cloudflare Tunnel** bajo `https://indexer.sdaframework.com`, conectado a Supabase remote (`anfawvxfepowsudlffnl`). Cierra Phase L de Wave 0 (Tasks 36-38).
+**Última actualización:** 2026-05-25 (refactored para Wave 1 — MinerU en srv-ia-01)
+
+> **Objetivo:** dejar el stack productivo end-to-end:
+> 1. `sda-indexer-prod` corriendo en Fly.io (Wave 0, ya deployado).
+> 2. `sda-mineru-parser` corriendo en srv-ia-01 detrás de Cloudflare Tunnel bajo `https://mineru.sdaframework.com` (Wave 1).
+> 3. Supabase remote `anfawvxfepowsudlffnl` orquestando vía pgmq + pg_cron + pg_net.
 >
-> **Arquitectura final:**
-> ```
-> Internet
->   ↓
-> sdaframework.com (Vercel, Next.js frontend) ────────────┐
->   ↓                                                     │
-> indexer.sdaframework.com (CNAME → cfargotunnel.com)     │
->   ↓                                                     │
-> Cloudflare edge (TLS + WAF + DDoS, gratis)              │
->   ↓                                                     │
-> cloudflared (srv-ia-01, outbound-only)                  │
->   ↓                                                     │
-> localhost:8000 (sda-indexer container)                  │
->   ↓                                                     │
-> Supabase remoto (anfawvxfepowsudlffnl) ◄────────────────┘
->   ↑   ↑
->   │   └─ pg_cron → pg_net → indexer.sdaframework.com (loop)
->   └──── tu local (admin, deploys, tests)
-> ```
+> **Por qué este split:** el ISP de srv-ia-01 (Cooperativa Telefónica V.G.G., Santa Fe) bloquea outbound TCP a 5432/6543, por lo que el indexer no puede vivir ahí (necesita ir a Supabase managed). Fly.io free tier resuelve eso. Pero MinerU necesita GPU local — esa sí está en srv-ia-01. Solución: indexer en Fly y MinerU en srv-ia-01, hablados por HTTP saliente desde Fly al tunnel.
 >
-> **Pre-reqs:** cuenta Cloudflare (ya tenés), acceso al dashboard de Vercel para `sdaframework.com`, tailscale SSH a srv-ia-01 funcionando, DB password remoto a mano.
->
-> **Tiempo estimado:** 25-35 min, todo en una sentada.
+> **Pre-reqs:** cuenta Fly.io (`flyctl auth login` ok), cuenta Cloudflare (zone para MinerU o subdomain CNAME hacia cfargotunnel), acceso al dashboard Vercel para `sdaframework.com`, tailscale SSH a srv-ia-01 funcionando, DB password remoto a mano, `psql` instalado local.
 
 ---
 
-## STEP 0 — Recolectá estos 3 valores antes de empezar
+## Sección 1 — Arquitectura real
 
-1. **`DB_PASSWORD`** del Supabase remote:
-   - Supabase dashboard → tu project (anfawvxfepowsudlffnl) → Settings → Database → Connection string → **Session pooler** (port 5432) → URI
-   - Copiá la parte entre `:` y `@` (es la password)
-
-2. **`REGION`** del Supabase pooler: visible en la misma URI (ej: `us-east-1`)
-
-3. **`SUPABASE_SERVICE_KEY_REMOTE`**: dashboard → Settings → API → `service_role` (eyJ...)
-
-Tené los 3 anotados (no en el chat — pasalos por env vars).
-
----
-
-## STEP 1 — Generar bearer + setear Vault remote (corre EN TU LOCAL)
-
-```bash
-cd /Users/enzo/sda.framework/sda.framework
-
-# 1.1 Generar fresh bearer para producción
-export PROD_BEARER=$(openssl rand -hex 32)
-echo "PROD_BEARER guardado en env var (NO lo loguees a archivo)"
-
-# 1.2 Pedir credenciales con prompt (NO logueadas en history)
-read -s -p "DB password remoto: " DB_PASSWORD; echo
-read -p "Region (ej us-east-1): " REGION
-read -s -p "Service role key remoto: " SERVICE_KEY; echo
-
-export REMOTE_DSN="postgresql://postgres.anfawvxfepowsudlffnl:${DB_PASSWORD}@aws-0-${REGION}.pooler.supabase.com:5432/postgres"
-
-# 1.3 Smoke test la conexión
-psql "$REMOTE_DSN" -c "select version();" 2>&1 | head -5
+```
+                                              ┌─────────────────────────────────┐
+                                              │     Internet (HTTPS only)       │
+                                              └─────────────────────────────────┘
+                                                            │
+       ┌──────────────────────────┬───────────────────────────────────────┐
+       ▼                          ▼                                       ▼
+┌───────────────┐    ┌───────────────────────────┐         ┌────────────────────────┐
+│ sdaframework  │    │ sda-indexer-prod.fly.dev  │         │ mineru.sdaframework.com│
+│ .com (Vercel) │    │  (Fly.io, region iad,     │         │ (Cloudflare CNAME →    │
+│ Next.js front │    │   shared-cpu-1x 512MB×2)  │         │  <uuid>.cfargotunnel)  │
+└───────────────┘    └───────────────────────────┘         └────────────────────────┘
+                              │                                       │
+                              │ /index/{structure,summarize,finalize} │ /parse/{native,mineru}
+                              ▼                                       ▼
+                   ┌───────────────────────┐               ┌────────────────────────┐
+                   │  asyncpg pool         │               │  cloudflared (outbound │
+                   │  pg_net responses     │               │   only TCP/7844)       │
+                   │  LangGraph checkpoints│               │  localhost:8001        │
+                   └───────────────────────┘               │  (sda-mineru-parser)   │
+                              │                            │  + magic-pdf + GPU     │
+                              ▼                            └────────────────────────┘
+                ┌──────────────────────────┐                          ▲
+                │   Supabase remote        │                          │
+                │   anfawvxfepowsudlffnl   │── pg_net (HTTPS) ───────┘
+                │                          │   (descarga PDF firmado
+                │ • Storage bucket `docs`  │    desde Storage)
+                │ • pgmq queues × 3        │
+                │ • pg_cron 'drain-queues' │
+                │ • Vault srv_ia_01_*      │
+                │ • Vault mineru_shared_* │  ← agregado en Wave 1
+                └──────────────────────────┘
 ```
 
-Expected: una línea con "PostgreSQL 17.x..." (o lo que sea la versión del remote).
+**Flujo end-to-end de un PDF (Wave 1):**
 
-```bash
-# 1.4 Crear los 2 Vault secrets en remote
-psql "$REMOTE_DSN" -v ON_ERROR_STOP=1 <<EOF
--- Limpiar si existen de tries anteriores
-delete from vault.secrets where name in ('srv_ia_01_secret', 'srv_ia_01_url');
-
--- Bearer (lo conoce solo srv-ia-01 y la dispatcher function)
-select vault.create_secret('${PROD_BEARER}', 'srv_ia_01_secret',
-  'Bearer para auth pg_net → srv-ia-01');
-
--- URL pública del endpoint — placeholder hasta STEP 5
-select vault.create_secret('https://placeholder.example/PLACEHOLDER', 'srv_ia_01_url',
-  'URL pública de srv-ia-01 vía CF Tunnel — actualizar en STEP 5');
-
-select name, created_at from vault.secrets
- where name in ('srv_ia_01_secret', 'srv_ia_01_url')
- order by name;
-EOF
-```
-
-Expected: 2 rows (srv_ia_01_secret, srv_ia_01_url).
-
-**Mantené `$PROD_BEARER` y `$REMOTE_DSN` en la sesión actual; los usamos varios pasos más.**
+1. Upload a Supabase Storage `docs/<path>.pdf`.
+2. Trigger `on_storage_doc_uploaded` → insert en `documents` (status=pending).
+3. Trigger `on_document_inserted` → `pgmq.send` a `q_extract_structure`.
+4. `pg_cron drain-queues` (cada 1min, ver gotcha #3) → `dispatch_pgmq_to_srv_ia` → `pg_net.http_post(https://sda-indexer-prod.fly.dev/index/structure, ...)`.
+5. Indexer Fly recibe → detecta `media_type=pdf` → llama a `https://mineru.sdaframework.com/parse/...` con `Authorization: Bearer $MINERU_SHARED_SECRET` y `signed_url` de Storage.
+6. MinerU en srv-ia-01 descarga el PDF, parsea (native pypdf fast-path o magic-pdf full), responde JSON con structure.
+7. Indexer guarda `tree_nodes`, encolа `q_summarize_node` por nodo.
+8. Loop normal de summarize → finalize → `documents.status='ready'`.
 
 ---
 
-## STEP 2 — Clonar repo + crear /etc/sda-indexer.env (corre EN srv-ia-01)
+## Sección 2 — Deploy del indexer a Fly.io (Wave 0, ya en prod)
 
-SSH a srv-ia-01:
+### 2.1 Login y selección de app
+
 ```bash
-# Desde tu local
+cd /Users/enzo/sda.framework/sda.framework/services/sda-indexer
+flyctl auth whoami        # verificar que estás logueado
+flyctl apps list | grep sda-indexer-prod
+```
+
+Expected: `sda-indexer-prod` listado en region `iad`. Si no existe, `flyctl launch --no-deploy --copy-config` con el `fly.toml` actual.
+
+### 2.2 Setear secrets (la única acción imperativa)
+
+Los env vars con prefijo `SDA_` los lee `pydantic-settings` (ver `services/sda-indexer/src/sda_indexer/config.py`). Los valores no-secretos viven en `fly.toml` `[env]`. Los secretos van por `fly secrets set` (cifrados en Fly Vault).
+
+```bash
+# 2.2.1 Recolectar valores (NO los loguees a archivos)
+read -s -p "DEEPSEEK_API_KEY: " DEEPSEEK_KEY; echo
+read -s -p "SUPABASE_SERVICE_KEY (service_role JWT): " SUPABASE_KEY; echo
+read -s -p "DB_DSN completo (postgresql://...): " DB_DSN; echo
+read -s -p "SRV_IA_01_SECRET (bearer pg_net → Fly): " SRV_BEARER; echo
+read -s -p "MINERU_SHARED_SECRET (bearer Fly → MinerU): " MINERU_SECRET; echo
+
+# 2.2.2 Batch set con --stage (no deploya todavía)
+flyctl secrets set --stage \
+  SDA_DEEPSEEK_API_KEY="$DEEPSEEK_KEY" \
+  SDA_SUPABASE_URL="https://anfawvxfepowsudlffnl.supabase.co" \
+  SDA_SUPABASE_SERVICE_KEY="$SUPABASE_KEY" \
+  SDA_DB_DSN="$DB_DSN" \
+  SDA_SRV_IA_01_SECRET="$SRV_BEARER" \
+  SDA_MINERU_SHARED_SECRET="$MINERU_SECRET" \
+  --app sda-indexer-prod
+
+# 2.2.3 Limpiar de la shell
+unset DEEPSEEK_KEY SUPABASE_KEY DB_DSN SRV_BEARER MINERU_SECRET
+```
+
+Verificar (solo lista keys, nunca los values):
+
+```bash
+flyctl secrets list --app sda-indexer-prod
+```
+
+Expected: 6 keys con `digest` y `created_at`.
+
+### 2.3 Deploy
+
+```bash
+flyctl deploy --remote-only --app sda-indexer-prod
+```
+
+`--remote-only` builda en Fly (evita depender de Docker local). El deploy hace rolling sobre 2 machines (HA, ver gotcha #7).
+
+### 2.4 Verificar
+
+```bash
+flyctl status --app sda-indexer-prod
+flyctl logs --app sda-indexer-prod | head -40
+curl -fsS https://sda-indexer-prod.fly.dev/health | jq
+```
+
+Expected `/health`: `{"service":"sda-indexer","version":"...","db":true,"llm":true,"status":"ok"}`.
+
+Si `db:false` → revisar `SDA_DB_DSN` (pooler hostname `aws-1-*` para este project, NO `aws-0-*`, ver gotcha #2).
+
+---
+
+## Sección 3 — Setup Cloudflare Tunnel en srv-ia-01 PARA MinerU
+
+Wave 1 introduce el servicio `sda-mineru-parser` en `services/sda-mineru-parser/` que corre LOCAL en srv-ia-01 escuchando en `localhost:8001`. Para que el indexer Fly lo alcance sin abrir puertos en el ISP residencial, usamos un Cloudflare Tunnel outbound-only (mismo patrón que el spec original de Wave 0, pero ahora aplicado al servicio que realmente necesita estar en srv-ia-01).
+
+### 3.1 Crear el tunnel en CF dashboard (en tu navegador local)
+
+1. `https://one.dash.cloudflare.com` → Networks → Tunnels.
+2. **Create a tunnel** → tipo **Cloudflared**.
+3. Nombre: `sda-mineru-prod` → Save.
+4. CF te muestra un comando de install para Linux. Copialo (incluye el token largo `eyJ...`).
+
+### 3.2 Instalar cloudflared EN srv-ia-01
+
+```bash
 ssh srv-ia-01
+# Pegar el comando que copiaste del dashboard. Algo así:
+curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
+  && sudo dpkg -i cloudflared.deb \
+  && sudo cloudflared service install eyJh...<TOKEN_LARGO_DEL_DASHBOARD>...
 ```
 
-EN srv-ia-01 ahora:
-
-```bash
-# 2.1 Clonar el repo (o pull si ya existe)
-sudo mkdir -p /opt/sda-framework
-sudo chown sistemas:sistemas /opt/sda-framework
-if [[ -d /opt/sda-framework/.git ]]; then
-  cd /opt/sda-framework
-  git fetch && git checkout main && git pull
-else
-  git clone https://github.com/Camionerou/sda.framework.git /opt/sda-framework
-  cd /opt/sda-framework
-fi
-
-# 2.2 Crear /etc/sda-indexer.env desde el template
-sudo cp services/sda-indexer/.env.production.example /etc/sda-indexer.env
-sudo chmod 600 /etc/sda-indexer.env
-sudo chown root:root /etc/sda-indexer.env
-
-# 2.3 Editar (nano o vim)
-sudo nano /etc/sda-indexer.env
-```
-
-En el editor, reemplazar TODOS los `<PLACEHOLDERS>`:
-- `SDA_SUPABASE_SERVICE_KEY` = el `SERVICE_KEY` del STEP 1
-- `SDA_DB_DSN` = el `REMOTE_DSN` completo del STEP 1
-- `SDA_DEEPSEEK_API_KEY` = `sk-3a6107657992412ba56b51cf651eea22` (o uno fresh si rotás)
-- `SDA_SRV_IA_01_SECRET` = el `PROD_BEARER` del STEP 1 (EXACTAMENTE el mismo string)
-
-Guardar (Ctrl+O, Enter, Ctrl+X en nano).
-
-```bash
-# 2.4 Validar que NO hay placeholders
-sudo grep -E '^SDA_' /etc/sda-indexer.env | grep -c '<' && echo "ERROR: placeholders aún presentes" || echo "OK"
-```
-
-Expected: "OK".
-
----
-
-## STEP 3 — Instalar y configurar Cloudflare Tunnel (EN srv-ia-01)
-
-Tres formas: dashboard (GUI guided), CLI (más programmable), o connector via docker. Recomiendo **dashboard** porque es más visual y CF te da el comando exacto de install.
-
-### 3.1 — Crear el tunnel en CF dashboard (en tu navegador local)
-
-1. Abrí `https://one.dash.cloudflare.com` → Networks → Tunnels
-2. **Create a tunnel** → seleccioná **Cloudflared** como tipo
-3. Nombre: `sda-indexer-prod` → Save
-4. CF te muestra una pantalla con un comando para instalar cloudflared en el servidor. Copiá el comando completo (es algo así):
-   ```
-   curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && sudo dpkg -i cloudflared.deb && sudo cloudflared service install eyJh...<TOKEN_LARGO>...
-   ```
-
-### 3.2 — Pegar y ejecutar EN srv-ia-01
-
-Pegá el comando que copiaste en la sesión SSH a srv-ia-01 y ejecutalo. Output esperado al final:
+Output esperado al final:
 ```
 INF Created service successfully
 INF systemctl enable cloudflared
@@ -162,366 +159,336 @@ INF systemctl start cloudflared
 ```
 
 Verificar:
+
 ```bash
 sudo systemctl status cloudflared --no-pager
-sudo journalctl -u cloudflared -n 20 --no-pager
+sudo journalctl -u cloudflared -n 30 --no-pager | grep -i "registered tunnel connection"
 ```
 
-Expected: status `active (running)`, logs muestran `Registered tunnel connection` (4 connections esperables — uno por región CF cercana).
+Expected: `active (running)`, 4 conexiones a CF edge registradas (una por POP cercano).
 
-### 3.3 — Volver al dashboard CF y agregar public hostname
+### 3.3 Public hostname → localhost:8001 (sda-mineru-parser)
 
-De vuelta en el dashboard CF, ahora estás en el wizard del tunnel:
+De vuelta en el dashboard CF, dentro del wizard del tunnel `sda-mineru-prod`:
 
-1. **Public Hostnames** → **Add a public hostname**
+1. **Public Hostnames** → **Add a public hostname**.
 2. Configurar:
-   - **Subdomain:** `indexer`
-   - **Domain:** `sdaframework.com` (CF te ofrece autocompletado si el dominio está en CF; **si NO está**, vas a ver "domain not in your account" — está bien, vas a meter el hostname manual y configurás el CNAME en Vercel)
-   - **Path:** (dejar vacío)
+   - **Subdomain:** `mineru`
+   - **Domain:** `sdaframework.com` (si el dominio NO está en tu zona CF, dejá el campo vacío; CF te dará un `<uuid>.cfargotunnel.com` para hacer CNAME desde Vercel — ver Sección 4)
+   - **Path:** (vacío)
    - **Type:** HTTP
-   - **URL:** `http://localhost:8000`
-3. Click **Save hostname**
+   - **URL:** `http://localhost:8001`
+3. **Additional application settings** → **HTTP Settings**:
+   - **HTTP Host Header:** `mineru.sdaframework.com` (importante para FastAPI host validation)
+   - **Disable Chunked Encoding:** off
+4. Save hostname.
 
-CF te da el **CNAME target** que vas a necesitar en STEP 4. Es algo del tipo `<uuid>.cfargotunnel.com`. **Copialo.**
+Anotá el **CNAME target** (`<uuid>.cfargotunnel.com`) que muestra CF — lo usamos en Sección 4.
+
+### 3.4 Verificación intermedia (con sda-mineru-parser ya deployado — Tasks 13-14 de Wave 1)
+
+```bash
+# EN srv-ia-01
+curl -fsS http://localhost:8001/healthz
+# Expected: {"service":"sda-mineru-parser","gpu":true,"magic_pdf":"ok",...}
+```
+
+Si MinerU todavía no está deployado, este check va a fallar — pasar a Sección 4 igual y volver acá cuando los Tasks 13-14 de Wave 1 estén done.
 
 ---
 
-## STEP 4 — DNS CNAME en Vercel (EN TU NAVEGADOR)
+## Sección 4 — DNS `mineru.sdaframework.com` en Vercel
 
-1. Abrí `https://vercel.com/dashboard` → tu account → Domains → `sdaframework.com`
-2. Records → **Add Record**
-3. Configurar:
+Vercel gestiona `sdaframework.com`. Agregamos un CNAME al target Cloudflare del tunnel.
+
+### 4.1 Crear el CNAME
+
+1. `https://vercel.com/dashboard` → Domains → `sdaframework.com` → Records.
+2. **Add Record**:
    - **Type:** CNAME
-   - **Name:** `indexer`
-   - **Value:** `<el UUID>.cfargotunnel.com` (el CNAME target del STEP 3.3)
-   - **TTL:** Auto (60 o 300 segundos default está bien)
-4. Save
+   - **Name:** `mineru`
+   - **Value:** `<uuid>.cfargotunnel.com` (el del paso 3.3)
+   - **TTL:** Auto (60s default).
+3. Save.
 
-Esperar 2-5 minutos para propagación DNS.
-
-### Verificar DNS desde tu local
+### 4.2 Esperar propagación + verificar
 
 ```bash
-# Polling cada 5s hasta que resuelva
-while ! dig +short indexer.sdaframework.com | grep -q .; do
-  echo "still propagating..."
-  sleep 5
+# Polling hasta que resuelva
+until dig +short mineru.sdaframework.com | grep -q .; do
+  echo "still propagating..."; sleep 5
 done
-dig +short indexer.sdaframework.com
+dig +short mineru.sdaframework.com
 ```
 
-Expected: una IP de Cloudflare (104.x.x.x, 172.x.x.x, etc).
+Expected: una IP de Cloudflare (104.x.x.x, 172.x.x.x).
+
+### 4.3 Smoke test público (cuando MinerU ya está running)
+
+```bash
+curl -fsS https://mineru.sdaframework.com/healthz \
+  -H "Authorization: Bearer $MINERU_SHARED_SECRET" | jq
+```
+
+Expected: 200 con el mismo JSON que el `/healthz` local. Si 502 → cloudflared down o MinerU no escuchando en 8001. Si 403 → bearer mismatch. Si timeout → CNAME no propagado.
 
 ---
 
-## STEP 5 — Deploy del container sda-indexer (EN srv-ia-01)
+## Sección 5 — Variables de entorno y secrets
 
-EN srv-ia-01 (todavía en SSH session):
+### 5.1 Indexer Fly.io — secrets via `fly secrets set` (ver §2.2)
 
-```bash
-cd /opt/sda-framework/services/sda-indexer
+| Key | Origen | Notas |
+|---|---|---|
+| `SDA_DEEPSEEK_API_KEY` | DeepSeek dashboard → API Keys | Rotable. Formato `sk-...` |
+| `SDA_SUPABASE_URL` | `https://anfawvxfepowsudlffnl.supabase.co` | Hardcoded por project |
+| `SDA_SUPABASE_SERVICE_KEY` | Supabase dashboard → Settings → API → `service_role` | JWT largo `eyJ...` |
+| `SDA_DB_DSN` | Supabase dashboard → Settings → Database → Session pooler URI | **Hostname `aws-1-*`, no `aws-0-*`** (gotcha #2) |
+| `SDA_SRV_IA_01_SECRET` | `openssl rand -hex 32` | Bearer pg_net → Fly indexer. Debe matchear Vault `srv_ia_01_secret` |
+| `SDA_MINERU_SHARED_SECRET` | `openssl rand -hex 32` | Bearer Fly indexer → MinerU service. Debe matchear `/etc/sda-mineru.env` en srv-ia-01 |
 
-# 5.1 Verificar permisos del helper script
-chmod +x scripts/deploy_srv_ia_01.sh
+Env vars NO secretos viven en `fly.toml` `[env]`: `SDA_ENV=production`, `SDA_LOG_LEVEL=INFO`, `SDA_HOST=0.0.0.0`, `SDA_PORT=8000`, `SDA_DB_POOL_MIN_SIZE=2`, `SDA_DB_POOL_MAX_SIZE=10`.
 
-# 5.2 Ejecutar deploy (build + up)
-sudo bash scripts/deploy_srv_ia_01.sh
+### 5.2 MinerU service en srv-ia-01 — `/etc/sda-mineru.env`
+
+Creado por el systemd unit (Task 13 de Wave 1). Variables consumidas por `sda_mineru.config`:
+
+| Key | Origen | Notas |
+|---|---|---|
+| `MINERU_HOST` | `127.0.0.1` | Solo accesible vía tunnel, no expongas en LAN |
+| `MINERU_PORT` | `8001` | Matchea la URL del tunnel |
+| `MINERU_SHARED_SECRET` | `openssl rand -hex 32` | **Mismo valor que `SDA_MINERU_SHARED_SECRET` en Fly** |
+| `SUPABASE_URL` | `https://anfawvxfepowsudlffnl.supabase.co` | Para generar signed URLs de descarga |
+| `SUPABASE_SERVICE_KEY` | service_role JWT | Misma key que el indexer |
+| `MINERU_CACHE_DIR` | `/var/cache/sda-mineru` | LRU local de PDFs ya parseados |
+| `MINERU_MAX_CACHE_GB` | `20` | Cap del LRU |
+| `MAGIC_PDF_CONFIG` | `/opt/sda-framework/services/sda-mineru-parser/magic-pdf.json` | Config de magic-pdf (modelos, device=cuda) |
+
+Setear permisos: `sudo chmod 600 /etc/sda-mineru.env && sudo chown root:root /etc/sda-mineru.env`.
+
+### 5.3 Supabase Vault — secrets que lee `dispatch_pgmq_to_srv_ia`
+
+Ver `supabase/migrations/20260525000007_cron.sql`. Vault stora 2 secrets que pg_net necesita:
+
+| Vault `name` | Valor | Cómo se usa |
+|---|---|---|
+| `srv_ia_01_url` | `https://sda-indexer-prod.fly.dev` | Base URL del indexer. Concatenado con `/index/<path>` |
+| `srv_ia_01_secret` | mismo bearer que `SDA_SRV_IA_01_SECRET` | Authorization header del HTTP call |
+
+**Patrón de UPDATE seguro** (gotcha #4 — `update vault.secrets` directo falla):
+
+```sql
+do $$
+declare v_id uuid;
+begin
+  select id into v_id from vault.secrets where name='srv_ia_01_url';
+  perform vault.update_secret(v_id, 'https://sda-indexer-prod.fly.dev', 'srv_ia_01_url',
+                              'URL del indexer Fly (Wave 0 prod)');
+end $$;
 ```
 
-Expected final:
-```
-==> ✅ Deploy completo. Servicio reachable en localhost:8000 (DENTRO de srv-ia-01).
-==> Próximo paso: configurar Tailscale Funnel para exponerlo público.
-```
-
-(Ignorá el mensaje sobre Tailscale Funnel — vos estás usando CF Tunnel, ya está configurado.)
-
-### Verificar el health desde dentro de srv-ia-01
-
-```bash
-curl -fsS http://localhost:8000/health
-```
-Expected: `{"service":"sda-indexer","version":"0.1.0","db":true,"llm":true,"status":"ok"}`
-
-### Verificar el health desde internet (vía el túnel)
-
-```bash
-curl -fsS https://indexer.sdaframework.com/health
-```
-Expected: la misma respuesta. Si timeout o 502, ver troubleshooting al final.
+Wave 1 puede agregar un Vault secret extra para el MinerU bearer si en algún momento Supabase necesita llamarlo directo (por ahora NO — el flow es Supabase → Fly → MinerU).
 
 ---
 
-## STEP 6 — Actualizar Vault con la URL real (EN TU LOCAL)
+## Sección 6 — Smoke tests post-deploy
 
-Volvé a tu terminal local con las env vars del STEP 1 todavía cargadas:
-
-```bash
-# 6.1 Update el Vault secret srv_ia_01_url al valor real
-psql "$REMOTE_DSN" -v ON_ERROR_STOP=1 <<EOF
-update vault.secrets
-   set secret = 'https://indexer.sdaframework.com'
- where name = 'srv_ia_01_url';
-
-select name, updated_at from vault.secrets where name = 'srv_ia_01_url';
-EOF
-```
-
-Expected: 1 row con updated_at = ahora.
-
-### Smoke test desde Supabase remote
+### 6.1 Healthchecks individuales
 
 ```bash
-psql "$REMOTE_DSN" <<'EOF'
--- Llamar el endpoint desde dentro de Postgres remoto vía pg_net
-select net.http_get(
-  url := (select decrypted_secret from vault.decrypted_secrets where name='srv_ia_01_url') || '/health',
-  timeout_milliseconds := 10000
-) as request_id;
+# Indexer Fly
+curl -fsS https://sda-indexer-prod.fly.dev/health | jq
+# Expected: db=true, llm=true
 
--- Esperar 3 segundos para que la response llegue
-select pg_sleep(3);
-
--- Ver el resultado
-select id, status_code, content::jsonb->>'status' as service_status,
-       content::jsonb->>'db' as db_ok
-  from net._http_response
- order by id desc
- limit 1;
-EOF
+# MinerU srv-ia-01 (vía tunnel)
+curl -fsS https://mineru.sdaframework.com/healthz \
+  -H "Authorization: Bearer $MINERU_SHARED_SECRET" | jq
+# Expected: gpu=true, magic_pdf=ok
 ```
 
-Expected: 1 row con `status_code = 200`, `service_status = ok`, `db_ok = true`.
-
-Si `status_code = 401`: el bearer no matchea. Re-chequear que `/etc/sda-indexer.env` SDA_SRV_IA_01_SECRET == Vault `srv_ia_01_secret`.
-
-Si `status_code = NULL` o timeout: DNS no propagado o CF Tunnel down. Re-chequear STEP 3 + 4.
-
----
-
-## STEP 7 — Verify D-0.x criteria EN PRODUCCIÓN (T38)
-
-Todo corre EN TU LOCAL contra el Supabase remote.
-
-### D-0.1 — Markdown end-to-end
-
-```bash
-cd /Users/enzo/sda.framework/sda.framework
-
-# Helper Python para upload + esperar
-cat > /tmp/prod_d01.py <<'PYEOF'
-import os, time, hashlib, sys
-from supabase import create_client
-import psycopg
-
-url = "https://anfawvxfepowsudlffnl.supabase.co"
-key = os.environ["SERVICE_KEY"]
-dsn = os.environ["REMOTE_DSN"]
-
-sb = create_client(url, key)
-sb.storage.from_("docs").upload(
-    "docs/prod-test-tiny.md",
-    open("services/sda-indexer/tests/fixtures/tiny.md", "rb").read(),
-    {"upsert": "true", "content-type": "text/markdown"},
-)
-print("uploaded — esperando hasta 60s...")
-
-start = time.time()
-with psycopg.connect(dsn) as conn:
-    while time.time() - start < 60:
-        row = conn.execute(
-            "select status, node_count from documents where source_path='docs/prod-test-tiny.md'"
-        ).fetchone()
-        if row and row[0] == "ready":
-            print(f"D-0.1 ✅ status=ready, node_count={row[1]} en {time.time()-start:.1f}s")
-            sys.exit(0)
-        time.sleep(2)
-
-with psycopg.connect(dsn) as conn:
-    row = conn.execute("select status from documents where source_path='docs/prod-test-tiny.md'").fetchone()
-print(f"D-0.1 ❌ TIMEOUT — status final: {row}")
-sys.exit(1)
-PYEOF
-
-SERVICE_KEY="$SERVICE_KEY" REMOTE_DSN="$REMOTE_DSN" python3 /tmp/prod_d01.py
-```
-
-### D-0.2 — Idempotencia sha256
-
-```bash
-cat > /tmp/prod_d02.py <<'PYEOF'
-import os, time, sys
-from supabase import create_client
-import psycopg
-
-key = os.environ["SERVICE_KEY"]
-dsn = os.environ["REMOTE_DSN"]
-sb = create_client("https://anfawvxfepowsudlffnl.supabase.co", key)
-
-content = open("services/sda-indexer/tests/fixtures/tiny.md", "rb").read()
-sb.storage.from_("docs").upload("docs/prod-test-tiny-dup.md", content,
-                                {"upsert": "true", "content-type": "text/markdown"})
-print("dup uploaded, esperando 30s para reconcile sha256...")
-time.sleep(30)
-
-with psycopg.connect(dsn) as conn:
-    rows = conn.execute("""
-        select source_path, status from documents
-         where source_path like 'docs/prod-test-tiny%'
-         order by created_at
-    """).fetchall()
-
-statuses = {r[0]: r[1] for r in rows}
-print("Statuses:", statuses)
-
-if "ready" in statuses.values() and "duplicate" in statuses.values():
-    print("D-0.2 ✅ idempotency works (one ready + one duplicate)")
-else:
-    print("D-0.2 ❌ unexpected statuses"); sys.exit(1)
-PYEOF
-
-SERVICE_KEY="$SERVICE_KEY" REMOTE_DSN="$REMOTE_DSN" python3 /tmp/prod_d02.py
-```
-
-### D-0.3 — Resiliencia (kill mid-summarize)
-
-Subir un MD un poco más largo, después restartear el container EN srv-ia-01 mientras se procesa.
-
-```bash
-# 1. Subir nested.md (más nodos)
-SERVICE_KEY="$SERVICE_KEY" python3 -c "
-from supabase import create_client
-sb = create_client('https://anfawvxfepowsudlffnl.supabase.co', '$SERVICE_KEY')
-sb.storage.from_('docs').upload('docs/prod-test-nested.md',
-  open('services/sda-indexer/tests/fixtures/nested.md','rb').read(),
-  {'upsert':'true','content-type':'text/markdown'})
-print('uploaded')
-"
-
-# 2. INMEDIATAMENTE en otra terminal (Tailscale SSH a srv-ia-01):
-# ssh srv-ia-01 'sudo docker compose -f /opt/sda-framework/services/sda-indexer/docker-compose.yml -f /opt/sda-framework/services/sda-indexer/docker-compose.prod.yml restart sda-indexer'
-
-# 3. Esperar y verificar que llega a ready
-sleep 90
-psql "$REMOTE_DSN" -c "
-  select status, node_count from documents where source_path='docs/prod-test-nested.md';
-"
-```
-Expected: status='ready'. Pgmq reentregó después del restart.
-
-### D-0.4 — LangGraph checkpoints
-
-```bash
-psql "$REMOTE_DSN" -c "
-  select count(*) as total_checkpoints,
-         count(distinct thread_id) as distinct_threads
-    from langgraph_checkpoints.checkpoints;
-"
-```
-Expected: total > 30 (acumulado de los tests previos), distinct_threads > 5.
-
-### D-0.5 — Test suite local (ya hecho, re-verify)
+### 6.2 End-to-end Markdown (Wave 0 sanity check)
 
 ```bash
 cd /Users/enzo/sda.framework/sda.framework/services/sda-indexer
-uv run pytest --cov=src/sda_indexer/pipeline --cov-report=term-missing 2>&1 | tail -15
-```
-Expected: passed, coverage en pipeline visible.
+export SERVICE_KEY="<service_role>"
+export REMOTE_DSN="postgresql://postgres.anfawvxfepowsudlffnl:<pass>@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
 
-### D-0.6 — Hot-reload setting
+# Upload fixture vía REST API (evita supabase-py, gotcha #5)
+curl -X POST \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -H "Content-Type: text/markdown" \
+  -H "x-upsert: true" \
+  --data-binary @tests/fixtures/tiny.md \
+  "https://anfawvxfepowsudlffnl.supabase.co/storage/v1/object/docs/docs/smoke-md.md"
 
-```bash
-# Cambiar setting global
+# Esperar 90s (cron tick + processing) y verificar
+sleep 90
 psql "$REMOTE_DSN" -c "
-  update app_settings
-     set value = '\"deepseek-chat\"'::jsonb, updated_by='prod-test-d06'
-   where key='llm.model.summarize' and scope_type='global' and scope_value is null;
+  select source_path, status, node_count, last_error
+    from documents where source_path='docs/smoke-md.md';
 "
-
-# Esperar 1s, después verificar logs en srv-ia-01
-sleep 1
-ssh srv-ia-01 'sudo docker compose -f /opt/sda-framework/services/sda-indexer/docker-compose.yml -f /opt/sda-framework/services/sda-indexer/docker-compose.prod.yml logs --tail 20 sda-indexer' | grep -E "settings\.(invalidated|listener)"
 ```
-Expected: línea con `settings.invalidated key=llm.model.summarize count=N`.
 
----
+Expected: `status=ready`, `node_count > 0`, `last_error=null`.
 
-## STEP 8 — Cleanup + tag release (EN TU LOCAL)
+### 6.3 End-to-end PDF (Wave 1, post-MinerU deploy)
 
 ```bash
-# Cleanup test docs de producción
-psql "$REMOTE_DSN" -c "delete from documents where source_path like 'docs/prod-test-%';"
+# Subir un PDF pequeño (5-10 páginas)
+curl -X POST \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -H "Content-Type: application/pdf" \
+  -H "x-upsert: true" \
+  --data-binary @tests/fixtures/sample-5pg.pdf \
+  "https://anfawvxfepowsudlffnl.supabase.co/storage/v1/object/docs/docs/smoke-pdf.pdf"
 
-# Borrar los archivos de Storage (la api de Storage los borra, no SQL)
-python3 -c "
-from supabase import create_client
-sb = create_client('https://anfawvxfepowsudlffnl.supabase.co', '$SERVICE_KEY')
-for p in ['docs/prod-test-tiny.md','docs/prod-test-tiny-dup.md','docs/prod-test-nested.md']:
-    try: sb.storage.from_('docs').remove([p])
-    except: pass
-print('cleaned')
+sleep 180  # PDFs tardan más (parser + chunk + summarize x N)
+psql "$REMOTE_DSN" -c "
+  select source_path, status, node_count, parser_used, last_error
+    from documents where source_path='docs/smoke-pdf.pdf';
 "
+```
 
-# Verificar colas vacías
+Expected: `status=ready`, `parser_used in ('native','mineru')`, `node_count > 0`.
+
+### 6.4 Verificar pg_net dispatch funciona
+
+```bash
+psql "$REMOTE_DSN" -c "
+  select id, status_code,
+         content::jsonb->>'service' as service,
+         created
+    from net._http_response
+    order by id desc limit 5;
+"
+```
+
+Expected: filas recientes con `status_code=200` apuntando al indexer Fly.
+
+### 6.5 Verificar pgmq queues no acumulan backlog
+
+```bash
 psql "$REMOTE_DSN" -c "select queue_name, queue_length from pgmq.metrics_all();"
-
-# Tag release
-cd /Users/enzo/sda.framework/sda.framework
-git tag -a wave-0-foundation-complete -m "Wave 0 Foundation 38/38 complete
-
-D-0.1..D-0.6 verificados contra producción:
-  - Supabase remote anfawvxfepowsudlffnl (9 migrations)
-  - srv-ia-01 con Docker (sda-indexer container)
-  - Cloudflare Tunnel public hostname indexer.sdaframework.com
-  - Vercel DNS CNAME al tunnel
-  - Vault secrets srv_ia_01_secret + srv_ia_01_url en Supabase
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
-
-git push origin wave-0-foundation-complete
 ```
 
----
-
-## Troubleshooting matrix
-
-| Síntoma | Causa probable | Fix |
-|---|---|---|
-| `cloudflared service install` falla con "TOKEN invalid" | Copy paste cortado | Re-copiar el comando completo del dashboard |
-| `systemctl status cloudflared` dice "failed" | Conn a CF edge fallida (firewall outbound) | Verificar outbound TCP 7844 y 443 abierto (ufw allow out 7844/tcp) |
-| `curl https://indexer.sdaframework.com/health` → DNS error | CNAME no propagado | Esperar 2-5 min más. `dig indexer.sdaframework.com` debe devolver IP CF |
-| Mismo curl → 502 Bad Gateway | sda-indexer container no escuchando en 8000 | `docker compose ps` + `curl localhost:8000/health` en srv-ia-01 |
-| `/health` 200 público pero pg_net falla | Vault srv_ia_01_url no actualizado | STEP 6 — revisar `select decrypted_secret from vault.decrypted_secrets where name='srv_ia_01_url'` |
-| Endpoints protegidos devuelven 401 con bearer correcto | Bearer mismatch /etc/sda-indexer.env vs Vault | Re-sincronizar: copiar SDA_SRV_IA_01_SECRET del env y reemplazar Vault `srv_ia_01_secret` |
-| Doc queda en 'pending' >30s | Drainer cron no llega o pg_net rate limit | `select * from net._http_response order by id desc limit 5;` + `select * from cron.job_run_details order by start_time desc limit 5;` |
-| `out of memory` en docker | Conflicto con MinerU/vllm | Bajar `SDA_DB_POOL_MAX_SIZE` en `/etc/sda-indexer.env`, restart container |
+Expected: todas las queues en 0 o ≤ rate limit slots.
 
 ---
 
-## Rollback rápido
+## Sección 7 — Rollback procedures
 
-EN srv-ia-01:
+### 7.1 Rollback del indexer Fly.io (release anterior)
+
+`fly releases` lista todas las releases con su image tag:
+
 ```bash
-cd /opt/sda-framework
-PREV=$(git log --skip 1 -1 --format=%H)
-git checkout $PREV
-cd services/sda-indexer
-sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+flyctl releases --app sda-indexer-prod | head -10
 ```
 
-Para disable tunnel temporalmente: `sudo systemctl stop cloudflared` (la URL devuelve 502 hasta que lo levantes de nuevo).
+Output ejemplo:
+```
+VERSION  STATUS    DESCRIPTION         USER             DATE
+v42      complete  Deploy image        enzo@...         2026-05-25T18:00:00Z
+v41      complete  Deploy image        enzo@...         2026-05-25T16:30:00Z
+v40      complete  Deploy image        enzo@...         2026-05-25T14:00:00Z
+```
+
+Cada release apunta a una image en el registry interno de Fly: `registry.fly.io/sda-indexer-prod:deployment-<id>`.
+
+```bash
+# Listar deployment images con sus IDs reales
+flyctl image show --app sda-indexer-prod
+# o
+flyctl releases --app sda-indexer-prod --image
+```
+
+**Rollback a la release anterior:**
+
+```bash
+flyctl deploy --image registry.fly.io/sda-indexer-prod:deployment-01HXXX... \
+  --app sda-indexer-prod
+```
+
+Verificar:
+
+```bash
+flyctl status --app sda-indexer-prod
+curl -fsS https://sda-indexer-prod.fly.dev/health | jq
+```
+
+### 7.2 Rollback de secrets (si rotaste y rompiste algo)
+
+`fly secrets set` no tiene `undo` nativo — re-setear el valor previo:
+
+```bash
+flyctl secrets set --stage SDA_DEEPSEEK_API_KEY="<previous_key>" --app sda-indexer-prod
+flyctl deploy --app sda-indexer-prod  # forzar pickup
+```
+
+### 7.3 Rollback del MinerU service (srv-ia-01)
+
+```bash
+ssh srv-ia-01
+cd /opt/sda-framework
+PREV=$(git log --skip 1 -1 --format=%H -- services/sda-mineru-parser/)
+git checkout $PREV -- services/sda-mineru-parser/
+sudo systemctl restart sda-mineru
+sudo journalctl -u sda-mineru -n 50 --no-pager
+```
+
+### 7.4 Disable temporal del MinerU tunnel (cortar tráfico sin tirar el servicio)
+
+```bash
+ssh srv-ia-01 'sudo systemctl stop cloudflared'
+# El indexer Fly va a ver `502 Bad Gateway` en `mineru.sdaframework.com`
+# Los PDFs caen en retry → eventualmente status='failed' con last_error='mineru_timeout'
+# Restablecer: sudo systemctl start cloudflared
+```
+
+### 7.5 Pausar el pipeline entero (kill switch)
+
+Si todo está en llamas, desactivar el cron es la manera más rápida de parar dispatching:
+
+```sql
+-- EN Supabase remote
+update cron.job set active = false where jobname = 'drain-queues-10s';
+```
+
+Los uploads siguen entrando a `documents` y `pgmq` pero nadie los drena. Re-enable con `set active = true` cuando esté resuelto.
 
 ---
 
-## Definition of Done — Phase L = Wave 0 cerrada
+## Sección 8 — Gotchas conocidos
 
-- [ ] STEP 1: Vault tiene `srv_ia_01_secret` + `srv_ia_01_url` placeholder en remote ✓
-- [ ] STEP 2: `/etc/sda-indexer.env` en srv-ia-01 con todos los valores reales ✓
-- [ ] STEP 3: cloudflared instalado + service running + public hostname configured ✓
-- [ ] STEP 4: CNAME `indexer.sdaframework.com` en Vercel DNS resuelve a CF ✓
-- [ ] STEP 5: `docker compose ps` muestra `sda-indexer-prod` running healthy ✓
-- [ ] STEP 6: Vault `srv_ia_01_url` actualizado, smoke test desde Supabase devuelve 200 ✓
-- [ ] STEP 7: D-0.1 ... D-0.6 ✓
-- [ ] STEP 8: Tag `wave-0-foundation-complete` creado y pusheado ✓
+Toda la lista de problemas operacionales descubiertos durante deploys está documentada en:
 
-Cuando los 8 puntos están ✅, Wave 0 está 100% completa (**38/38 tasks done**). Bien hecho.
+- **Memoria principal:** `~/.claude/projects/-Users-enzo-sda-framework-sda-framework/memory/wave_0_prod_gotchas.md`
+- **Memoria complementaria:** `~/.claude/projects/-Users-enzo-sda-framework-sda-framework/memory/wave_0_prod_deploy.md`
+- **Migrations:** `~/.claude/projects/-Users-enzo-sda-framework-sda-framework/memory/supabase_migrations_gotchas.md`
+
+Resumen accionable para este runbook (numeración alineada con `wave_0_prod_gotchas.md`):
+
+1. **ISP residencial bloquea 5432/6543** — por eso el indexer está en Fly y no en srv-ia-01. NO intentar revertir sin antes confirmar con `nc -zvw5 aws-1-us-east-1.pooler.supabase.com 5432` desde srv-ia-01.
+2. **Pooler hostname `aws-1-*`** para este project, NO `aws-0-*`. Síntoma con hostname mal: `FATAL: Tenant or user not found` (parece error de password pero no lo es). Source-of-truth: dashboard → Settings → Database → Session pooler URI, o `supabase/.temp/pooler-url`.
+3. **pg_cron managed NO corre sub-minuto** por default. Schedule `*/10 * * * * *` se ignora silenciosamente. Migration 010 ya fixea a `* * * * *`. Para latencia sub-minuto futura, considerar pg_notify-based dispatch o Edge Function.
+4. **`update vault.secrets` directo falla** con `permission denied`. Usar `vault.update_secret(id, new_secret, name, description)`. Ver §5.3 para el patrón.
+5. **supabase-py no en system Python.** Para scripts ad-hoc usar `curl` al REST API de Storage (ver §6.2) o `uv run python` desde el service dir.
+6. **Bash tool isolation de Claude Code** — env vars exportados en Terminal del user NO llegan al asistente. Pasar secretos vía Keychain o `/tmp/file chmod 600`.
+7. **Fly machines en HA = 2 instances** con `min_machines_running=1`. Es esperado, no es un bug. Si querés 1 sola: `min_machines_running=0 + auto_start_machines=false + auto_stop_machines=true` y arrancar manual.
+8. **`fly secrets set --stage`** sólo guarda sin deployar — usar para batch + 1 deploy final (ver §2.2).
+
+Wave 1 va a agregar gotchas específicos de MinerU (descarga signed URLs, OOM handling, cache LRU). Cuando aparezcan, documentarlos en una memoria nueva `wave_1_mineru_gotchas.md` y referenciarla acá.
+
+---
+
+## Definition of Done
+
+- [ ] §2: `sda-indexer-prod.fly.dev/health` responde 200 con `db=true, llm=true`.
+- [ ] §3: `cloudflared` en srv-ia-01 corriendo, 4 conexiones a CF edge.
+- [ ] §4: `dig mineru.sdaframework.com` resuelve a IP CF.
+- [ ] §5: Fly secrets list muestra las 6 keys, `/etc/sda-mineru.env` con permisos 600.
+- [ ] §6.1-6.2: Markdown end-to-end llega a `status=ready`.
+- [ ] §6.3: PDF end-to-end llega a `status=ready` con `parser_used` populated (post Wave 1 deploy).
+- [ ] §6.4-6.5: `net._http_response` muestra 200s recientes, queues sin backlog.
+
+Cuando los 7 puntos están ✅, el stack productivo (Wave 0 + Wave 1) está operativo end-to-end.
