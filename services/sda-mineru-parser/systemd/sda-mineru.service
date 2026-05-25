@@ -5,10 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=enzo
-WorkingDirectory=/home/enzo/sda-mineru-parser
+User=sistemas
+WorkingDirectory=/home/sistemas/sda-mineru-parser
 EnvironmentFile=/etc/sda-mineru/env
-ExecStart=/home/enzo/.local/bin/uv run --no-sync uvicorn sda_mineru.main:app \
+ExecStart=/home/sistemas/.local/bin/uv run --no-sync uvicorn sda_mineru.main:app \
     --host 127.0.0.1 \
     --port 8001 \
     --workers 1 \

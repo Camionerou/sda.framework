@@ -2132,10 +2132,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=enzo
-WorkingDirectory=/home/enzo/sda-mineru-parser
+User=sistemas
+WorkingDirectory=/home/sistemas/sda-mineru-parser
 EnvironmentFile=/etc/sda-mineru/env
-ExecStart=/home/enzo/.local/bin/uv run --no-sync uvicorn sda_mineru.main:app \
+ExecStart=/home/sistemas/.local/bin/uv run --no-sync uvicorn sda_mineru.main:app \
     --host 127.0.0.1 \
     --port 8001 \
     --workers 1 \
@@ -2200,24 +2200,24 @@ Append to `services/sda-mineru-parser/README.md`:
 ```bash
 # 1. Sync code
 rsync -av --exclude='.venv/' --exclude='__pycache__/' \
-    services/sda-mineru-parser/ enzo@srv-ia-01:/home/enzo/sda-mineru-parser/
+    services/sda-mineru-parser/ sistemas@srv-ia-01:/home/sistemas/sda-mineru-parser/
 
 # 2. Install deps en el server
-ssh enzo@srv-ia-01 'cd /home/enzo/sda-mineru-parser && uv sync'
+ssh sistemas@srv-ia-01 'cd /home/sistemas/sda-mineru-parser && uv sync'
 
 # 3. Setup env file (one-time)
-ssh enzo@srv-ia-01 'sudo mkdir -p /etc/sda-mineru && sudo tee /etc/sda-mineru/env <<EOF
+ssh sistemas@srv-ia-01 'sudo mkdir -p /etc/sda-mineru && sudo tee /etc/sda-mineru/env <<EOF
 MINERU_SHARED_SECRET=<generate-with-openssl-rand-hex-32>
 SDA_MINERU_CACHE_DIR=/var/cache/sda-mineru
 EOF'
-ssh enzo@srv-ia-01 'sudo chmod 600 /etc/sda-mineru/env'
+ssh sistemas@srv-ia-01 'sudo chmod 600 /etc/sda-mineru/env'
 
 # 4. Install systemd unit
-ssh enzo@srv-ia-01 'sudo cp /home/enzo/sda-mineru-parser/systemd/sda-mineru.service /etc/systemd/system/'
-ssh enzo@srv-ia-01 'sudo systemctl daemon-reload && sudo systemctl enable --now sda-mineru'
+ssh sistemas@srv-ia-01 'sudo cp /home/sistemas/sda-mineru-parser/systemd/sda-mineru.service /etc/systemd/system/'
+ssh sistemas@srv-ia-01 'sudo systemctl daemon-reload && sudo systemctl enable --now sda-mineru'
 
 # 5. Verify
-ssh enzo@srv-ia-01 'systemctl status sda-mineru && curl -s http://127.0.0.1:8001/healthz'
+ssh sistemas@srv-ia-01 'systemctl status sda-mineru && curl -s http://127.0.0.1:8001/healthz'
 ```
 ```
 
@@ -2274,23 +2274,23 @@ Append section 3 in `docs/runbooks/wave-0-prod-deploy.md`:
 
 ```bash
 # 1. Install cloudflared (Debian/Ubuntu)
-ssh enzo@srv-ia-01 'wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && sudo dpkg -i cloudflared-linux-amd64.deb'
+ssh sistemas@srv-ia-01 'wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && sudo dpkg -i cloudflared-linux-amd64.deb'
 
 # 2. Auth + create tunnel
-ssh enzo@srv-ia-01 'cloudflared tunnel login'  # browser opens
-ssh enzo@srv-ia-01 'cloudflared tunnel create mineru-prod'
+ssh sistemas@srv-ia-01 'cloudflared tunnel login'  # browser opens
+ssh sistemas@srv-ia-01 'cloudflared tunnel create mineru-prod'
 # Note el UUID retornado
 
 # 3. Copy config from repo + edit UUID
-scp services/sda-mineru-parser/cloudflared/config.yml.example enzo@srv-ia-01:/tmp/
-ssh enzo@srv-ia-01 'sudo mkdir -p /etc/cloudflared && sudo cp /tmp/config.yml.example /etc/cloudflared/config.yml'
-ssh enzo@srv-ia-01 'sudo vim /etc/cloudflared/config.yml'  # replace REPLACE_WITH_TUNNEL_UUID
-ssh enzo@srv-ia-01 'sudo cp ~/.cloudflared/<UUID>.json /etc/cloudflared/'
+scp services/sda-mineru-parser/cloudflared/config.yml.example sistemas@srv-ia-01:/tmp/
+ssh sistemas@srv-ia-01 'sudo mkdir -p /etc/cloudflared && sudo cp /tmp/config.yml.example /etc/cloudflared/config.yml'
+ssh sistemas@srv-ia-01 'sudo vim /etc/cloudflared/config.yml'  # replace REPLACE_WITH_TUNNEL_UUID
+ssh sistemas@srv-ia-01 'sudo cp ~/.cloudflared/<UUID>.json /etc/cloudflared/'
 
 # 4. Install as service
-ssh enzo@srv-ia-01 'sudo cloudflared service install'
-ssh enzo@srv-ia-01 'sudo systemctl enable --now cloudflared'
-ssh enzo@srv-ia-01 'sudo systemctl status cloudflared'
+ssh sistemas@srv-ia-01 'sudo cloudflared service install'
+ssh sistemas@srv-ia-01 'sudo systemctl enable --now cloudflared'
+ssh sistemas@srv-ia-01 'sudo systemctl status cloudflared'
 ```
 
 ## Sección 4 — DNS mineru.sdaframework.com en Vercel
@@ -6135,8 +6135,8 @@ EOF
 
 Run desde laptop:
 ```bash
-ssh enzo@srv-ia-01 'uname -a && nvidia-smi | head -5 && df -h /var'
-ssh enzo@srv-ia-01 'which uv || curl -LsSf https://astral.sh/uv/install.sh | sh'
+ssh sistemas@srv-ia-01 'uname -a && nvidia-smi | head -5 && df -h /var'
+ssh sistemas@srv-ia-01 'which uv || curl -LsSf https://astral.sh/uv/install.sh | sh'
 ```
 Expected: GPU detectada, >10GB free, uv instalado.
 
@@ -6145,8 +6145,8 @@ Expected: GPU detectada, >10GB free, uv instalado.
 Run:
 ```bash
 rsync -av --exclude='.venv/' --exclude='__pycache__/' --exclude='tests/' \
-    services/sda-mineru-parser/ enzo@srv-ia-01:/home/enzo/sda-mineru-parser/
-ssh enzo@srv-ia-01 'cd /home/enzo/sda-mineru-parser && uv sync'
+    services/sda-mineru-parser/ sistemas@srv-ia-01:/home/sistemas/sda-mineru-parser/
+ssh sistemas@srv-ia-01 'cd /home/sistemas/sda-mineru-parser && uv sync'
 ```
 Expected: sync OK, magic-pdf instalado.
 
@@ -6157,10 +6157,10 @@ Run:
 SECRET=$(openssl rand -hex 32)
 echo "MINERU_SHARED_SECRET=$SECRET" > /tmp/mineru-env
 echo "SDA_MINERU_CACHE_DIR=/var/cache/sda-mineru" >> /tmp/mineru-env
-scp /tmp/mineru-env enzo@srv-ia-01:/tmp/mineru-env
-ssh enzo@srv-ia-01 'sudo mkdir -p /etc/sda-mineru /var/cache/sda-mineru && sudo mv /tmp/mineru-env /etc/sda-mineru/env && sudo chmod 600 /etc/sda-mineru/env'
-ssh enzo@srv-ia-01 'sudo cp /home/enzo/sda-mineru-parser/systemd/sda-mineru.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now sda-mineru'
-ssh enzo@srv-ia-01 'sleep 5 && systemctl status sda-mineru --no-pager | head -20'
+scp /tmp/mineru-env sistemas@srv-ia-01:/tmp/mineru-env
+ssh sistemas@srv-ia-01 'sudo mkdir -p /etc/sda-mineru /var/cache/sda-mineru && sudo mv /tmp/mineru-env /etc/sda-mineru/env && sudo chmod 600 /etc/sda-mineru/env'
+ssh sistemas@srv-ia-01 'sudo cp /home/sistemas/sda-mineru-parser/systemd/sda-mineru.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now sda-mineru'
+ssh sistemas@srv-ia-01 'sleep 5 && systemctl status sda-mineru --no-pager | head -20'
 ```
 Expected: `active (running)`.
 
