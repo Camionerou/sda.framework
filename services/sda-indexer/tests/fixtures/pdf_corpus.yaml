@@ -1,0 +1,106 @@
+# Canonical PDF corpus para E2E + D-1.x verification. Wave 1 §6.1.
+# NO commitear binarios — sólo metadata + URL + sha. Fixture descarga
+# on-demand a ~/.cache/sda-test-corpus/ y valida sha256.
+
+pdfs:
+  - id: tech_manual_5p
+    url: "REEMPLAZAR_URL_PDF_5P"
+    sha256: "REEMPLAZAR_SHA256"
+    license: "PostgreSQL License (BSD-style)"
+    expected:
+      page_count: 5
+      path_used: fast
+      parser_used: native
+      llm_calls_max: 10
+      duration_seconds_max: 30
+      cost_cents_max: 1
+      toc_nodes_count_min: 1
+      toc_nodes_titles_expected: []
+
+  - id: tech_manual_50p
+    url: "REEMPLAZAR_URL_PDF_50P"
+    sha256: "REEMPLAZAR_SHA256"
+    license: "CC-BY-4.0"
+    expected:
+      page_count: 50
+      path_used: fast
+      parser_used: native
+      llm_calls_max: 30
+      duration_seconds_max: 120
+      cost_cents_max: 5
+      toc_nodes_count_min: 8
+      toc_nodes_titles_expected:
+        - "Introducción"
+        - "Arquitectura"
+        - "Instalación"
+
+  - id: scan_legal_50p_es
+    url: "REEMPLAZAR_URL_BORA_LEY"
+    sha256: "REEMPLAZAR_SHA256"
+    license: "Public domain (gov)"
+    expected:
+      page_count: 50
+      path_used: full
+      parser_used: mineru
+      llm_calls_max: 60
+      duration_seconds_max: 600
+      cost_cents_max: 25
+      toc_nodes_count_min: 5
+      f1_threshold: 0.7
+      toc_nodes_titles_expected:
+        - "Artículo 1"
+        - "Artículo 2"
+
+  - id: contract_30p
+    url: "REEMPLAZAR_URL_CONTRATO"
+    sha256: "REEMPLAZAR_SHA256"
+    license: "Public domain (gov)"
+    expected:
+      page_count: 30
+      path_used: fast
+      llm_calls_max: 25
+      duration_seconds_max: 90
+      cost_cents_max: 4
+      toc_nodes_count_min: 4
+      validates_d16: true
+
+  - id: book_300p
+    url: "REEMPLAZAR_URL_GUTENBERG"
+    sha256: "REEMPLAZAR_SHA256"
+    license: "Public Domain (Gutenberg)"
+    expected:
+      page_count: 300
+      duration_seconds_max: 600
+      cost_cents_max: 50
+      toc_nodes_count_min: 20
+
+  - id: paper_with_tables
+    url: "REEMPLAZAR_URL_ARXIV"
+    sha256: "REEMPLAZAR_SHA256"
+    license: "CC-BY-4.0"
+    expected:
+      page_count: 25
+      llm_calls_max: 30
+      duration_seconds_max: 120
+      cost_cents_max: 5
+
+  - id: toc_misleading_40p
+    url: "REEMPLAZAR_URL_PAPER_LARGO"
+    sha256: "REEMPLAZAR_SHA256"
+    license: "CC-BY-4.0"
+    expected:
+      page_count: 40
+      llm_calls_max: 50
+      duration_seconds_max: 240
+      cost_cents_max: 10
+      repair_iterations_min: 1
+
+  - id: paper_en_30p
+    url: "REEMPLAZAR_URL_ARXIV_EN"
+    sha256: "REEMPLAZAR_SHA256"
+    license: "CC-BY-4.0"
+    expected:
+      page_count: 30
+      llm_calls_max: 30
+      duration_seconds_max: 120
+      cost_cents_max: 5
