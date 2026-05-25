@@ -19,6 +19,7 @@ import structlog
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
+    retry_if_not_exception_type,
     stop_after_attempt,
     wait_exponential_jitter,
 )
@@ -116,8 +117,9 @@ async def download_with_resume(
     async for attempt in AsyncRetrying(
         stop=stop_after_attempt(config.max_retries),
         wait=wait_exponential_jitter(initial=config.backoff_base_seconds, max=32),
-        retry=retry_if_exception_type(
-            (httpx.HTTPError, DownloadError),
+        retry=(
+            retry_if_exception_type((httpx.HTTPError, DownloadError))
+            & retry_if_not_exception_type(ExpiredSignedUrlError)
         ),
         reraise=True,
     ):
