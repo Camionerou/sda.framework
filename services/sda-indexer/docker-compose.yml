@@ -7,14 +7,18 @@ services:
     container_name: sda-indexer
     ports:
       - "8000:8000"
+    # Lee SDA_* vars desde el .env.local del root del repo (monorepo).
+    # Otros vars no-SDA_ del archivo se setean en el container pero el
+    # servicio sólo lee los SDA_* via pydantic-settings.
+    env_file:
+      - ../../.env.local
     environment:
       - SDA_ENV=local
-      - SDA_SUPABASE_URL=${SDA_SUPABASE_URL}
-      - SDA_SUPABASE_SERVICE_KEY=${SDA_SUPABASE_SERVICE_KEY}
-      - SDA_DEEPSEEK_API_KEY=${SDA_DEEPSEEK_API_KEY}
-      - SDA_SRV_IA_01_SECRET=${SDA_SRV_IA_01_SECRET}
-      - SDA_DB_DSN=${SDA_DB_DSN}
       - SDA_LOG_LEVEL=INFO
+    extra_hosts:
+      # Permite SDA_DB_DSN=postgresql://...@host.docker.internal:54322 para
+      # apuntar al Supabase local en el host.
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
