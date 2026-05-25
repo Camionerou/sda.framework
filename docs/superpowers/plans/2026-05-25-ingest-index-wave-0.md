@@ -341,7 +341,7 @@ create extension if not exists pgcrypto;                -- digest() para sha256
 create extension if not exists pgmq;                    -- message queues
 create extension if not exists pg_cron;                 -- scheduled jobs
 create extension if not exists pg_net with schema extensions;  -- async HTTP from SQL
-create extension if not exists vault;                   -- secret storage
+create extension if not exists supabase_vault;          -- secret storage (creates vault schema)
 create extension if not exists vector;                  -- embeddings (Wave 3, pero schema ready)
 ```
 
@@ -358,7 +358,7 @@ Expected: "Applying migration 20260525000001_extensions.sql..." sin error.
 
 Run:
 ```bash
-supabase db remote query "select extname from pg_extension where extname in ('pgmq','pg_cron','pg_net','vault','vector','pgcrypto') order by extname;"
+PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c "select extname from pg_extension where extname in ('pgmq','pg_cron','pg_net','supabase_vault','vector','pgcrypto') order by extname;"
 ```
 Expected output: 6 rows, una por extensión.
 
