@@ -40,6 +40,10 @@ packages = ["src/sda_indexer"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+markers = [
+    "integration: tests con LLM real o DB real",
+    "e2e: full pipeline tests",
+]
 
 [tool.coverage.run]
 source = ["src/sda_indexer/pipeline", "src/sda_indexer/settings"]
