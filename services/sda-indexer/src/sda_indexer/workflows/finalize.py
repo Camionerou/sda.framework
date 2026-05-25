@@ -43,18 +43,27 @@ def build_graph(db: DB, checkpointer=None):
         return {"total_cost_cents": float(cost or 0)}
 
     async def mark_ready(s: State) -> dict:
+        # Wave 1: leer path_used + page_count + doc_summary_short que
+        # structure_workflow ya persistió. NO hardcoded.
+        async with db.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """select path_used, page_count, doc_summary_short
+                     from documents where id=$1""",
+                s["document_id"],
+            )
         await docs_db.mark_ready_meta(
             db.pool, s["document_id"],
             node_count=s["node_count"],
-            page_count=None,
-            path_used="full",       # Wave 0 sólo MD path; Wave 1 inyecta real path_used
-            doc_description=None,
+            page_count=row["page_count"],
+            path_used=row["path_used"] or "full",   # default si fue markdown
+            doc_description=row["doc_summary_short"],
             total_cost_cents=s["total_cost_cents"],
         )
         log.info("finalize.complete",
                  document_id=s["document_id"],
                  node_count=s["node_count"],
-                 cost_cents=s["total_cost_cents"])
+                 cost_cents=s["total_cost_cents"],
+                 path_used=row["path_used"])
         return {}
 
     g = StateGraph(State)
