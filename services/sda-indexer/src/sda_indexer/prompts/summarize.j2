@@ -1,0 +1,18 @@
+{% extends "_base.j2" %}
+
+{% block rules %}
+- Be concrete: name entities, dates, amounts when present.
+- Do not hallucinate content beyond what the input contains.
+- Stay within {{ max_chars }} characters unless content is unusually dense.
+- Respond in {{ language }}.
+- Start with the topic; do not begin with "This section discusses...".
+{% endblock %}
+
+{% block output_format %}
+A 2-4 sentence summary, focused on what content this section contains so that a downstream agent can decide whether to read it for a given query.
+{% endblock %}
+
+{% block input_content %}
+[Section context: {{ ancestor_path }}]
+{{ node_text }}
+{% endblock %}

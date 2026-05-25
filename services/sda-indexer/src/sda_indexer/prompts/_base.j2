@@ -1,0 +1,24 @@
+{# === STABLE PREFIX (cacheable por DeepSeek) === #}
+Task: {{ task_name }}
+
+Document context:
+- Title: {{ doc.title }}
+- Type: {{ doc.doc_type or 'unknown' }}
+- Total pages: {{ doc.page_count }}
+
+Rules (strict):
+{% block rules %}
+- Default rules.
+{% endblock %}
+
+Output format:
+{% block output_format %}
+Plain text.
+{% endblock %}
+
+{# === VARIABLE SUFFIX (no cacheable) === #}
+
+Input:
+{% block input_content %}
+{{ input_content }}
+{% endblock %}
