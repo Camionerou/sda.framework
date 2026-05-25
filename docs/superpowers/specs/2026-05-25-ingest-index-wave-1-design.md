@@ -396,11 +396,13 @@ select cron.schedule('gc-stuck-jobs', '*/5 * * * *',
 #### 4.1.4 `20260526000014_matview_cache_hit.sql` (pull-forward Wave 2)
 
 ```sql
+-- NOTA: la columna real en llm_calls (Wave 0 migration 20260525000002) es
+-- `cached_tokens`, no `cache_hit_tokens`. Mantener consistencia con el schema.
 create materialized view mv_cache_hit_ratio as
 select
   date_trunc('hour', created_at) as hour,
   phase,
-  sum(cache_hit_tokens)::float / nullif(sum(prompt_tokens), 0) as hit_ratio,
+  sum(cached_tokens)::float / nullif(sum(prompt_tokens), 0) as hit_ratio,
   count(*) as call_count
 from llm_calls
 where created_at > now() - interval '7 days'
@@ -738,7 +740,7 @@ Valida **D-1.4** y **D-1.5** sobre N>>1.
 
 Necesario para hacer Wave 1 verificable:
 
-1. **`llm_calls` insert** en `summarize_workflow` y `structure_workflow` — populate `model`, `prompt_tokens`, `completion_tokens`, `cache_hit_tokens`, `cost_cents` por call. Wave 0 lo dejó TODO; Wave 1 lo cierra.
+1. **`llm_calls` insert** en `summarize_workflow` y `structure_workflow` — populate `model`, `prompt_tokens`, `completion_tokens`, `cached_tokens`, `cost_cents` por call. Wave 0 lo dejó TODO; Wave 1 lo cierra.
 
 2. **Matview `mv_cache_hit_ratio`** — migration `014`, refresh cada 5min.
 
