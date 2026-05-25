@@ -10,9 +10,10 @@ from .types import SettingDef
 
 SETTINGS: list[SettingDef] = [
     # --- LLM model selection (Mejora #6, escala completa en Wave 1) ---
-    SettingDef("llm.model.summarize", "model_id", "deepseek/deepseek-chat",
-               "Modelo LLM para summary de nodos. Wave 0 usa deepseek-chat; "
-               "Wave 1 cambia a deepseek-v4-flash con tiered routing.",
+    SettingDef("llm.model.summarize", "model_id", "deepseek-chat",
+               "Modelo LLM para summary de nodos. Wave 0 usa deepseek-chat "
+               "(actualmente aliased a deepseek-v4-flash en el backend de DeepSeek); "
+               "Wave 1 puede cambiar a tiered routing con pro/flash split.",
                scopes=["global", "doc_type", "collection", "document"]),
 
     # --- Rate limits ---

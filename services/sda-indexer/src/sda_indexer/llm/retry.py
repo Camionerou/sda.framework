@@ -8,13 +8,17 @@ from tenacity import (
 import structlog
 import logging
 from openai import APIError, APITimeoutError, RateLimitError, APIConnectionError
+from .client import EmptyLLMResponseError
 
 log = structlog.get_logger()
 _stdlib_log = logging.getLogger("sda_indexer.llm.retry")
 
 T = TypeVar("T")
 
-RETRY_EXCEPTIONS = (APIError, APITimeoutError, RateLimitError, APIConnectionError)
+RETRY_EXCEPTIONS = (
+    APIError, APITimeoutError, RateLimitError, APIConnectionError,
+    EmptyLLMResponseError,
+)
 
 
 def with_llm_retry(

@@ -21,7 +21,10 @@ create table app_settings (
   deprecated_at timestamptz,
   updated_at    timestamptz not null default now(),
   updated_by    text,
-  unique (key, scope_type, scope_value)
+  -- nulls not distinct: scope_value es NULL para 'global' y queremos que
+  -- (key, 'global', NULL) sea único (sin esto, NULL != NULL y cada
+  -- sync_registry_to_db inserta una fila duplicada en cada boot).
+  unique nulls not distinct (key, scope_type, scope_value)
 );
 create index on app_settings (key) where deprecated_at is null;
 create index on app_settings (scope_type, scope_value);
