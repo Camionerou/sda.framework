@@ -1,0 +1,40 @@
+# fly.toml app configuration file generated for sda-indexer-prod on 2026-05-25T13:00:43-03:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'sda-indexer-prod'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  SDA_DB_POOL_MAX_SIZE = '10'
+  SDA_DB_POOL_MIN_SIZE = '2'
+  SDA_ENV = 'production'
+  SDA_HOST = '0.0.0.0'
+  SDA_LOG_LEVEL = 'INFO'
+  SDA_PORT = '8000'
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/health'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 512
