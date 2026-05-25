@@ -7,7 +7,7 @@ from sda_indexer.settings.registry import SETTINGS
 from sda_indexer.workflows.summarize import build_graph, run_summarize
 from sda_indexer.llm.client import LLMResult
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 
 @pytest.fixture
@@ -43,8 +43,9 @@ async def test_summarize_workflow_updates_node(db, settings_client):
         )
 
     fake_llm = AsyncMock()
+    # Wave 1: contextual_prefix expects JSON {prefix, summary}.
     fake_llm.complete = AsyncMock(return_value=LLMResult(
-        text="Resumen del cap 1.",
+        text='{"prefix": "Cap 1 del doc test.", "summary": "Resumen del cap 1."}',
         tokens_in=50, tokens_out=8, cached_tokens=40,
         model="deepseek-chat",
     ))
