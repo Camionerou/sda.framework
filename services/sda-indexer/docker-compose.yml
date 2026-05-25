@@ -1,0 +1,24 @@
+services:
+  sda-indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sda-indexer:dev
+    container_name: sda-indexer
+    ports:
+      - "8000:8000"
+    environment:
+      - SDA_ENV=local
+      - SDA_SUPABASE_URL=${SDA_SUPABASE_URL}
+      - SDA_SUPABASE_SERVICE_KEY=${SDA_SUPABASE_SERVICE_KEY}
+      - SDA_DEEPSEEK_API_KEY=${SDA_DEEPSEEK_API_KEY}
+      - SDA_SRV_IA_01_SECRET=${SDA_SRV_IA_01_SECRET}
+      - SDA_DB_DSN=${SDA_DB_DSN}
+      - SDA_LOG_LEVEL=INFO
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
