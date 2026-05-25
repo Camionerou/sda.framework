@@ -8,6 +8,7 @@ Type=simple
 User=sistemas
 WorkingDirectory=/home/sistemas/sda-mineru-parser
 EnvironmentFile=/etc/sda-mineru/env
+Environment=UV_CACHE_DIR=/var/cache/sda-mineru/uv-cache
 ExecStart=/home/sistemas/.local/bin/uv run --no-sync uvicorn sda_mineru.main:app \
     --host 127.0.0.1 \
     --port 8001 \
@@ -18,8 +19,9 @@ RestartSec=10s
 StandardOutput=journal
 StandardError=journal
 
-# Cache dir y disk usage
-ReadWritePaths=/var/cache/sda-mineru
+# Cache dir y disk usage. .venv del proyecto + uv cache deben ser writable
+# desde el service (ProtectHome=read-only los volvería RO sin esto).
+ReadWritePaths=/var/cache/sda-mineru /home/sistemas/sda-mineru-parser/.venv
 StateDirectory=sda-mineru
 
 # Security hardening
