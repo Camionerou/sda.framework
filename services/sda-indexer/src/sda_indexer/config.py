@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # --- Bearer entre Supabase pg_net y srv-ia-01 ---
     srv_ia_01_secret: SecretStr = Field(..., description="Bearer token compartido")
 
+    # --- MinerU (Wave 1) ---
+    mineru_shared_secret: SecretStr = Field(
+        ..., description="Bearer compartido entre indexer y sda-mineru-parser"
+    )
+
     # --- Pool DB ---
     db_pool_min_size: int = 2
     db_pool_max_size: int = 20

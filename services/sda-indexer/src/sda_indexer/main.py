@@ -12,6 +12,7 @@ from .settings.client import SettingsClient
 from .settings.sync import sync_registry_to_db
 from .settings.registry import SETTINGS
 from .llm.client import LLMClient
+from .pipeline.parser.pdf_mineru import MineruClient
 from .workflows.structure import build_graph as build_structure_graph
 from .workflows.summarize import build_graph as build_summarize_graph
 from .workflows.finalize import build_graph as build_finalize_graph
@@ -93,12 +94,21 @@ async def lifespan(app: FastAPI):
         base_url=cfg.deepseek_base_url,
     )
 
+    # MineruClient: url desde app_settings, secret desde env via config.
+    mineru_url = await settings_client.resolve("parser.mineru.url")
+    mineru = MineruClient(
+        base_url=mineru_url,
+        shared_secret=cfg.mineru_shared_secret.get_secret_value(),
+    )
+    app.state.mineru = mineru
+
     app.state.db = db
     app.state.settings_client = settings_client
     app.state.llm = llm
     app.state.supabase = supabase
     app.state.structure_graph = build_structure_graph(
-        db=db, supabase=supabase, checkpointer=checkpointer,
+        db=db, supabase=supabase, settings=settings_client,
+        llm=llm, mineru=mineru, checkpointer=checkpointer,
     )
     app.state.summarize_graph = build_summarize_graph(
         db=db, settings=settings_client, llm=llm, checkpointer=checkpointer,
