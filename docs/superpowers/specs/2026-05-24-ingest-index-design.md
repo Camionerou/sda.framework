@@ -1,7 +1,7 @@
 ---
 title: Ingest + Index — Foundation spec
 date: 2026-05-24
-status: approved (pending user final review)
+status: draft (pending user review)
 author: Enzo Saldivia (with Claude Opus 4.7)
 supersedes: —
 related: 2026-05-24-wipe-restart-design.md
@@ -104,11 +104,9 @@ follow-ups:
 │  ├── llm/                 (DeepSeek + OpenRouter clients)       │
 │  ├── embeddings/          (Gemini Embedding 2) Wave 3           │
 │  ├── prompts/             (jinja2 templates, también en DB)     │
-│  ├── workflows/           (LangGraph StateGraph definitions)    │
 │  ├── db/                  (supabase-py write helpers)           │
 │  ├── settings/            (registry + client + listener)        │
-│  ├── observability/       (OTel + Langfuse + metrics) Wave 2    │
-│  └── api/                 (FastAPI routers)                     │
+│  └── observability/       (OTel + Langfuse + metrics) Wave 2    │
 │                                                                 │
 │  Deps existentes: MinerU, vllm (vllm no usado en V1)            │
 │  Deps nuevas: langgraph, langgraph-checkpoint-postgres,         │
@@ -188,6 +186,8 @@ follow-ups:
 
 ### Tablas core
 
+**Nota sobre dedup por sha256:** dos uploads del mismo PDF desde paths distintos se deduplican porque la unique constraint es sobre el contenido, no sobre el path. El indexer detecta el duplicate al computar el sha256 real del blob (ver trigger `on_storage_doc_uploaded` más abajo) y marca el row provisorio como `status='duplicate'` apuntando al doc original — preservando el audit trail del segundo upload sin re-procesar el contenido.
+
 ```sql
 -- documents: el documento raíz, con dedup por sha256
 create table documents (
@@ -197,7 +197,7 @@ create table documents (
   source_type   text not null check (source_type in ('pdf','markdown')),
   doc_type      text,                              -- 'contract','paper','manual' (nullable, Wave 3 typed extraction)
   status        text not null default 'pending'
-                check (status in ('pending','parsing','summarizing','finalizing','ready','failed')),
+                check (status in ('pending','parsing','summarizing','finalizing','ready','failed','duplicate')),
   page_count    integer,
   node_count    integer,
   path_used     text check (path_used in ('fast','full')),
@@ -455,26 +455,42 @@ select pgmq.create('q_embed_node');
 
 ```sql
 -- 1. Storage upload → INSERT documents + enqueue extract
+--
+-- IMPORTANTE: Supabase Storage NO expone el sha256 del contenido en metadata.
+-- El eTag es MD5 o ID interno, no sirve para dedup determinístico.
+-- Estrategia: el trigger usa un placeholder hash provisorio (sha256 del storage_path),
+-- y el indexer (en /index/structure) computa el sha256 REAL al cargar el blob y
+-- hace UPDATE del documents row. La unique constraint en sha256 se chequea AHÍ:
+-- si ya existe doc con ese hash real, el indexer marca el row provisorio como
+-- 'duplicate' y aborta sin trabajo.
 create function on_storage_doc_uploaded() returns trigger language plpgsql security definer as $$
 declare
-  doc_sha text;
+  doc_sha_provisional text;
   doc_type text;
 begin
   if new.bucket_id != 'docs' then return new; end if;
-  doc_sha := encode(digest(new.metadata->>'eTag', 'sha256'), 'hex');
   doc_type := case
     when new.name like '%.pdf' then 'pdf'
     when new.name like '%.md' then 'markdown'
     else null
   end;
   if doc_type is null then return new; end if;
+  -- Hash provisorio basado en storage path; indexer lo reemplaza con sha256 real
+  doc_sha_provisional := 'provisional:' || encode(digest(new.name, 'sha256'), 'hex');
   insert into documents (sha256, source_path, source_type, trace_id)
-    values (doc_sha, new.name, doc_type, gen_random_uuid()::text)
+    values (doc_sha_provisional, new.name, doc_type, gen_random_uuid()::text)
     on conflict (sha256) do nothing;
   return new;
 end $$;
 create trigger trg_storage_doc_uploaded after insert on storage.objects
   for each row execute function on_storage_doc_uploaded();
+
+-- En el indexer, después de cargar el blob:
+--   real_sha = sha256(blob_bytes)
+--   UPDATE documents SET sha256 = real_sha WHERE id = $1 AND sha256 LIKE 'provisional:%'
+--   Si UPDATE viola unique (otro doc con mismo real_sha ya existe):
+--     UPDATE documents SET status='duplicate', error_message='Same content as <other_id>' WHERE id = $1
+--     ABORT.
 
 -- 2. Document inserted → enqueue extract_structure
 create function on_document_inserted() returns trigger language plpgsql security definer as $$
@@ -536,6 +552,42 @@ create trigger trg_tree_node_ready after update on tree_nodes
 ### pg_cron jobs
 
 ```sql
+-- Helper que envuelve net.http_post para drenar una queue pgmq y disparar HTTP a srv-ia-01.
+-- Implementación: pop N mensajes de la queue, por cada uno chequear backpressure,
+-- llamar net.http_post (async), marcar in_flight en indexing_jobs.
+create function dispatch_pgmq_to_srv_ia(
+  p_queue_name text,
+  p_endpoint_path text,
+  p_max_messages int
+) returns int language plpgsql security definer as $$
+declare
+  msg record;
+  count_dispatched int := 0;
+  srv_url text := current_setting('app.srv_ia_01_url');  -- ej 'https://srv-ia-01.internal'
+  bearer text;
+begin
+  if p_max_messages <= 0 then return 0; end if;
+  select decrypted_secret into bearer from vault.decrypted_secrets where name = 'srv_ia_01_secret';
+  for msg in
+    select * from pgmq.read(p_queue_name, 600, p_max_messages)  -- vt=600s visibility
+  loop
+    perform net.http_post(
+      url := srv_url || p_endpoint_path,
+      body := msg.message,
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || bearer
+      ),
+      timeout_milliseconds := 120000
+    );
+    update indexing_jobs set status = 'in_flight', attempts = attempts + 1
+      where msg_id = msg.msg_id;
+    perform increment_rate_limit('deepseek');
+    count_dispatched := count_dispatched + 1;
+  end loop;
+  return count_dispatched;
+end $$;
+
 -- Tick que drena las colas (cada 10s) — respetando backpressure
 select cron.schedule('drain-queues', '*/10 * * * * *', $$
   with capacity_deepseek as (
@@ -544,7 +596,7 @@ select cron.schedule('drain-queues', '*/10 * * * * *', $$
   )
   select dispatch_pgmq_to_srv_ia('q_extract_structure', '/index/structure',
                                   (select slots from capacity_deepseek));
-  -- Variantes para cada queue activa; función helper que envuelve net.http_post
+  -- Repetir el SELECT por cada queue activa (q_summarize_node, q_finalize, etc.)
 $$);
 
 -- GC de LangGraph checkpoints viejos
@@ -1115,7 +1167,7 @@ Implementación inicial: Edge Function `cron-alerts` cada 5min → Slack webhook
 | 09 | backup-restore | Supabase PITR + Storage + Kuzu .kz |
 | 10 | bootstrap-from-scratch | DR completo |
 
-Los primeros 5 son must-have al final de Wave 2.
+Runbooks 01-05 son **must-have al final de Wave 2** (cubren los incidentes operativos más probables del sistema base). Runbooks 06-10 se escriben **on-demand** cuando el escenario aparece o cuando una sub-ola los necesita (ej: 05 kuzu-recovery se completa con Wave 3c, 09 backup-restore al final de Wave 3, 10 bootstrap-from-scratch cuando haya equipo).
 
 ---
 
@@ -1135,7 +1187,33 @@ Los primeros 5 son must-have al final de Wave 2.
 
 Resolución: el más específico que exista. Si ninguno, default del registry.
 
+### Definición del registro
+
+```python
+# src/sda_indexer/settings/types.py
+from dataclasses import dataclass
+from typing import Literal, Any
+
+ValueType = Literal[
+    'string','number','boolean','object','array',
+    'duration_ms','prompt_template','model_id','json_schema','enum'
+]
+Scope = Literal['global','doc_type','collection','document']
+
+@dataclass(frozen=True)
+class SettingDef:
+    key: str
+    value_type: ValueType
+    default: Any
+    description: str
+    scopes: list[Scope]
+    validation: dict | None = None     # JSON Schema
+    is_secret: bool = False
+```
+
 ### Registry de settings (sample, ~80-100 settings al final de Wave 3)
+
+**Nota sobre placeholders:** las descripciones marcadas `'...'` se completan al implementar cada setting (una línea humana explicando uso y trade-offs). Los schemas tipados marcados `{...}` se definen como Pydantic models en `pipeline/typed/schemas/*.py` y se serializan a JSON Schema al cargar al registro. Estos placeholders son intencionales — el spec captura ESTRUCTURA, no el contenido literal de cada descripción.
 
 ```python
 SETTINGS: list[SettingDef] = [
@@ -1229,6 +1307,27 @@ SETTINGS: list[SettingDef] = [
 ### Cliente Python (cache + hot-reload vía pg_notify)
 
 ```python
+# CTE que resuelve scope cascade en una sola query
+CASCADE_SQL = """
+with candidates as (
+  select value, case scope_type
+    when 'document'   then 4
+    when 'collection' then 3
+    when 'doc_type'   then 2
+    when 'global'     then 1
+  end as priority
+  from app_settings
+  where deprecated_at is null and key = $1
+    and (
+      (scope_type='document'   and scope_value=$4) or
+      (scope_type='collection' and scope_value=$3) or
+      (scope_type='doc_type'   and scope_value=$2) or
+      (scope_type='global')
+    )
+)
+select value from candidates order by priority desc limit 1
+"""
+
 class SettingsClient:
     def __init__(self, db_pool, registry):
         self._cache = {}
