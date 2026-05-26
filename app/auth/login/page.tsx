@@ -9,14 +9,6 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 
 function GoogleIcon() {
@@ -104,18 +96,17 @@ export default function LoginPage() {
   }
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader className="text-center">
-        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-primary">
-          <span className="text-lg font-bold text-primary-foreground">SDA</span>
-        </div>
-        <CardTitle className="text-2xl">Iniciar sesión</CardTitle>
-        <CardDescription>
+    <div className="flex flex-col gap-6 w-full">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">
+          Iniciar sesión
+        </h2>
+        <p className="text-sm text-muted-foreground">
           Ingresa tus credenciales para acceder a la plataforma
-        </CardDescription>
-      </CardHeader>
+        </p>
+      </div>
 
-      <CardContent className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <Button
           variant="outline"
           className="w-full"
@@ -192,21 +183,19 @@ export default function LoginPage() {
             {loading ? "Ingresando..." : "Ingresar"}
           </Button>
         </form>
-      </CardContent>
+      </div>
 
       <Separator />
 
-      <CardFooter className="flex justify-center pt-4">
-        <p className="text-sm text-muted-foreground">
-          ¿No tienes cuenta?{" "}
-          <Link
-            href="/auth/sign-up"
-            className="font-medium text-foreground underline-offset-4 hover:underline"
-          >
-            Regístrate
-          </Link>
-        </p>
-      </CardFooter>
-    </Card>
+      <p className="text-center text-sm text-muted-foreground">
+        ¿No tienes cuenta?{" "}
+        <Link
+          href="/auth/sign-up"
+          className="font-medium text-primary underline-offset-4 hover:underline"
+        >
+          Regístrate
+        </Link>
+      </p>
+    </div>
   );
 }
