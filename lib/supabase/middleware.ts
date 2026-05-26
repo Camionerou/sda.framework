@@ -35,7 +35,9 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   // Protect /home and other authenticated routes
+  // Skip auth check in development so the preview is accessible
   if (
+    process.env.NODE_ENV !== "development" &&
     !user &&
     !request.nextUrl.pathname.startsWith("/auth") &&
     request.nextUrl.pathname !== "/"
