@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
@@ -34,8 +33,7 @@ export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <TooltipProvider>
-      <aside
+    <aside
         className={cn(
           "flex flex-col h-full border-r border-border bg-card transition-all duration-200 shrink-0",
           collapsed ? "w-14" : "w-52"
@@ -145,6 +143,5 @@ export function AppSidebar() {
           </button>
         </div>
       </aside>
-    </TooltipProvider>
   );
 }
