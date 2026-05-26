@@ -1,17 +1,14 @@
 "use client";
 
-import { Bell, Search } from "lucide-react";
+import { Search, Bell } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -26,41 +23,37 @@ export function AppTopbar() {
   }
 
   return (
-    <header className="flex items-center justify-between h-14 px-5 border-b border-border bg-card shrink-0">
+    <header className="flex items-center justify-between h-12 px-4 border-b border-border bg-card shrink-0">
       {/* Search */}
-      <div className="relative w-64">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-        <Input
-          placeholder="Buscar documentos..."
-          className="pl-8 h-8 text-sm bg-muted border-0 focus-visible:ring-1"
-        />
-      </div>
+      <button className="flex items-center gap-2 h-8 px-3 rounded-md bg-muted hover:bg-muted/80 transition-colors text-muted-foreground text-sm w-56">
+        <Search className="size-3.5 shrink-0" />
+        <span className="flex-1 text-left">Buscar...</span>
+        <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          ⌘K
+        </kbd>
+      </button>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         {/* Notifications */}
-        <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-foreground relative">
+        <button className="relative flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
           <Bell className="size-4" />
           <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-primary" />
           <span className="sr-only">Notificaciones</span>
-        </Button>
+        </button>
 
-        {/* User menu */}
+        {/* User */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted transition-colors outline-none">
+            <button className="flex items-center justify-center rounded-md p-1 hover:bg-muted transition-colors outline-none">
               <Avatar className="size-7">
                 <AvatarImage src="" />
-                <AvatarFallback className="text-xs bg-primary text-primary-foreground font-semibold">
+                <AvatarFallback className="text-[10px] font-semibold bg-primary text-primary-foreground">
                   U
                 </AvatarFallback>
               </Avatar>
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
-              Mi cuenta
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
+          <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuItem>Perfil</DropdownMenuItem>
             <DropdownMenuItem>Configuración</DropdownMenuItem>
             <DropdownMenuSeparator />
