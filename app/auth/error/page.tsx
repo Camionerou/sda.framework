@@ -8,7 +8,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export default function AuthErrorPage() {
+export default async function AuthErrorPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reason?: string }>;
+}) {
+  const { reason } = await searchParams;
+
   return (
     <Card className="w-full max-w-sm text-center">
       <CardHeader>
@@ -19,6 +25,11 @@ export default function AuthErrorPage() {
         <CardDescription>
           El enlace expiró o es inválido. Por favor, vuelve a intentarlo.
         </CardDescription>
+        {reason && (
+          <p className="mt-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            {decodeURIComponent(reason)}
+          </p>
+        )}
       </CardHeader>
       <CardFooter className="flex justify-center">
         <Link

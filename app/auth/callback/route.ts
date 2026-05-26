@@ -6,25 +6,23 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/dashboard";
 
-  // Use the forwarded host when running behind the v0 preview proxy
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const forwardedProto = request.headers.get("x-forwarded-proto") ?? "https";
-  const baseUrl = forwardedHost
-    ? `${forwardedProto}://${forwardedHost}`
-    : origin;
+  console.log("[v0] callback origin:", origin);
+  console.log("[v0] callback code present:", !!code);
 
   if (code) {
-    try {
-      const supabase = await createClient();
-      const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const supabase = await createClient();
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-      if (!error) {
-        return NextResponse.redirect(`${baseUrl}${next}`);
-      }
-    } catch {
-      return NextResponse.redirect(`${baseUrl}/auth/error`);
+    console.log("[v0] exchangeCodeForSession error:", error);
+
+    if (!error) {
+      return NextResponse.redirect(`${origin}${next}`);
     }
+
+    console.log("[v0] redirecting to error page, error:", error.message);
+    return NextResponse.redirect(`${origin}/auth/error?reason=${encodeURIComponent(error.message)}`);
   }
 
-  return NextResponse.redirect(`${baseUrl}/auth/error`);
+  console.log("[v0] no code in callback, redirecting to error");
+  return NextResponse.redirect(`${origin}/auth/error`);
 }
