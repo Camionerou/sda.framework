@@ -58,7 +58,7 @@ export function AppSidebar() {
           {navItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(href + "/");
             return collapsed ? (
-              <Tooltip key={href} delayDuration={0}>
+              <Tooltip key={href}>
                 <TooltipTrigger asChild>
                   <Link
                     href={href}
@@ -98,7 +98,7 @@ export function AppSidebar() {
           {bottomItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href;
             return collapsed ? (
-              <Tooltip key={href} delayDuration={0}>
+              <Tooltip key={href}>
                 <TooltipTrigger asChild>
                   <Link
                     href={href}
