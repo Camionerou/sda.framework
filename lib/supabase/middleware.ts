@@ -34,7 +34,7 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protect /dashboard and other authenticated routes
+  // Protect /home and other authenticated routes
   if (
     !user &&
     !request.nextUrl.pathname.startsWith("/auth") &&
