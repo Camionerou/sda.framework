@@ -34,7 +34,7 @@ export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <TooltipProvider delayDuration={0}>
+    <TooltipProvider>
       <aside
         className={cn(
           "flex flex-col h-full border-r border-border bg-card transition-all duration-200 shrink-0",
@@ -58,7 +58,7 @@ export function AppSidebar() {
           {navItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(href + "/");
             return collapsed ? (
-              <Tooltip key={href}>
+              <Tooltip key={href} delayDuration={0}>
                 <TooltipTrigger asChild>
                   <Link
                     href={href}
@@ -98,7 +98,7 @@ export function AppSidebar() {
           {bottomItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href;
             return collapsed ? (
-              <Tooltip key={href}>
+              <Tooltip key={href} delayDuration={0}>
                 <TooltipTrigger asChild>
                   <Link
                     href={href}
