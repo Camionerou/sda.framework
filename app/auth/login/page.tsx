@@ -30,21 +30,30 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) {
-      toast.error(error.message);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      toast.success("Sesión iniciada correctamente");
+      router.push("/dashboard");
+      router.refresh();
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Error de configuración. Agrega las variables de entorno de Supabase."
+      );
+    } finally {
       setLoading(false);
-      return;
     }
-
-    toast.success("Sesión iniciada correctamente");
-    router.push("/dashboard");
-    router.refresh();
   }
 
   return (

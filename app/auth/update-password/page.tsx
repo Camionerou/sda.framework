@@ -38,17 +38,26 @@ export default function UpdatePasswordPage() {
 
     setLoading(true);
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ password });
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.updateUser({ password });
 
-    if (error) {
-      toast.error(error.message);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      toast.success("Contraseña actualizada correctamente");
+      router.push("/dashboard");
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Error de configuración. Agrega las variables de entorno de Supabase."
+      );
+    } finally {
       setLoading(false);
-      return;
     }
-
-    toast.success("Contraseña actualizada correctamente");
-    router.push("/dashboard");
   }
 
   return (
