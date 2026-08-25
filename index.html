@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>SDA — sdaframework</title>
+  <meta name="description" content="SDA: Search Data & Automation, by Saldivia. Software propietario de Carrocerías Saldivia S.A."/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect fill='%23111111' width='32' height='32'/><text x='4' y='23' font-size='16' fill='%23c4a35a'>SDA</text></svg>"/>
+  <link rel="stylesheet" href="/styles.css"/>
+</head>
+<body>
+  <header>
+    <p class="mark">SDA</p>
+    <p class="sub">Search Data &amp; Automation · Saldivia</p>
+  </header>
+  <main>
+    <h1>El empleado habla. El agente hace el trabajo en Histrix.</h1>
+    <p class="lead">
+      Software propietario de Carrocerías Saldivia S.A. No es un producto para afuera.
+      El primer recorte es el MCP de administración (H2): Claude representa al empleado en el ERP.
+    </p>
+    <section>
+      <h2>Conectar Claude</h2>
+      <ol>
+        <li>En Claude: Customize → Connectors → Add custom connector.</li>
+        <li>URL del MCP: <code>https://srv-ia-01.taileb1b9c.ts.net/mcp</code></li>
+        <li>Connect. Entrá con tu usuario y clave de <strong>Histrix</strong>.</li>
+      </ol>
+      <p class="hint">Sin esa clave no hay Bearer; sin Bearer las tools no corren. Histrix sigue en la LAN. Esto no abre el ERP a internet.</p>
+    </section>
+    <section>
+      <h2>Qué hay y qué no</h2>
+      <ul>
+        <li>Lectura de las pantallas H2 del menú de quien entra. Escrituras: todavía no (van con aprobación acá, después).</li>
+        <li>El frontend no guarda <code>saldivia</code> ni habla con MySQL del ERP.</li>
+      </ul>
+    </section>
+  </main>
+  <footer>sdaframework.com · on-prem en SRV-IA-01 · Vercel solo sirve esta cara pública</footer>
+</body>
+</html>
